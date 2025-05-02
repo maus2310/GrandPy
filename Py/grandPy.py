@@ -4,44 +4,29 @@
 
 class GrandPy:
     def __init__(self, prefix=None, gene_info=None, slots=None, coldata=None, metadata=None, analyses=None, plots=None, parent=None):
-        if parent is not None:      # Falls ich das mit dem Parent richtig interpretiere
-            if prefix is None:
-                self.prefix = parent.prefix
-            if gene_info is None:
-                self.gene_info = parent.gene_info
-            if slots is None:
-                self.slots = parent.data
-            if coldata is None:
-                self.coldata = parent.coldata
-            if metadata is None:
-                self.metadata = parent.metadata
-        self.analyses = analyses
+        self.prefix = prefix if prefix is not None else getattr(parent, 'prefix', None)
+        self.gene_info = gene_info if gene_info is not None else getattr(parent, 'gene_info', None)
+        self.slots = slots if slots is not None else getattr(parent, 'data', None)
+        self.coldata = coldata if coldata is not None else getattr(parent, 'coldata', None)
+        self.metadata = metadata if metadata is not None else getattr(parent, 'metadata', None)
+        self.analysis = analyses
         self.plots = plots
 
     # Hier fehlt noch:
     # def checknames(): Überprüft ob Datenstruktur Sinn macht
     # 1 for und 3 ifs
 
-# Bei dieser Definition sind 2 große Unterschied zu R:
-#   1. Hier ist es eine Klasse, keine Funktion
-#   2. Hier wird kein Object der Klasse zurückgegeben
 
 
 
 # alternativ lässt es sich (wie in R) auch als eine Funktion schreiben:
 
 def grandPy(prefix=None, gene_info=None, slots=None, coldata=None, metadata=None, analyses=None, plots=None, parent=None):
-    if parent is not None:
-        if prefix is None:
-            prefix = parent.prefix
-        if gene_info is None:
-            gene_info = parent.gene_info
-        if slots is None:
-            slots = parent.data
-        if coldata is None:
-            coldata = parent.coldata
-        if metadata is None:
-            metadata = parent.metadata
+    prefix = prefix if prefix is not None else getattr(parent, 'prefix', None)
+    gene_info = gene_info if gene_info is not None else getattr(parent, 'gene_info', None)
+    slots = slots if slots is not None else getattr(parent, 'data', None)
+    coldata = coldata if coldata is not None else getattr(parent, 'coldata', None)
+    metadata = metadata if metadata is not None else getattr(parent, 'metadata', None)
 
 
     # Der ganze Rest fehlt hier auch
@@ -57,3 +42,5 @@ def grandPy(prefix=None, gene_info=None, slots=None, coldata=None, metadata=None
     info["plots"] = plots
 
     return info
+# Mitlerweile bevorzuge ich die erste Implementierung, da ich befürchte, dass es bei der zweiten später zu Schwierigkeiten kommen könnte.
+# Zuerst würde ich gerne mal mit Erhard oder den anderen beiden drüber reden
