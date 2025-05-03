@@ -1,6 +1,24 @@
+# Fragen nach Library Wahl. numpy + scipy / numpy + scipy + pandas / numpy + pandas ?
+# rpy2 anschauen
 
-# Wie ich es verstehe sollte das GrandR Object konzeptionell ca. so aussehen
-# (damit der Code Sinn macht parralell die Funktion grandR aus grandR.R anschauen):
+import numpy as np
+import pandas as pd
+#  import scipy.sparse
+
+# Wie ich es verstehe, sollte das GrandR Object konzeptionell ca. so aussehen
+# (damit der Code Sinn ergibt, parallel die Funktion grandR aus grandR.R anschauen):
+
+# Am Beispieldatensatz sars: (Keine sparse, nur dense Matrizen)
+
+# prefix = String   (Dateipfad)
+# gene_info = Matrix{pandas?}[size = Anzahl Gene * 4(Gene(String, Gen ID), Symbol(String, Gen Symbol), Length(int, Länge in Basenpaaren), Typ(Categorical, "Cellular" oder "Unknown"))]    (Informationen zu den Genen in den Daten)
+# slots = List(Matrizen{numpy/scipy?})   (Hier stehen die tatsächlichen Daten(z.B: count: Reads pro Gen und Sample[size = Anzahl Gene * Anzahl Samples], ntr: new to total ratio))
+# coldata = Matrix{pandas?}[size = Anzahl Samples * 6(Name(Categorical), Condition(Categorical), Replicate(Categorical), duration.4sU(int, Zeit seit 4sU Behandlung), duration.4sU.original(Categorical), no4sU(boolean))]  (Metadaten zu den Samples)
+# metadata = List(Description(String), default.slot(String), GRAND-SLAM version(int), Output(String))   (Zusatzinformationen über das Object)
+# analyses =
+# plots =
+# parent =
+
 
 class GrandPy:
     def __init__(self, prefix=None, gene_info=None, slots=None, coldata=None, metadata=None, analyses=None, plots=None, parent=None):
@@ -12,35 +30,11 @@ class GrandPy:
         self.analysis = analyses
         self.plots = plots
 
-    # Hier fehlt noch:
-    # def checknames(): Überprüft ob Datenstruktur Sinn macht
-    # 1 for und 3 ifs
+    def checknames(self, name, a):
+        ...
+
+
+    # Hier fehlt noch: checknames; 1 for und 3 ifs
 
 
 
-
-# alternativ lässt es sich (wie in R) auch als eine Funktion schreiben:
-
-def grandPy(prefix=None, gene_info=None, slots=None, coldata=None, metadata=None, analyses=None, plots=None, parent=None):
-    prefix = prefix if prefix is not None else getattr(parent, 'prefix', None)
-    gene_info = gene_info if gene_info is not None else getattr(parent, 'gene_info', None)
-    slots = slots if slots is not None else getattr(parent, 'data', None)
-    coldata = coldata if coldata is not None else getattr(parent, 'coldata', None)
-    metadata = metadata if metadata is not None else getattr(parent, 'metadata', None)
-
-
-    # Der ganze Rest fehlt hier auch
-
-
-    info = type("grandPy", (dict,), {})()   # Erstellt ein (noch leeres) Object der Klasse grandPy das identisch zu einem Dictonary ist
-    info["prefix"] = prefix
-    info["gene.info"] = gene_info
-    info["data"] = slots
-    info["coldata"] = coldata
-    info["metadata"] = metadata
-    info["analysis"] = analyses
-    info["plots"] = plots
-
-    return info
-# Mitlerweile bevorzuge ich die erste Implementierung, da ich befürchte, dass es bei der zweiten später zu Schwierigkeiten kommen könnte.
-# Zuerst würde ich gerne mal mit Erhard oder den anderen beiden drüber reden
