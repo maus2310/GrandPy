@@ -45,11 +45,6 @@ class GrandPy:
         self.adata.uns['analyses'] = analyses
         self.adata.uns['plots'] = plots
 
-        #
-        #
-        # Default data slot wird nur übergangsweise so gehandhabt
-        #
-        #
 
     def __str__(self):
         return (
@@ -59,8 +54,20 @@ class GrandPy:
             f"Available data slots: {', '.join(self.adata.layers) if self.adata.layers else 'None'}\n"
             f"Available analyses: {', '.join(self.adata.uns.get('analysis', {}).keys()) or 'None'}\n"
             f"Available plots: {', '.join(self.adata.uns.get('plots', {}).keys()) or 'None'}\n"
-            f"Default data slot: { ... }\n"
+            f"Default data slot: {self.adata.uns['metadata']['default_slot']}\n"
         )
+
+
+# Vielleicht müssen die Funktionen noch in die Klasse
+def defaultSlot(data, value=None):
+    if value is None:
+        return data.adata.uns['metadata']['default_slot']
+    else:
+        data.adata.uns['metadata']['default_slot'] = value
+        return data
+
+def Slots(data):
+    return list(data.adata.layers.keys())
 
 
 
