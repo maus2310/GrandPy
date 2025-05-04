@@ -40,4 +40,4 @@ Show your appreciation to those who have contributed to the project.
 For open source projects, say how it is licensed.
 
 ## Project status
-Absoluter Anfang
+In progress
