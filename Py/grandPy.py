@@ -4,8 +4,6 @@ import numpy as np
 import pandas as pd
 import anndata as ad
 
-# Wie ich es verstehe, sollte das GrandR Object konzeptionell ca. so aussehen
-# (damit der Code Sinn ergibt, parallel die Funktion grandR aus grandR.R anschauen):
 
 # Am Beispieldatensatz sars: (Keine sparse, nur dense Matrizen)
 
@@ -21,27 +19,30 @@ import anndata as ad
 
 class GrandPy:
     def __init__(self, prefix=None, gene_info=None, slots=None, coldata=None, metadata=None, analyses=None, plots=None, parent=None):
-        gene_info = gene_info if gene_info is not None else getattr(parent, 'adata', None).var if parent else None
-        coldata = coldata if coldata is not None else getattr(parent, 'adata', None).obs if parent else None
+        gene_info = gene_info if gene_info is not None else parent.adata.var if parent is not None else None
+        coldata = coldata if coldata is not None else parent.adata.obs if parent is not None else None
+        slots = slots if slots is not None else parent.adata.layers if parent is not None else None
 
-        # Wählt die erste Matrix in slots als Hauptmatrix(adata.X)
-        # temporäre Lösung!
+        #Damit __str__ mit analyses, plots und metadata so arbeiten kann, wie es gerade tut und keinen Fehler bei None gibt
+        analyses = {} if analyses is None else analyses
+        plots = {} if plots is None else plots
+        metadata = {} if metadata is None else metadata
 
-        default_key = next(iter(slots))
-        X = slots[default_key]
+        # Hauptmatrix von anndata noch fraglich.
+        # Passt eine leere Matrix als X?
 
         self.adata = ad.AnnData(
-            X = None,
+            X = np.zeros((coldata.shape[0] if coldata is not None else 0,gene_info.shape[0] if gene_info is not None else 0)),
             obs = pd.DataFrame(coldata),
             var = pd.DataFrame(gene_info),
         )
 
-        # Speichere alle Datenmatrizen aus slots in adata.layers
-        for key, matrix in slots.items():
-            self.adata.layers[key] = matrix
+        if slots is not None:
+            for key, matrix in slots.items():
+                self.adata.layers[key] = matrix
 
-        self.adata.uns['prefix'] = prefix if prefix is not None else getattr(parent, 'prefix', None)
-        self.adata.uns['metadata'] = metadata if metadata is not None else getattr(parent, 'metadata', None)
+        self.adata.uns['prefix'] = prefix if prefix is not None else parent.adata.uns.get('prefix', None) if parent is not None else None
+        self.adata.uns['metadata'] = metadata if metadata is not None else parent.adata.uns.get('metadata', None) if parent is not None else None
         self.adata.uns['analyses'] = analyses
         self.adata.uns['plots'] = plots
 
@@ -54,20 +55,22 @@ class GrandPy:
             f"Available data slots: {', '.join(self.adata.layers) if self.adata.layers else 'None'}\n"
             f"Available analyses: {', '.join(self.adata.uns.get('analysis', {}).keys()) or 'None'}\n"
             f"Available plots: {', '.join(self.adata.uns.get('plots', {}).keys()) or 'None'}\n"
-            f"Default data slot: {self.adata.uns['metadata']['default_slot']}\n"
+            f"Default data slot: {self.adata.uns['metadata'].get('default_slot', None)}\n"
         )
 
 
-# Vielleicht müssen die Funktionen noch in die Klasse
-def defaultSlot(data, value=None):
-    if value is None:
-        return data.adata.uns['metadata']['default_slot']
-    else:
-        data.adata.uns['metadata']['default_slot'] = value
-        return data
+    # Funktionen in der Klasse?
 
-def Slots(data):
-    return list(data.adata.layers.keys())
+    def default_slot(self, value=None):
+        if value is None:
+            return self.adata.uns['metadata'].get('default_slot', None)
+        else:
+            self.adata.uns['metadata']['default_slot'] = value
+            return self
+
+
+    def slots(self):
+        return list(self.adata.layers.keys())
 
 
 
