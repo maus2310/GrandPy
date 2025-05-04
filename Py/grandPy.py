@@ -1,4 +1,3 @@
-# Fragen nach Library Wahl. numpy + scipy / numpy + scipy + pandas / numpy + pandas ?
 # rpy2 anschauen
 
 import numpy as np
@@ -57,7 +56,7 @@ class GrandPy:
             f"GrandPy:\n"
             f"Read from {self.adata.uns['prefix']}\n"
             f"{self.adata.n_vars} genes, {self.adata.n_obs} samples/cells\n"
-            f"Available data slots: {', '.join(slots.keys()) if slots else 'None'}\n"
+            f"Available data slots: {', '.join(self.adata.layers) if self.adata.layers else 'None'}\n"
             f"Available analyses: {', '.join(self.adata.uns.get('analysis', {}).keys()) or 'None'}\n"
             f"Available plots: {', '.join(self.adata.uns.get('plots', {}).keys()) or 'None'}\n"
             f"Default data slot: { ... }\n"
