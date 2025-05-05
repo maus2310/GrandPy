@@ -105,6 +105,8 @@ class GrandPy:
         else:
             raise ValueError("Invalid argument combination for coldata.")
 
+
+
 # alte Implementierung
 #
 # class GrandPy:
