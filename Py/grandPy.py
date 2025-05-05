@@ -72,8 +72,38 @@ class GrandPy:
     def slots(self):
         return list(self.adata.layers.keys())
 
+    # Coldata: Zugriff und Modifikation
+    def coldata(self, column=None, value=None):
+        obs = self.adata.obs
+        if column is None:                                                              #Kein Argument → ganze coldata zurückgeben
+            return obs
 
+        elif isinstance(column, (pd.DataFrame, pd.Series)):                             #DataFrame oder Series übergeben → an bestehende coldata anhängen
+            self.adata.obs = pd.concat([obs, pd.DataFrame(column)], axis=1)
+            return self
 
+        elif isinstance(column, str) and value is None:                                 #Spaltenname übergeben, aber kein Wert → gib einzelne Spalte zurück
+            return obs[column]
+
+        elif isinstance(column, str) and value is not None:                             #Spaltenname + Wert → neue Spalte setzen oder bestehende überschreiben
+            if isinstance(value, (list, np.ndarray)) and len(value) == len(obs):        #Liste oder Array → in Series mit dem passenden Index umwandeln
+                value = pd.Series(value, index=obs.index)
+
+            if isinstance(value, pd.Series):                                            #Series mit benanntem Index
+                if not value.index.equals(obs.index):
+                    if not all(name in obs.index for name in value.index):              #Prüfe, ob alle Namen des Index in obs vorhanden sind
+                        raise ValueError("Series index does not match obs index!")
+                    self.adata.obs.loc[value.index, column] = value
+
+                else:
+                    self.adata.obs[column] = value
+
+            else:                                                                       # entspricht in R dem Fall: length(value) == 1 oder direkter Spaltenzuweisung
+                self.adata.obs[column] = value
+
+            return self
+        else:
+            raise ValueError("Invalid argument combination for coldata.")
 
 # alte Implementierung
 #
