@@ -37,8 +37,19 @@ class GrandPy:
             var = pd.DataFrame(gene_info),
         )
 
+        def checknames(self, name, matrix):
+            n_obs, n_vars = matrix.shape
+            if n_obs != self.adata.n_obs:
+                raise ValueError(f"Number of rows do not match for {name}!")
+            if n_vars != self.adata.n_vars:
+                raise ValueError(f"Number of columns do not match for {name}!")
+
+            # Namen werden nicht überprüft(anders als in R)
+
+
         if slots is not None:
             for key, matrix in slots.items():
+                checknames(self, key, matrix)
                 self.adata.layers[key] = matrix
 
         self.adata.uns['prefix'] = prefix if prefix is not None else parent.adata.uns.get('prefix', None) if parent is not None else None
