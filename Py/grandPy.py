@@ -39,6 +39,10 @@ class GrandPy:
 
         def checknames(self, name, matrix):
             n_obs, n_vars = matrix.shape
+
+            # print(f"Shape der geladenen Matrix: {matrix.shape}")         # Test für load - bitte erstmal lassen
+            # print(f"Shape von adata (Gene, Sample): {self.adata.shape}") # Test für load - bitte erstmal lassen
+
             if n_obs != self.adata.n_obs:
                 raise ValueError(f"Number of rows do not match for {name}!")
             if n_vars != self.adata.n_vars:
