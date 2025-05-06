@@ -113,12 +113,49 @@ class GrandPy:
                 else:
                     self.adata.obs[column] = value
 
-            else:                                                                       # entspricht in R dem Fall: length(value) == 1 oder direkter Spaltenzuweisung
+            else:                                                                       #entspricht in R dem Fall: length(value) == 1 oder direkter Spaltenzuweisung
                 self.adata.obs[column] = value
 
             return self
         else:
             raise ValueError("Invalid argument combination for coldata.")
+
+    #Columns Funktion
+    def get_columns(self, columns=None, reorder=False):
+        column_data = self.adata.obs
+        if columns is None:                                                             #Wenn keine Auswahl angegeben ist: alle Zellnamen zurückgeben
+            selected = list(column_data.index)
+
+        elif isinstance(columns, str):                                                  #Wenn eine Bedingung als String angegeben ist (wie "condition == 'A'")
+            try:
+                selected = list(column_data.query(columns).index)
+            except Exception as e:
+                raise ValueError(f"Invalid query string for columns: {e}")
+
+        elif isinstance(columns, (list, tuple, np.ndarray, pd.Index)):                  #Wenn direkt eine Liste oder ein Array mit Zellnamen übergeben wird
+            selected = list(map(str, columns))
+
+        else:
+            raise ValueError("Invalid argument combination for columns.")
+
+        if reorder:
+            return selected
+        else:
+            return [idx for idx in column_data.index if idx in selected]                    #Gib Zellnamen in Originalreihenfolge zurück (wie in column_data.index)
+
+# Test für get_columns funktion :) ::::> erstmal da lassen ;)
+# gene_info = pd.DataFrame(index=["GeneA", "GeneB", "GeneC"])
+# coldata = pd.DataFrame({
+#     "condition": ["A", "B", "A", "C"],
+#     "batch": ["x", "y", "x", "z"]
+# }, index=["Cell1", "Cell2", "Cell3", "Cell4"])
+# slots = {
+#     "expr": np.random.rand(4, 3)
+# }
+# gp = GrandPy(gene_info=gene_info, coldata=coldata, slots=slots)
+# print(gp.get_columns('batch == "z"', reorder=False))
+# print(gp.coldata())
+
 
 
 
