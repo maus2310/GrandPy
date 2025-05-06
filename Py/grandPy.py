@@ -3,6 +3,7 @@
 import numpy as np
 import pandas as pd
 import anndata as ad
+import scipy as sp
 
 
 # Am Beispieldatensatz sars: (Keine sparse, nur dense Matrizen)
@@ -50,6 +51,8 @@ class GrandPy:
 
             # Namen werden nicht überprüft(anders als in R)
 
+            # Names in Index?
+
 
         if slots is not None:
             for key, matrix in slots.items():
@@ -74,11 +77,26 @@ class GrandPy:
         )
 
 
-    # Funktionen in der Klasse?
+    def title(self):
+        prefix = self.adata.uns.get('prefix')
+        if prefix is None:
+            return None
+        else:
+            x = prefix.split('/')
+            return x[-1]
+
+
+    def is_sparse(self):
+        return isinstance(self.adata.X, sp.csr_matrix)
+
+
+    def dim(self):
+        return self.adata.X.shape
+
 
     def default_slot(self, value=None):
         if value is None:
-            return self.adata.uns['metadata'].get('default_slot', None)
+            return self.adata.uns.get('metadata').get('default_slot')
         else:
             self.adata.uns['metadata']['default_slot'] = value
             return self
@@ -87,7 +105,7 @@ class GrandPy:
     def slots(self):
         return list(self.adata.layers.keys())
 
-    # Coldata: Zugriff und Modifikation
+
     def coldata(self, column=None, value=None):
         obs = self.adata.obs
         if column is None:                                                              #Kein Argument → ganze coldata zurückgeben
@@ -120,7 +138,7 @@ class GrandPy:
         else:
             raise ValueError("Invalid argument combination for coldata.")
 
-#Columns Funktion
+
     def get_columns(self, columns=None, reorder=False):
         column_data = self.adata.obs
         if columns is None:                                                             #Wenn keine Auswahl angegeben ist: alle Zellnamen zurückgeben
@@ -155,19 +173,3 @@ class GrandPy:
 # gp = GrandPy(gene_info=gene_info, coldata=coldata, slots=slots)
 # print(gp.get_columns('batch == "z"', reorder=False))
 # print(gp.coldata())
-
-# alte Implementierung
-#
-# class GrandPy:
-#     def __init__(self, prefix=None, gene_info=None, slots=None, coldata=None, metadata=None, analyses=None, plots=None, parent=None):
-#         self.prefix = prefix if prefix is not None else getattr(parent, 'prefix', None)
-#         self.gene_info = gene_info if gene_info is not None else getattr(parent, 'gene_info', None)
-#         self.slots = slots if slots is not None else getattr(parent, 'data', None)
-#         self.coldata = coldata if coldata is not None else getattr(parent, 'coldata', None)
-#         self.metadata = metadata if metadata is not None else getattr(parent, 'metadata', None)
-#         self.analyses = analyses
-#         self.plots = plots
-#
-#
-#     def checknames(self, name, a):
-#         ...
