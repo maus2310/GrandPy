@@ -98,6 +98,7 @@ class GrandPy:
         if value is None:
             return self.adata.uns.get('metadata').get('default_slot')
         else:
+            assert value in self.adata.layers, "Trying to set a default_slot that is not an available slot"
             self.adata.uns['metadata']['default_slot'] = value
             return self
 
@@ -160,16 +161,3 @@ class GrandPy:
             return selected
         else:
             return [idx for idx in column_data.index if idx in selected]                    #Gib Zellnamen in Originalreihenfolge zurück (wie in column_data.index)
-
-# Test für get_columns funktion ::::> erstmal da lassen ;)
-# gene_info = pd.DataFrame(index=["GeneA", "GeneB", "GeneC"])
-# coldata = pd.DataFrame({
-#     "condition": ["A", "B", "A", "C"],
-#     "batch": ["x", "y", "x", "z"]
-# }, index=["Cell1", "Cell2", "Cell3", "Cell4"])
-# slots = {
-#     "expr": np.random.rand(4, 3)
-# }
-# gp = GrandPy(gene_info=gene_info, coldata=coldata, slots=slots)
-# print(gp.get_columns('batch == "z"', reorder=False))
-# print(gp.coldata())
