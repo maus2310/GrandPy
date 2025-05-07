@@ -3,53 +3,60 @@ import numpy as np
 import anndata as ad
 from grandPy import GrandPy
 
-# IN BEARBEITUNG !!!!!! Ausgabe noch nicht richtig
-# bisher nur für dense Matrix, keine sparse Matrix!
+# Version bisher nur für dense Matrix möglich
+# kann sars.tsv Datei laden
 # orientiert an dem tutorial: https://grandr.erhard-lab.de/articles/web/loading-data.html
+# slots bisher nur count, noch nicht ntr, alpha, beta vorhanden
 
-def load_data(file_path, slot_name = "count", default_slot = "count"):
+def readGrand(file_path, design = ["Condition", "Time", "Replicate"], defaul_slot = "count"):
     """
     Mit der Funktion wird eine TSV-Datei eingelesen,
     im Anschluss wird ein GrandPy-Objekt erstellt.
 
     Parameter
     file_path: Pfad zur gewünschten TSV-Datei
-    slot_name: Name des Daten-Slots
+    design entspricht dem Design-Vektor aus dem Tutorial
     default_slot: Standard-Daten-Slot
 
     Ausgabe: GrandPy-Objekt
     """
-    data = pd.read_csv(file_path, sep="\t", index_col = 0).T  # Einlesen
+    data = pd.read_csv(file_path, sep = "\t")                                                                           # Einlesen & Trennung mit Tab
 
-    # gene_info beinhaltet Metadaten über die Gene, anders wie bei coldata
-    # sind hier die Zeilen der Hauptmatrix beschrieben
-    # Anforderung laut Website: "must contain 4 columns"
-    gene_info = pd.DataFrame({                              # DataFrame gene_Info erstellen
-        "Gene": data.columns,                               # gene ID
-        "ID": data.columns,
-        "Symbol": data.columns,
-        "Length": [1000] * len(data.columns),               # Platzhalter, wird später durch die echten Werte ersetzt
-        "Type": ["Cellular"] * len(data.columns)            # Platzhalter, s.o.
-    }, index = data.columns)
+    metadata_cols = ["Gene", "Symbol", "Length"]
+    count_cols = [col for col in data.columns if col.endswith("Readcount")] # 12 !!!
 
-    # coldata beschreibt die Eigenschaften der Spalten des gegebenen Datensatzes
-    # bspw. Samples, celltypes, time stencils, conditions etc.
-    # ergo ein DataFrame, das Infos über jedes Sample (jede Spalte der Hauptmatrix) beinhaltet
-    coldata = pd.DataFrame({                                # DataFrame coldata erstellen
-        "Name": data.index,
-        "Condition": ["A"] * len(data.index),
-        "Replicate": ["rep1"] * len(data.index),
-        "duration.4sU": [0] * len(data.index),
-        "duration.4sU.original": ["0min"] * len(data.index),
-        "not4sU": [False] * len(data.index)
-    }, index = data.index)
+    # print("Gefundene Count-Spalten:", count_cols)
+    # print("Anzahl Samples:", len(count_cols))
 
-    slots = {slot_name: data.values}                        # slots Dictionary erstellen
+    gene_info = data[metadata_cols].copy()
+    # gene_info["Type"] = np.where(gene_info["Symbol"].str.startswith("MT-"), "mito", "Cellular")                       # Ermöglicht eine Grobe Einteilung, uns fehlt die classify_genes funktion
+    # habe es mal formal wie in R doch erweitert: teil die Zelltypen genauer ein:
+    gene_info["Type"] = "Unknown"
+    gene_info.loc[gene_info["Symbol"].str.startswith("MT-"), "Type"] = "mito"
+    gene_info.loc[gene_info["Gene"].str.contains("ERCC-"), "Type"] = "ERCC"
+    gene_info.loc[gene_info["Gene"].str.match(r"^ENS.*G\d+$"), "Type"] = "Cellular"
 
-    # metadata beinhaltet allgemeine Infos über den Datensatz
-    metadata = {"default_slot": default_slot}               # metadata Dictionary erstellen
 
-    gp = GrandPy(
+    count_matrix = data[count_cols].to_numpy().T                                                                        # die Matrix muss transponiert werden, da die Dimensionen sonst nicht stimmen wegen coldata und gene_info
+    count_matrix = np.nan_to_num(count_matrix)                                                                          # NaN-Werte werden auf 0 gesetzt (wie in load.R)
+    slots = {"count": count_matrix}
+
+    sample_names = [col.replace(" Readcount", "") for col in count_cols] # count_cols
+    design_data = pd.DataFrame([name.split(".") for name in sample_names], columns = design)
+    design_data.insert(0, "Name", sample_names)
+    design_data.index = sample_names
+    design_data["not4sU"] = design_data["Time"].isin(["no4sU", "nos4U", "-"]) # Default
+
+    coldata = design_data
+
+    metadata = {
+        "Description": "Count data",
+        "default_slot": defaul_slot,
+        "GRAND-SLAM version": 2,
+        "Output": "dense"
+    }
+
+    return GrandPy(
         prefix = file_path,
         gene_info = gene_info,
         slots = slots,
@@ -57,23 +64,52 @@ def load_data(file_path, slot_name = "count", default_slot = "count"):
         metadata = metadata
     )
 
-    return gp
-
 # Beispielanwendung:
 file_path = "data/sars.tsv"
-new_gp_object = load_data(file_path)
-print(new_gp_object)
+new_gp_object = readGrand(file_path)
+print(new_gp_object)                                                                                                    # Ausgabe: Überblick über Gene, Samples, Slots
 
 # Was wir damit anstellen können
-print("Titel des Datensatzes:", new_gp_object.adata.uns["prefix"])
-print("Anzahl der Samples (Zeilen):", new_gp_object.adata.n_obs)    # hier falsch ...
-print("Anzahl der Gene (Spalten):", new_gp_object.adata.n_vars)     # Anzahl der Gene (Spalten) FALSCH
+# print("Titel des Datensatzes:", new_gp_object.adata.uns["prefix"])                                                    # Ausgabe: "data/sars.tsv
+# print("Anzahl der Samples (Zeilen):", new_gp_object.adata.n_obs)                                                      # Ausgabe: "12"
+# print("Anzahl der Gene (Spalten):", new_gp_object.adata.n_vars)                                                       # Ausgabe: "19659"
 
-# Ausgabe der ersten Zeilen von obs und var zur Kontrolle
-# print("Daten der Proben (obs):\n", new_gp_object.adata.obs.head())
-# print("Daten der Gene (var):\n", new_gp_object.adata.var.head())
+# print(new_gp_object.slots())                                                                                          # Liste aller geladenen Datenslots (bisher nur count)
+# print(new_gp_object.coldata())                                                                                        # sollte die Metadaten-Tab zu den Samples zeigen (bin mir unsicher, ob ich das richtig verstanden habe - bitte gegenchecken :D)
+# print(new_gp_object.adata.var.head())                                                                                 # Ausgabe der "vereinfachten" Gen-Info-Table mit den Spalten "Gene, Symbol, Length, Type"
 
+# type_counts = new_gp_object.adata.var["Type"].value_counts()                                                          # gruppiert und zählt die existierenden Zelltypen
+# print(type_counts)                                                                                                    # Ausgabe
 
-# data = pd.read_csv(file_path, sep="\t", index_col=0)  # Einlesen der TSV-Datei
-# print(data.shape)  # Gibt die Dimensionen der Matrix aus
-# print(data.head())  # Zeigt die ersten paar Zeilen an
+def gene_type_counts(grandpy_obj):                                                                                      # Funktion für Gruppierung nach Zelltypen (brauchen wir die noch? Ich hab etwas den Überblick verloren)
+    return grandpy_obj.adata.var["Type"].value_counts()
+
+# Beispielanwendung für die Verwendung von gene_type_counts - Gruppieren und zählen nach Zelltypen
+# grandpy_obj = new_gp_object
+# gene_type_counts(grandpy_obj)
+
+# Ausgabe der Original-Datei (Bei Bedarf)
+# data = pd.read_csv(file_path, sep = "\t")
+# print(data.head())
+
+# counts = new_gp_object.adata.layers["count"]
+# print(counts.shape)                                                                                                   # bei sars Ausgabe: (12, 19659) - 12 Samples, 19659 Gene
+# gene_names = new_gp_object.adata.var["Symbol"].values
+# print(gene_names)                                                                                                     # Ausgabe: Namen von Genen
+# sample_names = new_gp_object.adata.obs["Name"].values
+# print(sample_names)                                                                                                   # Ausgabe: Name von Samples
+# gene_idx = list(gene_names).index("GAPDH")                                                                            # Gen-Name hier ersetzbar
+# print(counts[:, gene_idx])                                                                                            # Aussage wie stark ein bestimmtes Gen in den einzelnen Proben/Samples exprimiert wird
+
+# So und nun evt. eine erste Visualisierung aber bitte mit Vorsicht genießen
+# import matplotlib.pyplot as plt
+# import seaborn as sns
+# gene = "GAPDH"
+# counts = new_gp_object.adata.layers["count"]
+# gene_idx = list(new_gp_object.adata.var["Symbol"]).index(gene)
+# df_plot = new_gp_object.coldata()
+# df_plot["expression"] = counts[:, gene_idx]
+# sns.boxplot(x="Condition", y="expression", data=df_plot)
+# plt.title(f"Expression of {gene}")
+# plt.show()
+
