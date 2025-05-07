@@ -22,7 +22,7 @@ class GrandPy:
         # Passt eine leere Matrix als X?
 
         self.adata = ad.AnnData(
-            X = np.zeros((coldata.shape[0] if coldata is not None else 0, gene_info.shape[0] if gene_info is not None else 0)),
+            X = np.zeros(shape=(coldata.shape[0], gene_info.shape[0])),
             obs = pd.DataFrame(coldata),
             var = pd.DataFrame(gene_info),
         )
@@ -30,9 +30,9 @@ class GrandPy:
         def checknames(self, name, matrix):
             n_obs, n_vars = matrix.shape
             if n_obs != self.adata.n_obs:
-                raise ValueError(f"Number of rows do not match for {name}!")
+                raise ValueError(f"Number of rows do not match the data for the {name} Matrix!")
             if n_vars != self.adata.n_vars:
-                raise ValueError(f"Number of columns do not match for {name}!")
+                raise ValueError(f"Number of columns do not match the data for the {name} Matrix!")
 
             # Namen werden nicht überprüft(anders als in R)
 
