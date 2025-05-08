@@ -71,6 +71,7 @@ class GrandPy:
     def dim(self):
         return self.adata.X.shape
 
+
     def default_slot(self, value=None):
         if value is None:
             return self.adata.uns.get('metadata').get('default_slot')
@@ -82,8 +83,25 @@ class GrandPy:
     def slots(self):
         return list(self.adata.layers.keys())
 
+    def drop_slot(self, pattern: str):
+        keep_keys = [key for key in self.adata.layers.keys() if key not in pattern]
+        if not keep_keys:
+            raise ValueError("Cannot drop all slots!")
+        else:
+            if self.default_slot() not in keep_keys:
+                self.adata.uns['metadata']['default_slot'] = keep_keys[0]
+            self.adata.layers = {k: self.adata.layers[k] for k in keep_keys}
+        return self
+
+    def condition(self, value=None):
+        if value is None:
+            return self.adata.obs['Condition'].tolist()
+        else:
+            ...
+
     def metadata(self):
         return self.adata.uns.get('metadata')
+
 
     def apply(self, function, function_gene_info=None, function_coldata=None, **kwargs):
         new_slots = {}
