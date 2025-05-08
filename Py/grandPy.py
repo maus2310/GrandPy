@@ -13,11 +13,6 @@ class GrandPy:
         coldata = coldata if coldata is not None else parent.adata.obs if parent is not None else None
         slots = slots if slots is not None else parent.adata.layers if parent is not None else None
 
-        # Damit __str__ mit analyses, plots und metadata so arbeiten kann, wie es gerade tut und keinen Fehler bei None gibt
-        analyses = {} if analyses is None else analyses
-        plots = {} if plots is None else plots
-        metadata = {} if metadata is None else metadata
-
         # Hauptmatrix von anndata noch fraglich.
         # Passt eine leere Matrix als X?
 
@@ -34,7 +29,7 @@ class GrandPy:
             if n_vars != self.adata.n_vars:
                 raise ValueError(f"Number of columns do not match the data for the {name} Matrix!")
 
-            # Namen werden nicht überprüft(anders als in R)
+            # Namen werden und können aktuell nicht überprüft werden (dafür müsste man die layers mit pandas statt numpy speichern)
 
         if slots is not None:
             for key, matrix in slots.items():
@@ -53,11 +48,11 @@ class GrandPy:
     def __str__(self):
         return (
             f"GrandPy:\n"
-            f"Read from {self.adata.uns['prefix']}\n"
+            f"Read from {self.adata.uns.get('prefix', 'Unknown')}\n"
             f"{self.adata.n_vars} genes, {self.adata.n_obs} samples/cells\n"
             f"Available data slots: {', '.join(self.adata.layers) if self.adata.layers else 'None'}\n"
-            f"Available analyses: {', '.join(self.adata.uns.get('analysis', {}).keys()) or 'None'}\n"
-            f"Available plots: {', '.join(self.adata.uns.get('plots', {}).keys()) or 'None'}\n"
+            f"Available analyses: {', '.join(self.adata.uns.get('analysis') or {}) or 'None'}\n"
+            f"Available plots: {', '.join(self.adata.uns.get('plots') or {}) or 'None'}\n"
             f"Default data slot: {self.adata.uns['metadata'].get('default_slot', None)}\n"
         )
 
