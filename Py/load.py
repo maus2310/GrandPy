@@ -1,14 +1,16 @@
 import pandas as pd
 import numpy as np
 import anndata as ad
+
 from grandPy import GrandPy
+
 
 # Version bisher nur für dense Matrix möglich
 # kann sars.tsv Datei laden
 # orientiert an dem tutorial: https://grandr.erhard-lab.de/articles/web/loading-data.html
 # slots bisher nur count, noch nicht ntr, alpha, beta vorhanden
 
-def readGrand(file_path, design = ["Condition", "Time", "Replicate"], defaul_slot = "count"):
+def readGrand(file_path, design = ["Condition", "Time", "Replicate"], default_slot = "count"):
     """
     Mit der Funktion wird eine TSV-Datei eingelesen,
     im Anschluss wird ein GrandPy-Objekt erstellt.
@@ -22,13 +24,18 @@ def readGrand(file_path, design = ["Condition", "Time", "Replicate"], defaul_slo
     """
     data = pd.read_csv(file_path, sep = "\t")                                                                           # Einlesen & Trennung mit Tab
 
-    metadata_cols = ["Gene", "Symbol", "Length"]
-    count_cols = [col for col in data.columns if col.endswith("Readcount")] # 12 !!!
+
+    slot_suffix = {"count": " Readcount", "ntr": " MAP", "alpha": " alpha", "beta": " beta"}
+
+    slot_columns = {
+        key: [col for col in data.columns if col.endswith(suffix)]
+        for key, suffix in slot_suffix.items()
+    }
 
     # print("Gefundene Count-Spalten:", count_cols)
     # print("Anzahl Samples:", len(count_cols))
 
-    gene_info = data[metadata_cols].copy()
+    gene_info = data[["Gene", "Symbol", "Length"]].copy()
     # gene_info["Type"] = np.where(gene_info["Symbol"].str.startswith("MT-"), "mito", "Cellular")                       # Ermöglicht eine Grobe Einteilung, uns fehlt die classify_genes funktion
     # habe es mal formal wie in R doch erweitert: teil die Zelltypen genauer ein:
     gene_info["Type"] = "Unknown"
@@ -36,25 +43,40 @@ def readGrand(file_path, design = ["Condition", "Time", "Replicate"], defaul_slo
     gene_info.loc[gene_info["Gene"].str.contains("ERCC-"), "Type"] = "ERCC"
     gene_info.loc[gene_info["Gene"].str.match(r"^ENS.*G\d+$"), "Type"] = "Cellular"
 
+    matrices = {}
+    for key in slot_suffix.keys():
+        matrix = data[slot_columns[key]].to_numpy().T
+        matrices[key] = np.nan_to_num(matrix)
 
-    count_matrix = data[count_cols].to_numpy().T                                                                        # die Matrix muss transponiert werden, da die Dimensionen sonst nicht stimmen wegen coldata und gene_info
-    count_matrix = np.nan_to_num(count_matrix)                                                                          # NaN-Werte werden auf 0 gesetzt (wie in load.R)
-    slots = {"count": count_matrix}
+    slots = {
+        key: matrices[key]
+        for key in slot_suffix.keys()
+    }
 
-    sample_names = [col.replace(" Readcount", "") for col in count_cols] # count_cols
+    def correct_matrix(matrix):
+        zeros = np.zeros((2, matrix.shape[1]))
+        return np.vstack([matrix, zeros])
+
+    slots["ntr"] = correct_matrix(slots["ntr"])
+    slots["alpha"] = correct_matrix(slots["alpha"])
+    slots["beta"] = correct_matrix(slots["beta"])
+
+
+    sample_names = [col.replace(" Readcount", "") for col in slot_columns["count"]]
     design_data = pd.DataFrame([name.split(".") for name in sample_names], columns = design)
     design_data.insert(0, "Name", sample_names)
     design_data.index = sample_names
-    design_data["not4sU"] = design_data["Time"].isin(["no4sU", "nos4U", "-"]) # Default
+    design_data["no4sU"] = design_data["Time"].isin(["no4sU", "nos4U", "-"]) # Default
 
     coldata = design_data
 
     metadata = {
         "Description": "Count data",
-        "default_slot": defaul_slot,
+        "default_slot": default_slot,
         "GRAND-SLAM version": 2,
         "Output": "dense"
     }
+
 
     return GrandPy(
         prefix = file_path,
@@ -67,7 +89,9 @@ def readGrand(file_path, design = ["Condition", "Time", "Replicate"], defaul_slo
 # Beispielanwendung:
 file_path = "data/sars.tsv"
 new_gp_object = readGrand(file_path)
-print(new_gp_object)                                                                                                    # Ausgabe: Überblick über Gene, Samples, Slots
+print(new_gp_object)
+
+# Ausgabe: Überblick über Gene, Samples, Slots
 
 # Was wir damit anstellen können
 # print("Titel des Datensatzes:", new_gp_object.adata.uns["prefix"])                                                    # Ausgabe: "data/sars.tsv
