@@ -170,3 +170,4 @@ class GrandPy:
             return selected
         else:
             return [idx for idx in column_data.index if idx in selected]  # Gib Zellnamen in Originalreihenfolge zurück (wie in column_data.index)
+
