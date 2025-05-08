@@ -3,7 +3,7 @@
 *.pyd
 __pycache__/
 
-.venv/
+../../.venv/
 
 .idea/
 
