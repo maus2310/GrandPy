@@ -31,10 +31,15 @@ class GrandPy:
 
             # Namen werden und können aktuell nicht überprüft werden (dafür müsste man die layers mit pandas statt numpy speichern)
 
-        if slots is not None:
+        if slots is not None:                                                                                           # musste es etwas anpassen, damit check_mode_slot() funktionieren kann, denn ntr etc. werden eig als dict übergeben
             for key, matrix in slots.items():
-                checknames(self, key, matrix)
-                self.adata.layers[key] = matrix
+                if isinstance(matrix, dict):
+                    for mode_key, submatrix in matrix.items():
+                        checknames(self, f"{key}:{mode_key}", submatrix)
+                    self.adata.uns.setdefault("mode_layers", {})[key] = matrix
+                else:
+                    checknames(self, key, matrix)
+                    self.adata.layers[key] = matrix
 
         self.adata.uns['prefix'] = prefix if prefix is not None else parent.adata.uns.get('prefix') if parent is not None else None
         self.adata.uns['metadata'] = metadata if metadata is not None else parent.adata.uns.get('metadata') if parent is not None else None
@@ -46,11 +51,15 @@ class GrandPy:
             self.adata.obs["no4sU"] = False
 
     def __str__(self):
+        normal_slots = list(self.adata.layers.keys())
+        mode_slots = list(self.adata.uns.get("mode_layers", {}).keys())
+        all_slots = sorted(set(normal_slots + mode_slots))
+
         return (
             f"GrandPy:\n"
             f"Read from {self.adata.uns.get('prefix', 'Unknown')}\n"
             f"{self.adata.n_vars} genes, {self.adata.n_obs} samples/cells\n"
-            f"Available data slots: {', '.join(self.adata.layers) if self.adata.layers else 'None'}\n"
+            f"Available data slots: {', '.join(all_slots) if all_slots else 'None'}\n"
             f"Available analyses: {', '.join(self.adata.uns.get('analysis') or {}) or 'None'}\n"
             f"Available plots: {', '.join(self.adata.uns.get('plots') or {}) or 'None'}\n"
             f"Default data slot: {self.adata.uns['metadata'].get('default_slot', None)}\n"
@@ -80,8 +89,13 @@ class GrandPy:
             self.adata.uns['metadata']['default_slot'] = value
             return self
 
-    def slots(self):
-        return list(self.adata.layers.keys())
+    def slots(self, include_mode_slots = True):
+        normal_slots = list(self.adata.layers.keys())
+        if not include_mode_slots:
+            return normal_slots
+
+        mode_slots = list(self.adata.uns.get("mode_layers", {}).keys())
+        return sorted(set(normal_slots + mode_slots))
 
     def drop_slot(self, pattern: str):
         keep_keys = [key for key in self.adata.layers.keys() if key not in pattern]
@@ -171,3 +185,22 @@ class GrandPy:
         else:
             return [idx for idx in column_data.index if idx in selected]  # Gib Zellnamen in Originalreihenfolge zurück (wie in column_data.index)
 
+    def check_slot(self, slot_name):                                                                                    # Bsp: new_gp_object.check_slot("ntr")  # Wenn Slot nicht existiert - Fehlermeldung
+        in_layers = slot_name in self.adata.layers
+        in_mode_layers = slot_name in self.adata.uns.get("mode_layers", {})
+
+        if not (in_layers or in_mode_layers):
+            raise ValueError(f"Slot '{slot_name}' does not exist in '{self}'.")
+
+
+    def check_mode_slot(self, slot_name, mode):
+        mode_layers = self.adata.uns.get("mode_layers", {})
+        slot = mode_layers.get(slot_name, None)
+        if slot is None:
+            raise ValueError(f"Slot '{slot_name}' does not exist.")
+
+        if not isinstance(slot, dict):
+            raise TypeError(f"Slot '{slot_name}' is not stored in the mode-shape (no dict).")
+
+        if mode not in slot:
+            raise ValueError(f"Mode '{mode}' us not in Slot '{slot_name}'.")
