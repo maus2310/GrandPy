@@ -10,7 +10,7 @@ from grandPy import GrandPy
 # orientiert an dem tutorial: https://grandr.erhard-lab.de/articles/web/loading-data.html
 # slots: count - ntr, alpha, beta durch künstliche correct_matrix() ERGÄNZT, es sind nur 10 samples und wir haben sie dadurch auf 12 "erweitert"
 
-def readGrand(file_path, design = ["Condition", "Time", "Replicate"], default_slot = "count"):
+def read_grand(file_path, design = ["Condition", "Time", "Replicate"], default_slot = "count"):
     """
     Mit der Funktion wird eine TSV-Datei eingelesen,
     im Anschluss wird ein GrandPy-Objekt erstellt.
@@ -85,10 +85,8 @@ def readGrand(file_path, design = ["Condition", "Time", "Replicate"], default_sl
 
 # Beispielanwendung:
 file_path = "data/sars.tsv"
-new_gp_object = readGrand(file_path)
+new_gp_object = read_grand(file_path)
 print(new_gp_object)                                                                                                    # Ausgabe: Überblick über Gene, Samples, Slots
-
-new_gp_object.is_sparse()
 
 # Was wir damit anstellen können
 # print("Titel des Datensatzes:", new_gp_object.adata.uns["prefix"])                                                    # Ausgabe: "data/sars.tsv

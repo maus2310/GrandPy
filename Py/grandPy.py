@@ -75,11 +75,10 @@ class GrandPy:
             return x[-1]
 
     def is_sparse(self):
-        return isinstance(self.adata.X, sp.csr_matrix)
+        return isinstance(self.adata.layers["count"], sp.csr_matrix)
 
     def dim(self):
         return self.adata.X.shape
-
 
     def default_slot(self, value=None):
         if value is None:
@@ -116,6 +115,14 @@ class GrandPy:
     def metadata(self):
         return self.adata.uns.get('metadata')
 
+    def gene_info(self, column=None, value=None):
+        if column is None:
+            return self.adata.var
+        elif value is None:
+            return pd.Series(self.adata.var[column].values, index=self.adata.var["Symbol"])
+        else:
+            ...
+
 
     def apply(self, function, function_gene_info=None, function_coldata=None, **kwargs):
         new_slots = {}
@@ -128,9 +135,9 @@ class GrandPy:
 
         if self.adata.uns['analyses'] is not None:
             ...
-        # Muss später noch ergänzt werden
 
         return GrandPy(gene_info=new_gene_info, slots=new_slots, coldata=new_coldata, parent=self)
+
 
     def coldata(self, column=None, value=None):
         obs = self.adata.obs
@@ -185,22 +192,26 @@ class GrandPy:
         else:
             return [idx for idx in column_data.index if idx in selected]  # Gib Zellnamen in Originalreihenfolge zurück (wie in column_data.index)
 
-    def check_slot(self, slot_name):                                                                                    # Bsp: new_gp_object.check_slot("ntr")  # Wenn Slot nicht existiert - Fehlermeldung
-        in_layers = slot_name in self.adata.layers
-        in_mode_layers = slot_name in self.adata.uns.get("mode_layers", {})
 
-        if not (in_layers or in_mode_layers):
-            raise ValueError(f"Slot '{slot_name}' does not exist in '{self}'.")
+    # Wegen mode.slot fragen wir nochmal nach. Die Funktionen sollten auch booleans returnen.
 
+    # def _check_slot(self, slot_name):                                                                                    # Bsp: new_gp_object.check_slot("ntr")  # Wenn Slot nicht existiert - Fehlermeldung
+    #     in_layers = slot_name in self.adata.layers
+    #     in_mode_layers = slot_name in self.adata.uns.get("mode_layers", {})
+    #
+    #     if not (in_layers or in_mode_layers):
+    #         raise ValueError(f"Slot '{slot_name}' does not exist in '{self}'.")
+    #
+    #
+    # def _check_mode_slot(self, slot_name, mode):
+    #     mode_layers = self.adata.uns.get("mode_layers", {})
+    #     slot = mode_layers.get(slot_name, None)
+    #     if slot is None:
+    #         raise ValueError(f"Slot '{slot_name}' does not exist.")
+    #
+    #     if not isinstance(slot, dict):
+    #         raise TypeError(f"Slot '{slot_name}' is not stored in the mode-shape (no dict).")
+    #
+    #     if mode not in slot:
+    #         raise ValueError(f"Mode '{mode}' us not in Slot '{slot_name}'.")
 
-    def check_mode_slot(self, slot_name, mode):
-        mode_layers = self.adata.uns.get("mode_layers", {})
-        slot = mode_layers.get(slot_name, None)
-        if slot is None:
-            raise ValueError(f"Slot '{slot_name}' does not exist.")
-
-        if not isinstance(slot, dict):
-            raise TypeError(f"Slot '{slot_name}' is not stored in the mode-shape (no dict).")
-
-        if mode not in slot:
-            raise ValueError(f"Mode '{mode}' us not in Slot '{slot_name}'.")
