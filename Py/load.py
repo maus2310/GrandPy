@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import anndata as ad
 
-from grandPy import GrandPy
+from Py.grandPy import GrandPy
 
 
 # Version bisher nur für dense Matrix möglich
@@ -84,9 +84,14 @@ def read_grand(file_path, design = ["Condition", "Time", "Replicate"], default_s
     )
 
 # Beispielanwendung:
-file_path = "data/sars.tsv"
-new_gp_object = read_grand(file_path)
-print(new_gp_object)                                                                                                    # Ausgabe: Überblick über Gene, Samples, Slots
+# file_path = "data/sars.tsv"
+# new_gp_object = read_grand(file_path)
+# print(new_gp_object)
+
+# new_gp_object.check_mode_slot("ntr", "raw")
+# new_gp_object.check_slot("count")
+
+# Ausgabe: Überblick über Gene, Samples, Slots
 
 # Was wir damit anstellen können
 # print("Titel des Datensatzes:", new_gp_object.adata.uns["prefix"])                                                    # Ausgabe: "data/sars.tsv
