@@ -192,8 +192,47 @@ class GrandPy:
         else:
             return [idx for idx in column_data.index if idx in selected]  # Gib Zellnamen in Originalreihenfolge zurück (wie in column_data.index)
 
+    def toIndex(self, genes, remove_missing=True, warn=True):
+        gene_info = self.adata.var.reset_index(drop=True)
 
-    # Wegen mode.slot fragen wir nochmal nach. Die Funktionen sollten auch booleans returnen.
+        # Einzelnes Gen als String → in Liste umwandeln
+        if isinstance(genes, str):
+            genes = [genes]
+
+        # Entscheide, ob "Gene" oder "Symbol" genommen wird
+        if 'Gene' in gene_info.columns and all(g in gene_info['Gene'].values for g in genes):
+            use_col = 'Gene'
+        elif 'Symbol' in gene_info.columns and all(g in gene_info['Symbol'].values for g in genes):
+            use_col = 'Symbol'
+        else:
+            gene_hits = gene_info['Gene'].isin(genes) if 'Gene' in gene_info.columns else pd.Series(False,
+                                                                                                    index=gene_info.index)
+            symbol_hits = gene_info['Symbol'].isin(genes) if 'Symbol' in gene_info.columns else pd.Series(False,
+                                                                                                          index=gene_info.index)
+            use_col = 'Gene' if gene_hits.sum() > symbol_hits.sum() else 'Symbol'
+
+        # Mapping: Name → 1-basierter Index
+        gene_to_index = {name: i + 1 for i, name in enumerate(gene_info[use_col])}
+
+        result = {}
+        missing = []
+        for gene in genes:
+            if gene in gene_to_index:
+                result[gene] = gene_to_index[gene]
+            else:
+                missing.append(gene)
+                if not remove_missing:
+                    result[gene] = None
+
+        if warn and missing:
+            warnings.warn(f"Could not find given genes (n={len(missing)} missing, e.g. {', '.join(missing[:5])})!")
+
+        return result
+
+
+
+
+# Wegen mode.slot fragen wir nochmal nach. Die Funktionen sollten auch booleans returnen.
 
     # def _check_slot(self, slot_name):                                                                                    # Bsp: new_gp_object.check_slot("ntr")  # Wenn Slot nicht existiert - Fehlermeldung
     #     in_layers = slot_name in self.adata.layers
