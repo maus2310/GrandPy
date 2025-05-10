@@ -22,7 +22,7 @@ class GrandPy:
             var = pd.DataFrame(gene_info),
         )
 
-        def checknames(self, name, matrix):
+        def _check_names(self, name, matrix):
             n_obs, n_vars = matrix.shape
             if n_obs != self.adata.n_obs:
                 raise ValueError(f"Number of rows do not match the data for the {name} Matrix!")
@@ -35,10 +35,10 @@ class GrandPy:
             for key, matrix in slots.items():
                 if isinstance(matrix, dict):
                     for mode_key, submatrix in matrix.items():
-                        checknames(self, f"{key}:{mode_key}", submatrix)
+                        _check_names(self, f"{key}:{mode_key}", submatrix)
                     self.adata.uns.setdefault("mode_layers", {})[key] = matrix
                 else:
-                    checknames(self, key, matrix)
+                    _check_names(self, key, matrix)
                     self.adata.layers[key] = matrix
 
         self.adata.uns['prefix'] = prefix if prefix is not None else parent.adata.uns.get('prefix') if parent is not None else None
@@ -60,7 +60,7 @@ class GrandPy:
             f"Read from {self.adata.uns.get('prefix', 'Unknown')}\n"
             f"{self.adata.n_vars} genes, {self.adata.n_obs} samples/cells\n"
             f"Available data slots: {', '.join(all_slots) if all_slots else 'None'}\n"
-            f"Available analyses: {', '.join(self.adata.uns.get('analysis') or {}) or 'None'}\n"
+            f"Available analyses: {', '.join(self.adata.uns.get('analyses') or {}) or 'None'}\n"
             f"Available plots: {', '.join(self.adata.uns.get('plots') or {}) or 'None'}\n"
             f"Default data slot: {self.adata.uns['metadata'].get('default_slot', None)}\n"
         )
@@ -141,35 +141,46 @@ class GrandPy:
 
     def coldata(self, column=None, value=None):
         obs = self.adata.obs
-        if column is None:  # Kein Argument → ganze coldata zurückgeben
+        if column is None:
             return obs
 
-        elif isinstance(column, (pd.DataFrame, pd.Series)):  # DataFrame oder Series übergeben → an bestehende coldata anhängen
-            self.adata.obs = pd.concat([obs, pd.DataFrame(column)], axis=1)
-            return self
-
-        elif isinstance(column, str) and value is None:  # Spaltenname übergeben, aber kein Wert → gib einzelne Spalte zurück
+        elif isinstance(column, (pd.DataFrame, pd.Series)):
+            try:
+                self.adata.obs = pd.concat([obs, column], axis=1)
+                return self
+            except ValueError as e:
+                raise ValueError(f"Error concatenating column to coldata: {str(e)}")
+            
+        elif isinstance(column, str) and value is None:
+            if column not in obs:
+                raise KeyError(f"Column '{column}' not found in coldata")
             return obs[column]
-
-        elif isinstance(column, str) and value is not None:  # Spaltenname + Wert → neue Spalte setzen oder bestehende überschreiben
-            if isinstance(value, (list, np.ndarray)) and len(value) == len(obs):  # Liste oder Array → in Series mit dem passenden Index umwandeln
+        
+        elif isinstance(column, str) and value is not None:
+            if isinstance(value, (list, np.ndarray)) and len(value) == len(obs):
                 value = pd.Series(value, index=obs.index)
-
-            if isinstance(value, pd.Series):  # Series mit benanntem Index
-                if not value.index.equals(obs.index):
-                    if not all(name in obs.index for name in value.index):  # Prüfe, ob alle Namen des Index in obs vorhanden sind
-                        raise ValueError("Series index does not match obs index!")
-                    self.adata.obs.loc[value.index, column] = value
-
-                else:
-                    self.adata.obs[column] = value
-
-            else:  # entspricht in R dem Fall: length(value) == 1 oder direkter Spaltenzuweisung
+            
+            if isinstance(value, pd.Series):
+                # Effizientere Überprüfung der Indices
+                missing_indices = set(value.index) - set(obs.index)
+                if missing_indices:
+                    raise ValueError(f"Missing indices coldata: {', '.join(map(str, list(missing_indices)[:5]))}"
+                                   f"{' ...' if len(missing_indices) > 5 else ''}")
+                
+                try:
+                    if value.index.equals(obs.index):
+                        self.adata.obs[column] = value
+                    else:
+                        self.adata.obs.loc[value.index, column] = value
+                except Exception as e:
+                    raise ValueError(f"Error setting the values: {str(e)}")
+            else:
                 self.adata.obs[column] = value
-
+            
             return self
         else:
-            raise ValueError("Invalid argument combination for coldata.")
+            raise ValueError("Argument combination not valid for coldata()")
+
 
     def columns(self, columns=None, reorder=False):
         column_data = self.adata.obs
@@ -192,7 +203,7 @@ class GrandPy:
         else:
             return [idx for idx in column_data.index if idx in selected]  # Gib Zellnamen in Originalreihenfolge zurück (wie in column_data.index)
 
-    def toIndex(self, genes, remove_missing=True, warn=True):
+    def to_index(self, genes, remove_missing=True, warn=True):
         gene_info = self.adata.var.reset_index(drop=True)
 
         # Einzelnes Gen als String → in Liste umwandeln

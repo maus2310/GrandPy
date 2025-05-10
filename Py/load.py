@@ -53,7 +53,7 @@ def read_grand(file_path, design = ["Condition", "Time", "Replicate"], default_s
         matrices[key] = correct_matrix(matrices[key])
 
     slots = {
-        "count": matrices["count"],
+        "count": {"raw": matrices["count"]},
         "ntr": {"raw": matrices["ntr"]},
         "alpha": {"raw":matrices["alpha"]},
         "beta": {"raw": matrices["beta"]}
@@ -63,7 +63,6 @@ def read_grand(file_path, design = ["Condition", "Time", "Replicate"], default_s
     sample_names = [col.replace(" Readcount", "") for col in slot_columns["count"]]
     design_data = pd.DataFrame([name.split(".") for name in sample_names], columns = design)
     design_data.insert(0, "Name", sample_names)
-    design_data.index = sample_names
     design_data["no4sU"] = design_data["Time"].isin(["no4sU", "nos4U", "-"])                                            # Default
 
     coldata = design_data
