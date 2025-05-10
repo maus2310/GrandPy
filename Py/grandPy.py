@@ -193,25 +193,15 @@ class GrandPy:
             return [idx for idx in column_data.index if idx in selected]  # Gib Zellnamen in Originalreihenfolge zurück (wie in column_data.index)
 
 
-    # Wegen mode.slot fragen wir nochmal nach. Die Funktionen sollten auch booleans returnen.
+    # Wegen mode.slot fragen wir nochmal nach
 
-    # def _check_slot(self, slot_name):                                                                                    # Bsp: new_gp_object.check_slot("ntr")  # Wenn Slot nicht existiert - Fehlermeldung
-    #     in_layers = slot_name in self.adata.layers
-    #     in_mode_layers = slot_name in self.adata.uns.get("mode_layers", {})
-    #
-    #     if not (in_layers or in_mode_layers):
-    #         raise ValueError(f"Slot '{slot_name}' does not exist in '{self}'.")
-    #
-    #
-    # def _check_mode_slot(self, slot_name, mode):
-    #     mode_layers = self.adata.uns.get("mode_layers", {})
-    #     slot = mode_layers.get(slot_name, None)
-    #     if slot is None:
-    #         raise ValueError(f"Slot '{slot_name}' does not exist.")
-    #
-    #     if not isinstance(slot, dict):
-    #         raise TypeError(f"Slot '{slot_name}' is not stored in the mode-shape (no dict).")
-    #
-    #     if mode not in slot:
-    #         raise ValueError(f"Mode '{mode}' us not in Slot '{slot_name}'.")
+    def check_slot(self, slot_name):
+        if slot_name in self.adata.layers and slot_name not in self.adata.uns.get("mode_layers", {}):
+            return True
+        raise KeyError(f"Slot '{slot_name}' not found.")
 
+    def check_mode_slot(self, slot_name, mode):
+        slot = self.adata.uns.get("mode_layers", {}).get(slot_name)
+        if isinstance(slot, dict) and mode in slot:
+            return True
+        raise KeyError(f"Mode-Slot '{slot_name}' with mode '{mode}' not found.")
