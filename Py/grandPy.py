@@ -37,6 +37,7 @@ class GrandPy:
                     for mode_key, submatrix in matrix.items():
                         _check_names(self, f"{key}:{mode_key}", submatrix)
                     self.adata.uns.setdefault("mode_layers", {})[key] = matrix
+                    self.adata.layers[key] = matrix["total"]
                 else:
                     _check_names(self, key, matrix)
                     self.adata.layers[key] = matrix
@@ -84,7 +85,7 @@ class GrandPy:
         if value is None:
             return self.adata.uns.get('metadata').get('default_slot')
         else:
-            assert value in self.adata.layers, "Trying to set a default_slot that is not an available slot"
+            assert value in self.adata.layers.keys(), "Trying to set a default_slot that is not an available slot"
             self.adata.uns['metadata']['default_slot'] = value
             return self
 
@@ -242,12 +243,12 @@ class GrandPy:
 
     # Wegen mode.slot fragen wir nochmal nach
 
-    def check_slot(self, slot_name):
+    def _check_slot(self, slot_name):
         if slot_name in self.adata.layers and slot_name not in self.adata.uns.get("mode_layers", {}):
             return True
         raise KeyError(f"Slot '{slot_name}' not found.")
 
-    def check_mode_slot(self, slot_name, mode):
+    def _check_mode_slot(self, slot_name, mode):
         slot = self.adata.uns.get("mode_layers", {}).get(slot_name)
         if isinstance(slot, dict) and mode in slot:
             return True
