@@ -186,23 +186,21 @@ class GrandPy:
     def columns(self, columns=None, reorder=False):
         column_data = self.adata.obs
         if columns is None:  # Wenn keine Auswahl angegeben ist: alle Zellnamen zurückgeben
-            selected = list(column_data.index)
+            selected = list(column_data["Name"])
 
-        elif isinstance(columns, str):  # Wenn eine Bedingung als String angegeben ist (wie "condition == 'A'")
+        elif isinstance(columns, str):  # Wenn eine Bedingung als String angegeben ist (wie "condition == 'Mock'")
             try:
-                selected = list(column_data.query(columns).index)
+                selected = list(column_data.query(columns)["Name"])
             except Exception as e:
                 raise ValueError(f"Invalid query string for columns: {e}")
 
         elif isinstance(columns, (list, tuple, np.ndarray, pd.Index)):  # Wenn direkt eine Liste oder ein Array mit Zellnamen übergeben wird
-            selected = list(map(str, columns))
+            selected_names = list(map(str, columns))
+            selected = [name for name in selected_names if name in column_data["Name"].values]
         else:
             raise ValueError("Invalid argument combination for columns.")
 
-        if reorder:
-            return selected
-        else:
-            return [idx for idx in column_data.index if idx in selected]  # Gib Zellnamen in Originalreihenfolge zurück (wie in column_data.index)
+        return selected if reorder else [name for name in column_data["Name"] if name in selected]  # Gib Zellnamen in Originalreihenfolge zurück (wie in column_data.index), wenn reorder False
 
     def to_index(self, genes, remove_missing=True, warn=True):
         gene_info = self.adata.var.reset_index(drop=True)
