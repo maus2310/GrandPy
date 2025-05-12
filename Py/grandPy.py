@@ -8,13 +8,20 @@ import scipy.sparse as sp
 
 
 class GrandPy:
-    def __init__(self, prefix=None, gene_info=None, slots=None, coldata=None, metadata=None, analyses=None, plots=None, parent=None):
+
+    def __init__(self,
+                 prefix: str = None,
+                 gene_info: pd.DataFrame = None,
+                 coldata: pd.DataFrame = None,
+                 slots: dict = None,
+                 metadata: dict = None,
+                 analyses = None,
+                 plots = None,
+                 parent: 'GrandPy' = None):
+
         gene_info = gene_info if gene_info is not None else parent.adata.var if parent is not None else None
         coldata = coldata if coldata is not None else parent.adata.obs if parent is not None else None
         slots = slots if slots is not None else parent.adata.layers if parent is not None else None
-
-        # Hauptmatrix von anndata noch fraglich.
-        # Passt eine leere Matrix als X?
 
         self.adata = ad.AnnData(
             X = np.zeros(shape=(coldata.shape[0], gene_info.shape[0])),
@@ -22,45 +29,43 @@ class GrandPy:
             var = pd.DataFrame(gene_info),
         )
 
-        def _check_names(self, name, matrix):
-            n_obs, n_vars = matrix.shape
-            if n_obs != self.adata.n_obs:
-                raise ValueError(f"Number of rows do not match the data for the {name} Matrix!")
-            if n_vars != self.adata.n_vars:
-                raise ValueError(f"Number of columns do not match the data for the {name} Matrix!")
+        self._initialize_slots(slots)
+        self._initialize_uns_data(prefix, metadata, analyses, plots, parent)
+        self._ensure_no4sU_column()
 
-            # Namen werden und können aktuell nicht überprüft werden (dafür müsste man die layers mit pandas statt numpy speichern)
-
+    def _initialize_slots(self, slots=None):
         if slots is not None:                                                                                           # musste es etwas anpassen, damit check_mode_slot() funktionieren kann, denn ntr etc. werden eig als dict übergeben
             for key, matrix in slots.items():
-                if isinstance(matrix, dict):
-                    for mode_key, submatrix in matrix.items():
-                        _check_names(self, f"{key}:{mode_key}", submatrix)
-                    self.adata.uns.setdefault("mode_layers", {})[key] = matrix
-                    self.adata.layers[key] = matrix["total"]
-                else:
-                    _check_names(self, key, matrix)
-                    self.adata.layers[key] = matrix
+                self._check_names(key, matrix)
+                self.adata.layers[key] = matrix
 
+    # Namen werden und können aktuell nicht überprüft werden
+    def _check_names(self, name, slot):
+        row_is, column_is = slot.shape
+        row_should, column_should = self.adata.shape
+        if row_is != row_should:
+            raise ValueError(f"Number of rows do not match the data for the {name} Matrix!")
+        if column_is != column_should:
+            raise ValueError(f"Number of columns do not match the data for the {name} Matrix!")
+
+    def _initialize_uns_data(self, prefix, metadata, analyses, plots, parent=None):
         self.adata.uns['prefix'] = prefix if prefix is not None else parent.adata.uns.get('prefix') if parent is not None else None
         self.adata.uns['metadata'] = metadata if metadata is not None else parent.adata.uns.get('metadata') if parent is not None else None
         self.adata.uns['analyses'] = analyses
         self.adata.uns['plots'] = plots
 
+    def _ensure_no4sU_column(self):
         if 'no4sU' not in self.adata.obs.columns:
             warnings.warn("No no4sU entry in coldata, assuming all samples/cells as 4sU treated!")
             self.adata.obs["no4sU"] = False
 
-    def __str__(self):
-        normal_slots = list(self.adata.layers.keys())
-        mode_slots = list(self.adata.uns.get("mode_layers", {}).keys())
-        all_slots = sorted(set(normal_slots + mode_slots))
 
+    def __str__(self):
         return (
             f"GrandPy:\n"
             f"Read from {self.adata.uns.get('prefix', 'Unknown')}\n"
             f"{self.adata.n_vars} genes, {self.adata.n_obs} samples/cells\n"
-            f"Available data slots: {', '.join(all_slots) if all_slots else 'None'}\n"
+            f"Available data slots: {', '.join(self.adata.layers.keys()) or {} or 'None'}\n"
             f"Available analyses: {', '.join(self.adata.uns.get('analyses') or {}) or 'None'}\n"
             f"Available plots: {', '.join(self.adata.uns.get('plots') or {}) or 'None'}\n"
             f"Default data slot: {self.adata.uns['metadata'].get('default_slot', None)}\n"
@@ -89,13 +94,8 @@ class GrandPy:
             self.adata.uns['metadata']['default_slot'] = value
             return self
 
-    def slots(self, include_mode_slots = True):
-        normal_slots = list(self.adata.layers.keys())
-        if not include_mode_slots:
-            return normal_slots
-
-        mode_slots = list(self.adata.uns.get("mode_layers", {}).keys())
-        return sorted(set(normal_slots + mode_slots))
+    def slots(self):
+        return self.adata.layers.keys()
 
     def drop_slot(self, pattern: str):
         keep_keys = [key for key in self.adata.layers.keys() if key not in pattern]
@@ -182,27 +182,26 @@ class GrandPy:
         else:
             raise ValueError("Argument combination not valid for coldata()")
 
-
     def columns(self, columns=None, reorder=False):
         column_data = self.adata.obs
         if columns is None:  # Wenn keine Auswahl angegeben ist: alle Zellnamen zurückgeben
-            selected = list(column_data.index)
+            result = list(column_data["Name"])
 
-        elif isinstance(columns, str):  # Wenn eine Bedingung als String angegeben ist (wie "condition == 'A'")
+        elif isinstance(columns, str):  # Wenn eine Bedingung als String angegeben ist (wie "condition == 'Mock'")
             try:
-                selected = list(column_data.query(columns).index)
+                result = list(column_data.query(columns)["Name"])
             except Exception as e:
                 raise ValueError(f"Invalid query string for columns: {e}")
 
         elif isinstance(columns, (list, tuple, np.ndarray, pd.Index)):  # Wenn direkt eine Liste oder ein Array mit Zellnamen übergeben wird
-            selected = list(map(str, columns))
+            selected_names = list(map(str, columns))
+            result = [name for name in selected_names if name in column_data["Name"].values]
         else:
             raise ValueError("Invalid argument combination for columns.")
 
-        if reorder:
-            return selected
-        else:
-            return [idx for idx in column_data.index if idx in selected]  # Gib Zellnamen in Originalreihenfolge zurück (wie in column_data.index)
+        result = result if reorder else [name for name in column_data["Name"] if name in result]  # Gib Zellnamen in Originalreihenfolge zurück (wie in column_data.index), wenn reorder False
+
+        return result
 
     def to_index(self, genes, remove_missing=True, warn=True):
         gene_info = self.adata.var.reset_index(drop=True)

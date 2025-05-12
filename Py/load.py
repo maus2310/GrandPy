@@ -54,10 +54,10 @@ def read_grand(file_path, design = ("Condition", "Time", "Replicate"), default_s
         matrices[key] = correct_matrix(matrices[key])
 
     slots = {
-        "count": {"total": matrices["count"]},
-        "ntr": {"total": matrices["ntr"]},
-        "alpha": {"total":matrices["alpha"]},
-        "beta": {"total": matrices["beta"]}
+        "count": matrices["count"],
+        "ntr": matrices["ntr"],
+        "alpha": matrices["alpha"],
+        "beta": matrices["beta"]
     }
 
 
