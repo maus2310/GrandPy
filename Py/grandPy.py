@@ -182,6 +182,17 @@ class GrandPy:
         else:
             raise ValueError("Argument combination not valid for coldata()")
 
+    # regex vielleicht noch hinzufügen
+    def genes(self, genes=None, use_gene_symbols=True):
+        column = "Symbol" if use_gene_symbols else "Gene"
+
+        if genes is None:
+            return self.adata.var[column]
+
+        indices = list(self.to_index(genes).values())
+        return self.adata.var.iloc[indices][column]
+
+
     def columns(self, columns=None, reorder=False):
         column_data = self.adata.obs
         if columns is None:  # Wenn keine Auswahl angegeben ist: alle Zellnamen zurückgeben
@@ -203,6 +214,7 @@ class GrandPy:
 
         return result
 
+    # regex vielleicht noch hinzufügen
     def to_index(self, genes, remove_missing=True, warn=True):
         gene_info = self.adata.var.reset_index(drop=True)
 
@@ -223,7 +235,7 @@ class GrandPy:
             use_col = 'Gene' if gene_hits.sum() > symbol_hits.sum() else 'Symbol'
 
         # Mapping: Name → 1-basierter Index
-        gene_to_index = {name: i + 1 for i, name in enumerate(gene_info[use_col])}
+        gene_to_index = {name: i for i, name in enumerate(gene_info[use_col])}
 
         result = {}
         missing = []

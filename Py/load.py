@@ -69,10 +69,14 @@ def read_grand(file_path, design = ("Condition", "Time", "Replicate"), default_s
     design_data.insert(0, "Name",sample_names)
     design_data["no4sU"] = design_data["Time"].isin(["no4sU", "no4sU", "-"])                                            # Default
 
-    coldata = design_data
+    coldata = design_data#
+
+    # adata will Index als Strings(sonst kommt die Warnung: Transforming to str index)
+    gene_info.index = gene_info.index.astype(str)
+    coldata.index = coldata.index.astype(str)
 
     metadata = {
-        "Description": "Count data",
+        "Description": "count data",
         "default_slot": default_slot,
         "GRAND-SLAM version": 2,
         "Output": "dense"
