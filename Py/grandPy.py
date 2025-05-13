@@ -13,18 +13,24 @@ class GrandPy:
     Data is typically loaded using the `read_grand()` function, which parses preprocessed GrandR-compatible
     data formats into a usable GrandPy object.
 
+    If not specified, the default value for all parameters is None.
     Parameters:
         prefix (str):
-            String path to the data file.
+            String; path to the data file.
         gene_info (pd.DataFrame):
-            Pandas dataframe, genes and their metadata.
+            Pandas dataframe; genes and their metadata. Retrieved via `gene_info()`.
         coldata (pd.DataFrame):
-            Pandas dataframe, samples and their metadata.
+            Pandas dataframe; samples and their metadata. Retrieved via `coldata()`.
         slots (dict):
-            Dictionary, name and the corresponding data matrix.
+            Dictionary; name and the corresponding data matrix.
         metadata (dict):
-            Dictionary, metadata about the given file.
+            Dictionary; metadata about the data and file.
+        analyses:
 
+        plots:
+
+        parent (GrandPy):
+            GrandPy object; child will inherit prefix, gene_info, coldata, slots and metadata from the parent if not specified.
     """
 
     def __init__(self,
@@ -208,10 +214,6 @@ class GrandPy:
             return self.adata.var[column]
 
         indices = self.get_index(genes, regex=regex)
-        if len(indices) == 0:
-            raise ValueError(
-                f"No genes found for the query '{genes}' (use_gene_symbols={use_gene_symbols}, regex={regex})."
-            )
         return self.adata.var.iloc[indices][column]
 
     def columns(self, columns=None, reorder=False):
