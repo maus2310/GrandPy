@@ -1,5 +1,6 @@
 # rpy2 anschauen
 
+import re
 import warnings
 import numpy as np
 import pandas as pd
@@ -189,9 +190,8 @@ class GrandPy:
         if genes is None:
             return self.adata.var[column]
 
-        indices = list(self.to_index(genes).values())
+        indices = self.get_index(genes)
         return self.adata.var.iloc[indices][column]
-
 
     def columns(self, columns=None, reorder=False):
         column_data = self.adata.obs
@@ -214,45 +214,62 @@ class GrandPy:
 
         return result
 
-    # regex vielleicht noch hinzufügen
-    def to_index(self, genes, remove_missing=True, warn=True):
-        gene_info = self.adata.var.reset_index(drop=True)
 
-        # Einzelnes Gen als String → in Liste umwandeln
-        if isinstance(genes, str):
-            genes = [genes]
+    def get_index(self, gene, regex: bool = False, warn: bool = True):
+        gene_info = self.adata.var
+        index = gene_info.index
 
-        # Entscheide, ob "Gene" oder "Symbol" genommen wird
-        if 'Gene' in gene_info.columns and all(g in gene_info['Gene'].values for g in genes):
-            use_col = 'Gene'
-        elif 'Symbol' in gene_info.columns and all(g in gene_info['Symbol'].values for g in genes):
-            use_col = 'Symbol'
+        if isinstance(gene, (list, pd.Series, np.ndarray)) and any(pd.isna(gene)):
+            if warn:
+                warnings.warn("All None values were removed from the query.")
+            gene = [g for g in gene if pd.notna(g)]
+
+        if gene is None:
+            return list(index)
+
+        if isinstance(gene, int):
+            return [gene]
+
+        if isinstance(gene, (list, np.ndarray)) and all(isinstance(g, (int, np.integer)) for g in gene):
+            return list(gene)
+
+        gene_col = gene_info.get("Gene")
+        symbol_col = gene_info.get("Symbol")
+
+        if regex and isinstance(gene, str):
+            mask = gene_col.astype(str).str.contains(gene, regex=True) | \
+                   symbol_col.astype(str).str.contains(gene, regex=True)
+            return index[mask].tolist()
+
+        if isinstance(gene, (list, np.ndarray)) and all(isinstance(g, (int, np.integer)) for g in gene):
+            return list(gene)
+
+        if isinstance(gene, (list, np.ndarray)) and all(isinstance(g, (bool, np.bool_)) for g in gene):
+            if len(gene) != len(index):
+                raise ValueError("Length of boolean filter must match number of genes.")
+            return list(index[np.where(gene)[0]])
+
+        gene_list = pd.Series(gene, dtype=str)
+
+        matches_in_gene = gene_list[gene_list.isin(gene_col)]
+        matches_in_symbol = gene_list[gene_list.isin(symbol_col)]
+
+        if len(matches_in_gene) >= len(matches_in_symbol):
+            ref_col = gene_col
         else:
-            gene_hits = gene_info['Gene'].isin(genes) if 'Gene' in gene_info.columns else pd.Series(False,
-                                                                                                    index=gene_info.index)
-            symbol_hits = gene_info['Symbol'].isin(genes) if 'Symbol' in gene_info.columns else pd.Series(False,
-                                                                                                          index=gene_info.index)
-            use_col = 'Gene' if gene_hits.sum() > symbol_hits.sum() else 'Symbol'
+            ref_col = symbol_col
 
-        # Mapping: Name → 1-basierter Index
-        gene_to_index = {name: i for i, name in enumerate(gene_info[use_col])}
+        mapping = pd.Series(index, index=ref_col)
+        found = gene_list[gene_list.isin(ref_col)]
+        missing = gene_list[~gene_list.isin(ref_col)]
 
-        result = {}
-        missing = []
-        for gene in genes:
-            if gene in gene_to_index:
-                result[gene] = gene_to_index[gene]
-            else:
-                missing.append(gene)
-                if not remove_missing:
-                    result[gene] = None
+        if warn and not missing.empty:
+            preview = ", ".join(missing.head(5))
+            more = " ..." if len(missing) > 5 else ""
+            warnings.warn(f"Could not find given genes (n={len(missing)}, e.g. {preview}{more})")
 
-        if warn and missing:
-            warnings.warn(f"Could not find given genes (n={len(missing)} missing, e.g. {', '.join(missing[:5])})!")
+        return mapping.loc[found].tolist()
 
-        return result
-
-    # Wegen mode.slot fragen wir nochmal nach
 
     def _check_slot(self, slot_name):
         if slot_name in self.adata.layers and slot_name not in self.adata.uns.get("mode_layers", {}):
