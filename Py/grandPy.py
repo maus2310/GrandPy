@@ -1,6 +1,4 @@
-# rpy2 anschauen
 
-import re
 import warnings
 import numpy as np
 import pandas as pd
@@ -9,6 +7,25 @@ import scipy.sparse as sp
 
 
 class GrandPy:
+    """
+    GrandPy: A Python implementation of the GrandR data model for RNA labeling analysis.
+
+    Data is typically loaded using the `read_grand()` function, which parses preprocessed GrandR-compatible
+    data formats into a usable GrandPy object.
+
+    Parameters:
+        prefix (str):
+            String path to the data file.
+        gene_info (pd.DataFrame):
+            Pandas dataframe, genes and their metadata.
+        coldata (pd.DataFrame):
+            Pandas dataframe, samples and their metadata.
+        slots (dict):
+            Dictionary, name and the corresponding data matrix.
+        metadata (dict):
+            Dictionary, metadata about the given file.
+
+    """
 
     def __init__(self,
                  prefix: str = None,
@@ -96,7 +113,7 @@ class GrandPy:
             return self
 
     def slots(self):
-        return self.adata.layers.keys()
+        return list(self.adata.layers.keys())
 
     def drop_slot(self, pattern: str):
         keep_keys = [key for key in self.adata.layers.keys() if key not in pattern]
@@ -184,13 +201,17 @@ class GrandPy:
             raise ValueError("Argument combination not valid for coldata()")
 
     # regex vielleicht noch hinzufügen
-    def genes(self, genes=None, use_gene_symbols=True):
+    def genes(self, genes=None, use_gene_symbols: bool = True, regex: bool = False):
         column = "Symbol" if use_gene_symbols else "Gene"
 
         if genes is None:
             return self.adata.var[column]
 
-        indices = self.get_index(genes)
+        indices = self.get_index(genes, regex=regex)
+        if len(indices) == 0:
+            raise ValueError(
+                f"No genes found for the query '{genes}' (use_gene_symbols={use_gene_symbols}, regex={regex})."
+            )
         return self.adata.var.iloc[indices][column]
 
     def columns(self, columns=None, reorder=False):
