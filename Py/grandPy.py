@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import anndata as ad
 import scipy.sparse as sp
+from pandas import Series
 
 
 class GrandPy:
@@ -19,9 +20,9 @@ class GrandPy:
     prefix: str
         Path to the data file.
     gene_info: pandas DataFrame
-        Genes and their metadata. Retrieved via `gene_info()`.
+        Genes and their metadata.
     coldata: pandas DataFrame
-        Samples and their metadata. Retrieved via `coldata()`.
+        Samples and their metadata.
     slots: dict
         Name and the corresponding data matrix.
     metadata: dict
@@ -141,7 +142,7 @@ class GrandPy:
         """
         return isinstance(self.adata.layers["count"], sp.csr_matrix)
 
-    def dim(self) -> tuple:
+    def dim(self) -> tuple[int]:
         """
         Get the dimension of the data.
 
@@ -177,9 +178,10 @@ class GrandPy:
             self.adata.uns['metadata']['default_slot'] = value
             return self
 
-    def slots(self) -> list:
+    def slots(self) -> list[str]:
         """
-        Get the names of the available data slots.
+        Get the names of available data slots.
+
         Parameters
         ----------
 
@@ -190,32 +192,38 @@ class GrandPy:
         """
         return list(self.adata.layers.keys())
 
-    def drop_slot(self, pattern: str) -> "GrandPy":
+    def drop_slot(self, slot_pattern) -> "GrandPy":
         """
+        Remove slots matching a pattern.
 
         Parameters
         ----------
+        slot_pattern: str or list of str
+            All slots matching this pattern will be removed.
 
         Returns
         -------
-
+        "GrandPy"
+            Returns the GrandPy object with slots matching the pattern removed.
         """
+        pattern = [slot_pattern] if isinstance(slot_pattern, str) else slot_pattern
+
         keep_keys = [key for key in self.adata.layers.keys() if key not in pattern]
         if not keep_keys:
             raise ValueError("Cannot drop all slots!")
-        else:
-            if self.default_slot() not in keep_keys:
-                self.adata.uns['metadata']['default_slot'] = keep_keys[0]
-            self.adata.layers = {k: self.adata.layers[k] for k in keep_keys}
+
+        if self.default_slot() not in keep_keys:
+            self.adata.uns['metadata']['default_slot'] = keep_keys[0]
+
+        self.adata.layers = {k: self.adata.layers[k] for k in keep_keys}
         return self
 
+    # Hab mich noch nicht entschieden, wie sich die Funktion verhalten soll
     def condition(self, value=None) -> Any:
         """
-        get or set the Condition column in coldata.
+
         Parameters
         ----------
-            value: str or list of str
-
 
         Returns
         -------
@@ -349,15 +357,23 @@ class GrandPy:
         else:
             raise ValueError("Argument combination not valid for coldata()")
 
-    # regex vielleicht noch hinzufügen
-    def genes(self, genes=None, use_gene_symbols: bool = True, regex: bool = False):
+    def genes(self, genes: str|list[str] = None, use_gene_symbols: bool = True, regex: bool = False) -> Series:
         """
+        Get gene names or symbols. If no genes are specified, all genes are returned.
 
         Parameters
         ----------
+        genes: str or list of str
+            Genes to be retrieved.
+        use_gene_symbols: bool
+            If True, gene symbols will be returned. Otherwise, gene names will be returned.
+        regex: bool
+            If True, `genes` will be interpreted as a regular expression.
 
         Returns
         -------
+        Series
+            All genes or the specified genes.
 
         """
         column = "Symbol" if use_gene_symbols else "Gene"
@@ -398,21 +414,31 @@ class GrandPy:
 
         return result
 
-
-    def get_index(self, gene, regex: bool = False, warn: bool = True):
+    # Braucht die Methode "warn" überhaupt?
+    def get_index(self, gene: str|list[str]|list[bool]|int|list[int] = None, regex: bool = False, warn: bool = True) -> list[int]:
         """
+        Get the index of a gene, a list of genes or in accordance to a boolean filter.\n
+        Integers are returned unchanged.
 
         Parameters
         ----------
+        gene: str or list of str or list of bool or int or list of int
+            Specifies which indices to return.
+        regex: bool
+            If True, `gene` will be interpreted as a regular expression.
+        warn: bool
+            If True, a warning will be displayed if a gene wasn't found or `gene` contains None values.
 
         Returns
         -------
+        list[int]
+            All indices or the specified indices.
 
         """
         gene_info = self.adata.var
         index = gene_info.index
 
-        if isinstance(gene, (list, pd.Series, np.ndarray)) and any(pd.isna(gene)):
+        if isinstance(gene, (list, tuple, pd.Series, np.ndarray)) and any(pd.isna(gene)):
             if warn:
                 warnings.warn("All None values were removed from the query.")
             gene = [g for g in gene if pd.notna(g)]
@@ -423,8 +449,8 @@ class GrandPy:
         if isinstance(gene, int):
             return [gene]
 
-        if isinstance(gene, (list, np.ndarray)) and all(isinstance(g, (int, np.integer)) for g in gene):
-            return list(gene)
+        if isinstance(gene, (list, tuple, np.ndarray)) and all(isinstance(g, (int, np.integer)) for g in gene):
+            return gene
 
         gene_col = gene_info.get("Gene")
         symbol_col = gene_info.get("Symbol")
@@ -434,10 +460,10 @@ class GrandPy:
                    symbol_col.astype(str).str.contains(gene, regex=True)
             return index[mask].tolist()
 
-        if isinstance(gene, (list, np.ndarray)) and all(isinstance(g, (int, np.integer)) for g in gene):
+        if isinstance(gene, (list, tuple, np.ndarray)) and all(isinstance(g, (int, np.integer)) for g in gene):
             return list(gene)
 
-        if isinstance(gene, (list, np.ndarray)) and all(isinstance(g, (bool, np.bool_)) for g in gene):
+        if isinstance(gene, (list, tuple, np.ndarray)) and all(isinstance(g, (bool, np.bool_)) for g in gene):
             if len(gene) != len(index):
                 raise ValueError("Length of boolean filter must match number of genes.")
             return list(index[np.where(gene)[0]])
@@ -462,7 +488,6 @@ class GrandPy:
             warnings.warn(f"Could not find given genes (n={len(missing)}, e.g. {preview}{more})")
 
         return mapping.loc[found].tolist()
-
 
     def _check_slot(self, slot_name):
         if slot_name in self.adata.layers and slot_name not in self.adata.uns.get("mode_layers", {}):
