@@ -1,5 +1,6 @@
 
 import warnings
+from typing import Any
 import numpy as np
 import pandas as pd
 import anndata as ad
@@ -13,24 +14,28 @@ class GrandPy:
     Data is typically loaded using the `read_grand()` function, which parses preprocessed GrandR-compatible
     data formats into a usable GrandPy object.
 
-    If not specified, the default value for all parameters is None.
-    Parameters:
-        prefix (str):
-            String; path to the data file.
-        gene_info (pd.DataFrame):
-            Pandas dataframe; genes and their metadata. Retrieved via `gene_info()`.
-        coldata (pd.DataFrame):
-            Pandas dataframe; samples and their metadata. Retrieved via `coldata()`.
-        slots (dict):
-            Dictionary; name and the corresponding data matrix.
-        metadata (dict):
-            Dictionary; metadata about the data and file.
-        analyses:
+    Parameters
+    ----------
+    prefix: str
+        Path to the data file.
+    gene_info: pandas DataFrame
+        Genes and their metadata. Retrieved via `gene_info()`.
+    coldata: pandas DataFrame
+        Samples and their metadata. Retrieved via `coldata()`.
+    slots: dict
+        Name and the corresponding data matrix.
+    metadata: dict
+        Metadata about the data and file.
+    analyses:
 
-        plots:
+    plots:
 
-        parent (GrandPy):
-            GrandPy object; child will inherit prefix, gene_info, coldata, slots and metadata from the parent if not specified.
+    parent: GrandPy
+        Child will inherit prefix, gene_info, coldata, slots and metadata from the parent if not specified.
+
+    Returns
+    -------
+
     """
 
     def __init__(self,
@@ -46,6 +51,13 @@ class GrandPy:
         gene_info = gene_info if gene_info is not None else parent.adata.var if parent is not None else None
         coldata = coldata if coldata is not None else parent.adata.obs if parent is not None else None
         slots = slots if slots is not None else parent.adata.layers if parent is not None else None
+
+        if gene_info is None:
+            raise ValueError("GrandPy object must have gene_info.")
+        if coldata is None:
+            raise ValueError("GrandPy object must have coldata.")
+        if slots is None:
+            raise ValueError("GrandPy object must have slots (data).")
 
         self.adata = ad.AnnData(
             X = np.zeros(shape=(coldata.shape[0], gene_info.shape[0])),
@@ -96,21 +108,68 @@ class GrandPy:
         )
 
 
-    def title(self):
+    def title(self) -> str:
+        """
+        Get a title for the GrandPy object
+
+        Parameters
+        ----------
+
+        Returns
+        -------
+        str
+            A title consisting of the filename in `prefix`.
+        """
         prefix = self.adata.uns.get('prefix')
         if prefix is None:
-            return None
+            raise KeyError("Title not available. Please specify a prefix when initializing the GrandPy object")
         else:
             x = prefix.split('/')
             return x[-1]
 
-    def is_sparse(self):
+    def is_sparse(self) -> bool:
+        """
+        Checks if the data is stored in sparse format.
+
+        Parameters
+        ----------
+
+        Returns
+        -------
+        bool
+            True if the data is stored in sparse format, False otherwise.
+        """
         return isinstance(self.adata.layers["count"], sp.csr_matrix)
 
-    def dim(self):
+    def dim(self) -> tuple:
+        """
+        Get the dimension of the data.
+
+        Parameters
+        ----------
+
+        Returns
+        -------
+        tuple
+            Dimension of the data.
+        """
         return self.adata.X.shape
 
-    def default_slot(self, value=None):
+    def default_slot(self, value=None) -> Any:
+        """
+        Get or set the default slot.
+
+        Parameters
+        ----------
+        value: str
+            If provided, sets the default slot to this value.
+
+        Returns
+        -------
+        str or "GrandPy"
+            If `value` is None, returns the default slot. Otherwise, returns the GrandPy object with the new default slot.
+
+        """
         if value is None:
             return self.adata.uns.get('metadata').get('default_slot')
         else:
@@ -118,10 +177,29 @@ class GrandPy:
             self.adata.uns['metadata']['default_slot'] = value
             return self
 
-    def slots(self):
+    def slots(self) -> list:
+        """
+        Get the names of the available data slots.
+        Parameters
+        ----------
+
+        Returns
+        -------
+        list
+            Names of all slots
+        """
         return list(self.adata.layers.keys())
 
-    def drop_slot(self, pattern: str):
+    def drop_slot(self, pattern: str) -> "GrandPy":
+        """
+
+        Parameters
+        ----------
+
+        Returns
+        -------
+
+        """
         keep_keys = [key for key in self.adata.layers.keys() if key not in pattern]
         if not keep_keys:
             raise ValueError("Cannot drop all slots!")
@@ -131,16 +209,63 @@ class GrandPy:
             self.adata.layers = {k: self.adata.layers[k] for k in keep_keys}
         return self
 
-    def condition(self, value=None):
-        if value is None:
-            return self.adata.obs['Condition'].tolist()
-        else:
-            ...
+    def condition(self, value=None) -> Any:
+        """
+        get or set the Condition column in coldata.
+        Parameters
+        ----------
+            value: str or list of str
 
-    def metadata(self):
+
+        Returns
+        -------
+
+        """
+        coldata = self.adata.obs
+        if value is None:
+            return coldata['Condition'].tolist()
+        else:
+            value = [value] if isinstance(value, str) else value
+            if all(v in coldata.columns for v in value):
+                # Warum existiert diese if Klausel?
+                self.adata.obs['Condition'] = coldata[value].astype(str).agg(" ".join, axis=1)
+            else:
+                # if len(value) == 1:
+                #     value = value * len(coldata.index)
+                # if len(value) == 2:
+                #     value = value * (len(coldata.index) // 2) + value[:len(coldata.index) % 2]
+                if len(value) != len(coldata.index):
+                    raise ValueError(
+                        f"Number of values ({len(value)}) does not match number of samples ({len(coldata.index)})")
+
+                self.adata.obs['Condition'] = pd.Series(value, index=coldata.index)
+
+            return self
+
+    def metadata(self) -> dict:
+        """
+        Get the metadata.
+
+        Parameters
+        ----------
+
+        Returns
+        -------
+        dict
+            Metadata
+        """
         return self.adata.uns.get('metadata')
 
     def gene_info(self, column=None, value=None):
+        """
+
+        Parameters
+        ----------
+
+        Returns
+        -------
+
+        """
         if column is None:
             return self.adata.var
         elif value is None:
@@ -150,6 +275,15 @@ class GrandPy:
 
 
     def apply(self, function, function_gene_info=None, function_coldata=None, **kwargs):
+        """
+
+        Parameters
+        ----------
+
+        Returns
+        -------
+
+        """
         new_slots = {}
         for key in self.adata.layers.keys():
             new_slots[key] = function(self.adata.layers[key], **kwargs)
@@ -165,6 +299,15 @@ class GrandPy:
 
 
     def coldata(self, column=None, value=None):
+        """
+
+        Parameters
+        ----------
+
+        Returns
+        -------
+
+        """
         obs = self.adata.obs
         if column is None:
             return obs
@@ -208,6 +351,15 @@ class GrandPy:
 
     # regex vielleicht noch hinzufügen
     def genes(self, genes=None, use_gene_symbols: bool = True, regex: bool = False):
+        """
+
+        Parameters
+        ----------
+
+        Returns
+        -------
+
+        """
         column = "Symbol" if use_gene_symbols else "Gene"
 
         if genes is None:
@@ -217,6 +369,15 @@ class GrandPy:
         return self.adata.var.iloc[indices][column]
 
     def columns(self, columns=None, reorder=False):
+        """
+
+        Parameters
+        ----------
+
+        Returns
+        -------
+
+        """
         column_data = self.adata.obs
         if columns is None:  # Wenn keine Auswahl angegeben ist: alle Zellnamen zurückgeben
             result = list(column_data["Name"])
@@ -239,6 +400,15 @@ class GrandPy:
 
 
     def get_index(self, gene, regex: bool = False, warn: bool = True):
+        """
+
+        Parameters
+        ----------
+
+        Returns
+        -------
+
+        """
         gene_info = self.adata.var
         index = gene_info.index
 
