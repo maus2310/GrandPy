@@ -2,15 +2,15 @@ import pandas as pd
 import numpy as np
 import anndata as ad
 
-from grandPy import GrandPy
+from Py.grandPy import GrandPy
 
 
 # Version bisher nur für dense Matrix möglich
-# kann sars.tsv Datei laden
-# orientiert an dem tutorial: https://grandr.erhard-lab.de/articles/web/loading-data.html
-# slots bisher nur count, noch nicht ntr, alpha, beta vorhanden
+# kann sars.tsv Datei laden im Format GRAND-SLAM 2.0
+# orientiert an dem Tutorial: https://grandr.erhard-lab.de/articles/web/loading-data.html
+# slots: count - ntr, alpha, beta durch künstliche correct_matrix() ERGÄNZT, es sind nur 10 samples und wir haben sie dadurch auf 12 "erweitert"
 
-def readGrand(file_path, design = ["Condition", "Time", "Replicate"], default_slot = "count"):
+def read_grand(file_path, design = ("Condition", "Time", "Replicate"), default_slot = "count"):
     """
     Mit der Funktion wird eine TSV-Datei eingelesen,
     im Anschluss wird ein GrandPy-Objekt erstellt.
@@ -32,12 +32,9 @@ def readGrand(file_path, design = ["Condition", "Time", "Replicate"], default_sl
         for key, suffix in slot_suffix.items()
     }
 
-    # print("Gefundene Count-Spalten:", count_cols)
-    # print("Anzahl Samples:", len(count_cols))
-
     gene_info = data[["Gene", "Symbol", "Length"]].copy()
-    # gene_info["Type"] = np.where(gene_info["Symbol"].str.startswith("MT-"), "mito", "Cellular")                       # Ermöglicht eine Grobe Einteilung, uns fehlt die classify_genes funktion
-    # habe es mal formal wie in R doch erweitert: teil die Zelltypen genauer ein:
+    # gene_info["Type"] = np.where(gene_info["Symbol"].str.startswith("MT-"), "mito", "Cellular")                       # Ermöglicht eine grobe Einteilung, uns fehlt die classify_genes Funktion.
+    # Habe es mal formal wie in R doch erweitert: teil die Zelltypen genauer ein:
     gene_info["Type"] = "Unknown"
     gene_info.loc[gene_info["Symbol"].str.startswith("MT-"), "Type"] = "mito"
     gene_info.loc[gene_info["Gene"].str.contains("ERCC-"), "Type"] = "ERCC"
@@ -46,37 +43,44 @@ def readGrand(file_path, design = ["Condition", "Time", "Replicate"], default_sl
     matrices = {}
     for key in slot_suffix.keys():
         matrix = data[slot_columns[key]].to_numpy().T
-        matrices[key] = np.nan_to_num(matrix)
+        nan_mask = np.isnan(matrix)
+        matrices[key] = np.where(nan_mask, 0, matrix)
+
+    def correct_matrix(mat):                                                                                            # fügt Nullen an die Matrix, um die Dimension zu korrigieren
+        zeros = np.zeros((2, mat.shape[1]))
+        return np.vstack([mat, zeros])
+
+    for key in ["ntr", "alpha", "beta"]:
+        matrices[key] = correct_matrix(matrices[key])
 
     slots = {
-        key: matrices[key]
-        for key in slot_suffix.keys()
+        "count": matrices["count"],
+        "ntr": matrices["ntr"],
+        "alpha": matrices["alpha"],
+        "beta": matrices["beta"]
     }
-
-    def correct_matrix(matrix):
-        zeros = np.zeros((2, matrix.shape[1]))
-        return np.vstack([matrix, zeros])
-
-    slots["ntr"] = correct_matrix(slots["ntr"])
-    slots["alpha"] = correct_matrix(slots["alpha"])
-    slots["beta"] = correct_matrix(slots["beta"])
 
 
     sample_names = [col.replace(" Readcount", "") for col in slot_columns["count"]]
-    design_data = pd.DataFrame([name.split(".") for name in sample_names], columns = design)
-    design_data.insert(0, "Name", sample_names)
-    design_data.index = sample_names
-    design_data["no4sU"] = design_data["Time"].isin(["no4sU", "nos4U", "-"]) # Default
+    design_data = pd.DataFrame([name.split(".") for name in sample_names],
+                               columns=design,
+                               index=np.arange(len(sample_names))
+                               )
+    design_data.insert(0, "Name",sample_names)
+    design_data["no4sU"] = design_data["Time"].isin(["no4sU", "no4sU", "-"])                                            # Default
 
     coldata = design_data
 
+    # adata will Index als Strings(sonst kommt die Warnung: Transforming to str index)
+    gene_info.index = gene_info.index.astype(str)
+    coldata.index = coldata.index.astype(str)
+
     metadata = {
-        "Description": "Count data",
+        "Description": "count data",
         "default_slot": default_slot,
         "GRAND-SLAM version": 2,
         "Output": "dense"
     }
-
 
     return GrandPy(
         prefix = file_path,
@@ -87,9 +91,12 @@ def readGrand(file_path, design = ["Condition", "Time", "Replicate"], default_sl
     )
 
 # Beispielanwendung:
-file_path = "data/sars.tsv"
-new_gp_object = readGrand(file_path)
-print(new_gp_object)
+# file_path = "data/sars.tsv"
+# new_gp_object = read_grand(file_path)
+# print(new_gp_object)
+
+# new_gp_object.check_mode_slot("ntr", "raw")
+# new_gp_object.check_slot("count")
 
 # Ausgabe: Überblick über Gene, Samples, Slots
 
@@ -136,4 +143,3 @@ def gene_type_counts(grandpy_obj):                                              
 # sns.boxplot(x="Condition", y="expression", data=df_plot)
 # plt.title(f"Expression of {gene}")
 # plt.show()
-
