@@ -1,4 +1,3 @@
-
 import warnings
 from typing import Any
 import numpy as np
@@ -6,6 +5,7 @@ import pandas as pd
 import anndata as ad
 import scipy.sparse as sp
 from pandas import Series
+from scipy.sparse import csr_matrix
 
 
 class GrandPy:
@@ -61,7 +61,7 @@ class GrandPy:
             raise ValueError("GrandPy object must have slots (data).")
 
         self.adata = ad.AnnData(
-            X = np.zeros(shape=(coldata.shape[0], gene_info.shape[0])),
+            X = sp.csr_matrix(np.zeros(shape=(coldata.shape[0], gene_info.shape[0]))),
             obs = pd.DataFrame(coldata),
             var = pd.DataFrame(gene_info),
         )
@@ -73,11 +73,11 @@ class GrandPy:
     def _initialize_slots(self, slots=None):
         if slots is not None:                                                                                           # musste es etwas anpassen, damit check_mode_slot() funktionieren kann, denn ntr etc. werden eig als dict übergeben
             for key, matrix in slots.items():
-                self._check_names(key, matrix)
+                self._check_shape(key, matrix)
                 self.adata.layers[key] = matrix
 
     # Namen werden und können aktuell nicht überprüft werden
-    def _check_names(self, name, slot):
+    def _check_shape(self, name, slot):
         row_is, column_is = slot.shape
         row_should, column_should = self.adata.shape
         if row_is != row_should:
@@ -156,6 +156,23 @@ class GrandPy:
         """
         return self.adata.X.shape
 
+    def dim_names(self) -> tuple[list[str]]:
+        """
+        Get the column and row names of the data.
+
+        Parameters
+        ----------
+
+        Returns
+        -------
+        tuple
+            Two lists containing the column and row names.
+
+        """
+        column_names = self.adata.obs["Name"].tolist()
+        row_names = self.adata.var["Gene"].tolist()
+        return column_names, row_names
+
     def default_slot(self, value=None) -> Any:
         """
         Get or set the default slot.
@@ -217,6 +234,65 @@ class GrandPy:
 
         self.adata.layers = {k: self.adata.layers[k] for k in keep_keys}
         return self
+
+    def add_slot(self, name, matrix, set_to_default = False):
+        """
+        Add a new data slot to the GrandPy object.
+
+        Parameters
+        ----------
+        name: str
+            Name of the new slot.
+        matrix: numpy.ndarray or pandas.DataFrame or scipy sparse matrix
+            The data to be added as a new slot.
+        set_to_default: bool
+            If True, sets the new slot as the default slot.
+
+        Returns
+        -------
+
+        """
+        if name in self.adata.layers.keys():
+            raise ValueError(f"Slot '{name}' already exists. Please choose a different name.")
+
+        if self.is_sparse():
+            matrix = _to_sparse(matrix)
+        else:
+            matrix = self._validate_and_convert_new_data(matrix)
+
+        self._check_shape(name, matrix)
+
+        self.adata.layers[name] = matrix
+
+        if set_to_default:
+            self.adata.uns['metadata']['default_slot'] = name
+
+        return self
+
+    def _validate_and_convert_new_data(self, matrix) -> "np.ndarray" or "sp.csr_matrix":
+        # Falls DataFrame → zu NumPy
+        if isinstance(matrix, pd.DataFrame):
+            matrix = matrix.values
+
+        # Falls Liste → zu NumPy
+        if isinstance(matrix, list):
+            matrix = np.array(matrix)
+
+        # Falls sparse, aber nicht csr → zu csr
+        if sp.issparse(matrix) and not isinstance(matrix, sp.csr_matrix):
+            matrix = sp.csr_matrix(matrix)
+
+        # Falls dicht → alles okay
+        elif not sp.issparse(matrix):
+            if not isinstance(matrix, np.ndarray):
+                raise TypeError("Matrix must be ndarray, DataFrame, or scipy sparse matrix")
+
+        shape = matrix.shape
+        # Shape prüfen
+        if matrix.shape != shape:
+            raise ValueError(f"Matrix shape {matrix.shape} does not match expected shape {shape}")
+
+        return matrix
 
     # Hab mich noch nicht entschieden, wie sich die Funktion verhalten soll
     def condition(self, value=None) -> Any:
@@ -281,7 +357,6 @@ class GrandPy:
         else:
             ...
 
-
     def apply(self, function, function_gene_info=None, function_coldata=None, **kwargs):
         """
 
@@ -304,7 +379,6 @@ class GrandPy:
             ...
 
         return GrandPy(gene_info=new_gene_info, slots=new_slots, coldata=new_coldata, parent=self)
-
 
     def coldata(self, column=None, value=None):
         """
@@ -499,3 +573,31 @@ class GrandPy:
         if isinstance(slot, dict) and mode in slot:
             return True
         raise KeyError(f"Mode-Slot '{slot_name}' with mode '{mode}' not found.")
+
+def _to_sparse(matrix):
+    """
+    Convert a dense NumPy array or Pandas DataFrame to a csr_matrix.
+
+    Parameters
+    ----------
+    matrix: pandas.DataFrame or numpy.ndarray
+        The dense matrix to convert.
+
+    Returns
+    -------
+    scipy.sparse.csr_matrix
+        The sparse matrix in CSR format.
+    """
+    from scipy.sparse import csr_matrix
+
+    if isinstance(matrix, sp.csr_matrix):
+        return matrix
+    if isinstance(matrix, pd.DataFrame):
+        matrix = matrix.values
+
+    try:
+        sparse_matrix = csr_matrix(matrix)
+    except ValueError:
+        raise ValueError("Matrix could not be converted to a sparse matrix. Use numpy.ndarray or a pandas.DataFrame only containing numbers")
+
+    return sparse_matrix
