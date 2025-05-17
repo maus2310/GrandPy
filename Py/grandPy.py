@@ -5,7 +5,6 @@ import pandas as pd
 import anndata as ad
 import scipy.sparse as sp
 from pandas import Series
-from scipy.sparse import csr_matrix
 
 
 class GrandPy:
@@ -31,9 +30,6 @@ class GrandPy:
 
     plots:
 
-    parent: GrandPy
-        Child will inherit prefix, gene_info, coldata, slots and metadata from the parent if not specified.
-
     Returns
     -------
 
@@ -46,12 +42,7 @@ class GrandPy:
                  slots: dict = None,
                  metadata: dict = None,
                  analyses = None,
-                 plots = None,
-                 parent: 'GrandPy' = None):
-
-        gene_info = gene_info if gene_info is not None else parent.adata.var if parent is not None else None
-        coldata = coldata if coldata is not None else parent.adata.obs if parent is not None else None
-        slots = slots if slots is not None else parent.adata.layers if parent is not None else None
+                 plots = None):
 
         if gene_info is None:
             raise ValueError("GrandPy object must have gene_info.")
@@ -59,56 +50,64 @@ class GrandPy:
             raise ValueError("GrandPy object must have coldata.")
         if slots is None:
             raise ValueError("GrandPy object must have slots (data).")
+        if "count" not in slots:
+            raise ValueError("GrandPy object must have a count slot.")
 
-        self.adata = ad.AnnData(
-            X = sp.csr_matrix(np.zeros(shape=(coldata.shape[0], gene_info.shape[0]))),
-            obs = pd.DataFrame(coldata),
-            var = pd.DataFrame(gene_info),
+        self._adata = ad.AnnData(
+            X = slots["count"],
+            obs = coldata,
+            var = gene_info,
         )
+        self._is_sparse = True if isinstance(slots.get("count"), sp.csr_matrix) else False
 
         self._initialize_slots(slots)
-        self._initialize_uns_data(prefix, metadata, analyses, plots, parent)
+        self._initialize_uns_data(prefix, metadata, analyses, plots)
         self._ensure_no4sU_column()
 
     def _initialize_slots(self, slots=None):
         if slots is not None:                                                                                           # musste es etwas anpassen, damit check_mode_slot() funktionieren kann, denn ntr etc. werden eig als dict übergeben
             for key, matrix in slots.items():
-                self._check_shape(key, matrix)
-                self.adata.layers[key] = matrix
-
-    # Namen werden und können aktuell nicht überprüft werden
-    def _check_shape(self, name, slot):
-        row_is, column_is = slot.shape
-        row_should, column_should = self.adata.shape
-        if row_is != row_should:
-            raise ValueError(f"Number of rows do not match the data for the {name} Matrix!")
-        if column_is != column_should:
-            raise ValueError(f"Number of columns do not match the data for the {name} Matrix!")
+                self._adata.layers[key] = matrix
 
     def _initialize_uns_data(self, prefix, metadata, analyses, plots, parent=None):
-        self.adata.uns['prefix'] = prefix if prefix is not None else parent.adata.uns.get('prefix') if parent is not None else None
-        self.adata.uns['metadata'] = metadata if metadata is not None else parent.adata.uns.get('metadata') if parent is not None else None
-        self.adata.uns['analyses'] = analyses
-        self.adata.uns['plots'] = plots
+        self._adata.uns['prefix'] = prefix if prefix is not None else parent.adata.uns.get('prefix') if parent is not None else None
+        self._adata.uns['metadata'] = metadata if metadata is not None else parent.adata.uns.get('metadata') if parent is not None else None
+        self._adata.uns['analyses'] = analyses
+        self._adata.uns['plots'] = plots
 
     def _ensure_no4sU_column(self):
-        if 'no4sU' not in self.adata.obs.columns:
+        if 'no4sU' not in self._adata.obs.columns:
             warnings.warn("No no4sU entry in coldata, assuming all samples/cells as 4sU treated!")
-            self.adata.obs["no4sU"] = False
+            self._adata.obs["no4sU"] = False
 
 
     def __str__(self):
         return (
             f"GrandPy:\n"
-            f"Read from {self.adata.uns.get('prefix', 'Unknown')}\n"
-            f"{self.adata.n_vars} genes, {self.adata.n_obs} samples/cells\n"
-            f"Available data slots: {', '.join(self.adata.layers.keys()) or {} or 'None'}\n"
-            f"Available analyses: {', '.join(self.adata.uns.get('analyses') or {}) or 'None'}\n"
-            f"Available plots: {', '.join(self.adata.uns.get('plots') or {}) or 'None'}\n"
-            f"Default data slot: {self.adata.uns['metadata'].get('default_slot', None)}\n"
+            f"Read from {self._adata.uns.get('prefix', 'Unknown')}\n"
+            f"{self._adata.n_vars} genes, {self._adata.n_obs} samples/cells\n"
+            f"Available data slots: {', '.join(self._adata.layers.keys()) or {} or 'None'}\n"
+            f"Available analyses: {', '.join(self._adata.uns.get('analyses') or {}) or 'None'}\n"
+            f"Available plots: {', '.join(self._adata.uns.get('plots') or {}) or 'None'}\n"
+            f"Default data slot: {self._adata.uns['metadata'].get('default_slot', None)}\n"
+        )
+
+    def _replace(self, adata: ad.AnnData) -> 'GrandPy':
+        def _safe_copy(obj):
+            return obj.copy() if obj is not None else None
+
+        return self.__class__(
+            prefix = adata.uns.get('prefix'),
+            gene_info = _safe_copy(adata.var),
+            coldata = _safe_copy(adata.obs),
+            slots = {**adata.layers},
+            metadata = _safe_copy(adata.uns.get("metadata",)),
+            analyses = _safe_copy(adata.uns.get("analyses")),
+            plots = _safe_copy(adata.uns.get("plots"))
         )
 
 
+    @property
     def title(self) -> str:
         """
         Get a title for the GrandPy object
@@ -121,30 +120,17 @@ class GrandPy:
         str
             A title consisting of the filename in `prefix`.
         """
-        prefix = self.adata.uns.get('prefix')
+        prefix = self._adata.uns.get('prefix')
         if prefix is None:
             raise KeyError("Title not available. Please specify a prefix when initializing the GrandPy object")
         else:
             x = prefix.split('/')
             return x[-1]
 
-    def is_sparse(self) -> bool:
+    @property
+    def shape(self) -> tuple[int]:
         """
-        Checks if the data is stored in sparse format.
-
-        Parameters
-        ----------
-
-        Returns
-        -------
-        bool
-            True if the data is stored in sparse format, False otherwise.
-        """
-        return isinstance(self.adata.layers["count"], sp.csr_matrix)
-
-    def dim(self) -> tuple[int]:
-        """
-        Get the dimension of the data.
+        Get the dimension of the data(slots).
 
         Parameters
         ----------
@@ -154,9 +140,10 @@ class GrandPy:
         tuple
             Dimension of the data.
         """
-        return self.adata.X.shape
+        return self._adata.X.shape
 
-    def dim_names(self) -> tuple[list[str]]:
+    @property
+    def dim_names(self) -> tuple[list[str], list[str]]:
         """
         Get the column and row names of the data.
 
@@ -169,31 +156,35 @@ class GrandPy:
             Two lists containing the column and row names.
 
         """
-        column_names = self.adata.obs["Name"].tolist()
-        row_names = self.adata.var["Gene"].tolist()
-        return column_names, row_names
+        row_names = self._adata.obs_names.tolist()
+        column_names = self._adata.var_names.tolist()
+        return row_names, column_names
 
-    def default_slot(self, value=None) -> Any:
+    @property
+    def default_slot(self) -> str:
+        return self._adata.uns.get('metadata').get('default_slot')
+
+    def with_default_slot(self, value) -> "GrandPy":
         """
-        Get or set the default slot.
+        Returns a copy of the GrandPy object with the default slot set to `value`.
 
         Parameters
         ----------
         value: str
-            If provided, sets the default slot to this value.
+            Sets the default slot to this value.
 
         Returns
         -------
-        str or "GrandPy"
-            If `value` is None, returns the default slot. Otherwise, returns the GrandPy object with the new default slot.
+        "GrandPy"
+            Returns the GrandPy object with the new default slot.
 
         """
-        if value is None:
-            return self.adata.uns.get('metadata').get('default_slot')
-        else:
-            assert value in self.adata.layers.keys(), "Trying to set a default_slot that is not an available slot"
-            self.adata.uns['metadata']['default_slot'] = value
-            return self
+        assert value in self._adata.layers.keys(), "Trying to set a default_slot that is not an available slot"
+
+        new_adata = self._adata.copy()
+        new_adata.uns['metadata']['default_slot'] = value
+
+        return self._replace(new_adata)
 
     def slots(self) -> list[str]:
         """
@@ -207,7 +198,7 @@ class GrandPy:
         list
             Names of all slots
         """
-        return list(self.adata.layers.keys())
+        return list(self._adata.layers.keys())
 
     def drop_slot(self, slot_pattern) -> "GrandPy":
         """
@@ -225,14 +216,14 @@ class GrandPy:
         """
         pattern = [slot_pattern] if isinstance(slot_pattern, str) else slot_pattern
 
-        keep_keys = [key for key in self.adata.layers.keys() if key not in pattern]
+        keep_keys = [key for key in self._adata.layers.keys() if key not in pattern]
         if not keep_keys:
             raise ValueError("Cannot drop all slots!")
 
         if self.default_slot() not in keep_keys:
-            self.adata.uns['metadata']['default_slot'] = keep_keys[0]
+            self._adata.uns['metadata']['default_slot'] = keep_keys[0]
 
-        self.adata.layers = {k: self.adata.layers[k] for k in keep_keys}
+        self._adata.layers = {k: self._adata.layers[k] for k in keep_keys}
         return self
 
     def add_slot(self, name, matrix, set_to_default = False):
@@ -252,7 +243,7 @@ class GrandPy:
         -------
 
         """
-        if name in self.adata.layers.keys():
+        if name in self._adata.layers.keys():
             raise ValueError(f"Slot '{name}' already exists. Please choose a different name.")
 
         if self.is_sparse():
@@ -262,10 +253,10 @@ class GrandPy:
 
         self._check_shape(name, matrix)
 
-        self.adata.layers[name] = matrix
+        self._adata.layers[name] = matrix
 
         if set_to_default:
-            self.adata.uns['metadata']['default_slot'] = name
+            self._adata.uns['metadata']['default_slot'] = name
 
         return self
 
@@ -305,14 +296,14 @@ class GrandPy:
         -------
 
         """
-        coldata = self.adata.obs
+        coldata = self._adata.obs
         if value is None:
             return coldata['Condition'].tolist()
         else:
             value = [value] if isinstance(value, str) else value
             if all(v in coldata.columns for v in value):
                 # Warum existiert diese if Klausel?
-                self.adata.obs['Condition'] = coldata[value].astype(str).agg(" ".join, axis=1)
+                self._adata.obs['Condition'] = coldata[value].astype(str).agg(" ".join, axis=1)
             else:
                 # if len(value) == 1:
                 #     value = value * len(coldata.index)
@@ -322,7 +313,7 @@ class GrandPy:
                     raise ValueError(
                         f"Number of values ({len(value)}) does not match number of samples ({len(coldata.index)})")
 
-                self.adata.obs['Condition'] = pd.Series(value, index=coldata.index)
+                self._adata.obs['Condition'] = pd.Series(value, index=coldata.index)
 
             return self
 
@@ -338,7 +329,7 @@ class GrandPy:
         dict
             Metadata
         """
-        return self.adata.uns.get('metadata')
+        return self._adata.uns.get('metadata')
 
     def gene_info(self, column=None, value=None):
         """
@@ -351,9 +342,9 @@ class GrandPy:
 
         """
         if column is None:
-            return self.adata.var
+            return self._adata.var
         elif value is None:
-            return pd.Series(self.adata.var[column].values, index=self.adata.var["Symbol"])
+            return pd.Series(self._adata.var[column].values, index=self._adata.var["Symbol"])
         else:
             ...
 
@@ -368,14 +359,14 @@ class GrandPy:
 
         """
         new_slots = {}
-        for key in self.adata.layers.keys():
-            new_slots[key] = function(self.adata.layers[key], **kwargs)
+        for key in self._adata.layers.keys():
+            new_slots[key] = function(self._adata.layers[key], **kwargs)
 
-        new_gene_info = function_gene_info(self.adata.var, **kwargs) if function_gene_info is not None else None
-        new_coldata = function_coldata(self.adata.obs, **kwargs) if function_coldata is not None else None
+        new_gene_info = function_gene_info(self._adata.var, **kwargs) if function_gene_info is not None else None
+        new_coldata = function_coldata(self._adata.obs, **kwargs) if function_coldata is not None else None
         new_analyses = None
 
-        if self.adata.uns['analyses'] is not None:
+        if self._adata.uns['analyses'] is not None:
             ...
 
         return GrandPy(gene_info=new_gene_info, slots=new_slots, coldata=new_coldata, parent=self)
@@ -390,13 +381,13 @@ class GrandPy:
         -------
 
         """
-        obs = self.adata.obs
+        obs = self._adata.obs
         if column is None:
             return obs
 
         elif isinstance(column, (pd.DataFrame, pd.Series)):
             try:
-                self.adata.obs = pd.concat([obs, column], axis=1)
+                self._adata.obs = pd.concat([obs, column], axis=1)
                 return self
             except ValueError as e:
                 raise ValueError(f"Error concatenating column to coldata: {str(e)}")
@@ -419,13 +410,13 @@ class GrandPy:
                 
                 try:
                     if value.index.equals(obs.index):
-                        self.adata.obs[column] = value
+                        self._adata.obs[column] = value
                     else:
-                        self.adata.obs.loc[value.index, column] = value
+                        self._adata.obs.loc[value.index, column] = value
                 except Exception as e:
                     raise ValueError(f"Error setting the values: {str(e)}")
             else:
-                self.adata.obs[column] = value
+                self._adata.obs[column] = value
             
             return self
         else:
@@ -453,10 +444,10 @@ class GrandPy:
         column = "Symbol" if use_gene_symbols else "Gene"
 
         if genes is None:
-            return self.adata.var[column]
+            return self._adata.var[column]
 
         indices = self.get_index(genes, regex=regex)
-        return self.adata.var.iloc[indices][column]
+        return self._adata.var.iloc[indices][column]
 
     def columns(self, columns=None, reorder=False):
         """
@@ -468,7 +459,7 @@ class GrandPy:
         -------
 
         """
-        column_data = self.adata.obs
+        column_data = self._adata.obs
         if columns is None:  # Wenn keine Auswahl angegeben ist: alle Zellnamen zurückgeben
             result = list(column_data["Name"])
 
@@ -509,7 +500,7 @@ class GrandPy:
             All indices or the specified indices.
 
         """
-        gene_info = self.adata.var
+        gene_info = self._adata.var
         index = gene_info.index
 
         if isinstance(gene, (list, tuple, pd.Series, np.ndarray)) and any(pd.isna(gene)):
@@ -564,12 +555,12 @@ class GrandPy:
         return mapping.loc[found].tolist()
 
     def _check_slot(self, slot_name):
-        if slot_name in self.adata.layers and slot_name not in self.adata.uns.get("mode_layers", {}):
+        if slot_name in self._adata.layers and slot_name not in self._adata.uns.get("mode_layers", {}):
             return True
         raise KeyError(f"Slot '{slot_name}' not found.")
 
     def _check_mode_slot(self, slot_name, mode):
-        slot = self.adata.uns.get("mode_layers", {}).get(slot_name)
+        slot = self._adata.uns.get("mode_layers", {}).get(slot_name)
         if isinstance(slot, dict) and mode in slot:
             return True
         raise KeyError(f"Mode-Slot '{slot_name}' with mode '{mode}' not found.")
