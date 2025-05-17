@@ -32,7 +32,8 @@ def read_grand(file_path, design = ("Condition", "Time", "Replicate"), default_s
         for key, suffix in slot_suffix.items()
     }
 
-    gene_info = data[["Gene", "Length"]].copy()
+    gene_info = data[["Gene","Symbol", "Length"]].copy()
+    gene_info.index = gene_info["Symbol"].astype(str)
 
     # gene_info["Type"] = np.where(gene_info["Symbol"].str.startswith("MT-"), "mito", "Cellular")                       # Ermöglicht eine grobe Einteilung, uns fehlt die classify_genes Funktion.
     # Habe es mal formal wie in R doch erweitert: teil die Zelltypen genauer ein:

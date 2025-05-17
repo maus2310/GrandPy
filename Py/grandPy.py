@@ -66,7 +66,7 @@ class GrandPy:
         self._ensure_no4sU_column()
 
     def _initialize_slots(self, slots=None):
-        if slots is not None:                                                                                           # musste es etwas anpassen, damit check_mode_slot() funktionieren kann, denn ntr etc. werden eig als dict übergeben
+        if slots is not None:
             for key, matrix in slots.items():
                 self._adata.layers[key] = matrix
 
@@ -187,6 +187,7 @@ class GrandPy:
 
         return self._replace(new_adata)
 
+    @property
     def slots(self) -> list[str]:
         """
         Get the names of available data slots.
@@ -196,7 +197,7 @@ class GrandPy:
 
         Returns
         -------
-        list
+        list of str
             Names of all slots
         """
         return list(self._adata.layers.keys())
@@ -221,11 +222,41 @@ class GrandPy:
         if not keep_keys:
             raise ValueError("Cannot drop all slots!")
 
-        if self.default_slot() not in keep_keys:
+        if self.default_slot not in keep_keys:
             self._adata.uns['metadata']['default_slot'] = keep_keys[0]
 
         self._adata.layers = {k: self._adata.layers[k] for k in keep_keys}
         return self
+
+    def with_dropped_slots(self, slots_to_remove: str | list[str]) -> "GrandPy":
+        """
+        Return a new GrandPy object with specified slot(s) removed.
+
+        Parameters
+        ----------
+        slots_to_remove: str or list of str
+            One or more slots to remove from the data.
+
+        Returns
+        ----------
+        GrandPy
+            A new GrandPy object with specified slot(s) removed.
+        """
+
+        to_remove = [slots_to_remove] if isinstance(slots_to_remove, str) else slots_to_remove
+        current_slots = list(self._adata.layers.keys())
+        remaining = [s for s in current_slots if s not in to_remove]
+
+        if not remaining:
+            raise ValueError("Cannot drop all slots - at least one must remain.")
+
+        new_adata = self._adata.copy()
+        new_adata.layers = {k: self._adata.layers[k] for k in remaining}
+
+        if self.default_slot in to_remove:
+            new_adata.uns['metadata']['default_slot'] = remaining[0]
+
+        return self._replace(new_adata)
 
     def add_slot(self, name, matrix, set_to_default = False):
         """
@@ -351,14 +382,24 @@ class GrandPy:
             ...
 
     # TODO apply() vervollständigen
-    def apply(self, function, function_gene_info=None, function_coldata=None, **kwargs):
+    def apply(self, function, function_gene_info=None, function_coldata=None, **kwargs) -> "GrandPy":
         """
-
+        Apply a function to all slots, gene_info and/or coldata.
         Parameters
         ----------
+        function:
+            Function to apply to each data slat (receives each matrix individually).
+        function_gene_info:
+            Function to apply to the gene_info DataFrame.
+        function_coldata:
+            Function to apply to the coldata DataFrame.
+        **kwargs:
+            Additional keyword arguments to pass to the function.
 
         Returns
         -------
+        GrandPy
+            New GrandPy object with transformed data.
 
         """
         new_slots = {}
@@ -394,23 +435,23 @@ class GrandPy:
                 return self
             except ValueError as e:
                 raise ValueError(f"Error concatenating column to coldata: {str(e)}")
-            
+
         elif isinstance(column, str) and value is None:
             if column not in obs:
                 raise KeyError(f"Column '{column}' not found in coldata")
             return obs[column]
-        
+
         elif isinstance(column, str) and value is not None:
             if isinstance(value, (list, np.ndarray)) and len(value) == len(obs):
                 value = pd.Series(value, index=obs.index)
-            
+
             if isinstance(value, pd.Series):
                 # Effizientere Überprüfung der Indices
                 missing_indices = set(value.index) - set(obs.index)
                 if missing_indices:
                     raise ValueError(f"Missing indices coldata: {', '.join(map(str, list(missing_indices)[:5]))}"
-                                   f"{' ...' if len(missing_indices) > 5 else ''}")
-                
+                                     f"{' ...' if len(missing_indices) > 5 else ''}")
+
                 try:
                     if value.index.equals(obs.index):
                         self._adata.obs[column] = value
@@ -420,7 +461,7 @@ class GrandPy:
                     raise ValueError(f"Error setting the values: {str(e)}")
             else:
                 self._adata.obs[column] = value
-            
+
             return self
         else:
             raise ValueError("Argument combination not valid for coldata()")
@@ -557,16 +598,67 @@ class GrandPy:
 
         return mapping.loc[found].tolist()
 
-    def _check_slot(self, slot_name):
-        if slot_name in self._adata.layers and slot_name not in self._adata.uns.get("mode_layers", {}):
-            return True
-        raise KeyError(f"Slot '{slot_name}' not found.")
+    def _check_slot(self, slot_name) -> bool:
+        """
+        Check wether a given slot exists in the GrandPy object.
+        Parameters
+        ----------
+        slot_name : str
+            The name of the slot to check.
+
+        Returns
+        ----------
+        bool
+            True if the slot exists, False otherwise.
+        """
+        if slot_name not in self._adata.layers:
+            raise KeyError(f"Slot '{slot_name}' not found.")
+        return True
 
     def _check_mode_slot(self, slot_name, mode):
         slot = self._adata.uns.get("mode_layers", {}).get(slot_name)
         if isinstance(slot, dict) and mode in slot:
             return True
         raise KeyError(f"Mode-Slot '{slot_name}' with mode '{mode}' not found.")
+
+    def _parse_mode_slot(self, slot, mode=None, check=True) -> str:
+        """
+        Resolve a mode-specific slot name.
+
+        Parameters
+        -----------
+        slot : str
+            Base slot name (e.g. "ntr").
+        mode : str
+            Mode name (e.g. "MAP"). If None, returns the base slot name.
+        check : bool
+            If True, raises KeyError if the resolved slot does not exist.
+
+        Returns
+        -----------
+        str
+            The resolved slot name (e.g. "ntr_MAP" or "ntr").
+        """
+
+        if mode is None:
+            if check:
+                self._check_slot(slot)
+            return slot
+
+        mode_slots = self._adata.uns.get("mode_layers", {})
+
+        if slot not in mode_slots or not isinstance(mode_slots[slot], dict):
+            raise KeyError(f"Slot '{slot}' does not support modes.")
+
+        resolved = mode_slots[slot].get(mode)
+        if resolved is None:
+            raise KeyError(f"Mode '{mode}' does not resolve to '{slot}'.")
+
+        if check:
+            self._check_slot(resolved)
+
+        return resolved
+
 
 def _to_sparse(matrix):
     """

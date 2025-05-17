@@ -1,47 +1,90 @@
 """
-Loading data and working with grandPy objects
+Vignette: Loading Data into GrandPy
 
-Throughout this vignette, we will be using the GRAND-SLAM processed SLAM-seq
-data set from Finkel et al. 2021 https://www.nature.com/articles/s41586-021-03610-3).
-The data set contains time series (progressive labeling) samples from a human
-epithelial cell line (Calu3 cells); half of the samples were infected with SARS-CoV-2
-for different periods of time.
-
-The output of GRAND-SLAM is a tsv file where rows are genes and columns are read counts
-and other statistics (e.g., the new-to-total RNA ratio) for all samples.
-The data set is available on zenodo (“https://zenodo.org/record/5834034/files/sars.tsv.gz”).
-We start by reading this file into Python:
+This tutorial shows how to load count data (from GRAND-SLAM 2.0) into the GrandPy framework.
+We follow the example from the original grandR tutorial: https://grandr.erhard-lab.de/articles/web/loading-data.html
 """
 
-import pandas as pd
-import numpy as np
 from Py.load import read_grand
 
-# ------------------------------------------------------------------------------------------
-# 1. specify file path
+# ------------------------------------------------------------
+# Step 1: Define file path to the count matrix
+# ------------------------------------------------------------
+
+# Example file: download this from https://zenodo.org/record/5834034
 file_path = "../data/sars.tsv"
 
-# ------------------------------------------------------------------------------------------
-# 2. read data
-gp = read_grand(file_path)
+# ------------------------------------------------------------
+# Step 2: Load the data using read_grand()
+# ------------------------------------------------------------
 
-# ------------------------------------------------------------------------------------------
-# 3. print out the grandPy Object
-print(gp) # outputs the number of genes, samples, slots, metadata etc.
+# sars.tsv contains data from 10 samples, split by Condition, Time, and Replicate
+gp = read_grand(file_path, design=("Condition", "Time", "Replicate"))
 
-# ------------------------------------------------------------------------------------------
-# Examples (work in progress)
-# 4. check whether certain slots are available
-try:
-    gp.check_mode_slot("ntr", "raw")
-    print("Slot 'ntr' contains the mode 'raw")
-except Exception as e:
-    print(f"{e}")
+# ------------------------------------------------------------
+# Step 3: Overview of the loaded GrandPy object
+# ------------------------------------------------------------
 
-# ------------------------------------------------------------------------------------------
-# 5. print out Gen-Symbols, sample-names,
-print("the first 5 genes: ", gp.adata.var["Symbol"].head().tolist())
-print("Samples: ", gp.adata.obs["Name"].tolist())
-print("Gen-types: ", gp.adata.var["Type"].value_counts())
+print(gp)
 
-# plots in progress
+# ------------------------------------------------------------
+# Step 4: Inspect coldata (sample metadata)
+# ------------------------------------------------------------
+
+print("Sample Metadata (coldata):")
+print(gp.coldata().head())
+
+# Example: list all samples treated with 4sU
+print("Samples with 4sU treatment:")
+print(gp.coldata().index[~gp.coldata()["no4sU"]].tolist())
+
+# ------------------------------------------------------------
+# Step 5: Inspect gene_info (gene metadata)
+# ------------------------------------------------------------
+
+print("Gene Metadata (gene_info):")
+print(gp.gene_info().head())
+
+# Count gene types
+print("Distribution of gene types:")
+print(gp.gene_info()["Type"].value_counts())
+
+# ------------------------------------------------------------
+# Step 6: Inspect data slots
+# ------------------------------------------------------------
+
+print("Available data slots:")
+print(gp.slots)
+
+# Check shape of count matrix
+print("Shape of count matrix:")
+print(gp.shape)                             # (samples, genes)
+
+# ------------------------------------------------------------
+# Step 7: Expression of a specific gene
+# ------------------------------------------------------------
+
+gene = "GAPDH"                              # random
+gene_idx = list(gp.gene_info()["Symbol"]).index(gene)
+counts = gp._adata.layers["count"]
+
+print(f'Expression values for {gene}:')
+print(counts[:, gene_idx])
+
+# ------------------------------------------------------------
+# Step 8: Visualize expression across conditions
+# ------------------------------------------------------------
+
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+df_plot = gp.coldata().copy()
+df_plot["expression"] = counts[:, gene_idx]
+
+plt.figure(figsize=(6, 4))
+sns.boxplot(x="Condition", y="expression", data=df_plot)
+plt.title(f"Expression of {gene}")
+plt.show()
+
+# the boxplot shows the expression of the gene "GAPH"
+# comparison between the conditions "Mock" and "Sars"
