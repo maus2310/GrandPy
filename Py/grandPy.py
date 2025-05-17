@@ -42,7 +42,8 @@ class GrandPy:
                  slots: dict = None,
                  metadata: dict = None,
                  analyses = None,
-                 plots = None):
+                 plots = None,
+                 parent: ad.AnnData = None):
 
         if gene_info is None:
             raise ValueError("GrandPy object must have gene_info.")
@@ -285,7 +286,7 @@ class GrandPy:
 
         return matrix
 
-    # Hab mich noch nicht entschieden, wie sich die Funktion verhalten soll
+    # TODO condition(): Sich für das genaue Verhalten der Funktion entscheiden
     def condition(self, value=None) -> Any:
         """
 
@@ -331,6 +332,7 @@ class GrandPy:
         """
         return self._adata.uns.get('metadata')
 
+    # TODO gene_info() vervollständigen
     def gene_info(self, column=None, value=None):
         """
 
@@ -348,6 +350,7 @@ class GrandPy:
         else:
             ...
 
+    # TODO apply() vervollständigen
     def apply(self, function, function_gene_info=None, function_coldata=None, **kwargs):
         """
 
