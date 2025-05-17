@@ -32,13 +32,15 @@ def read_grand(file_path, design = ("Condition", "Time", "Replicate"), default_s
         for key, suffix in slot_suffix.items()
     }
 
-    gene_info = data[["Gene", "Symbol", "Length"]].copy()
+    gene_info = data[["Gene", "Length"]].copy()
+
     # gene_info["Type"] = np.where(gene_info["Symbol"].str.startswith("MT-"), "mito", "Cellular")                       # Ermöglicht eine grobe Einteilung, uns fehlt die classify_genes Funktion.
     # Habe es mal formal wie in R doch erweitert: teil die Zelltypen genauer ein:
     gene_info["Type"] = "Unknown"
-    gene_info.loc[gene_info["Symbol"].str.startswith("MT-"), "Type"] = "mito"
+    # gene_info.loc[gene_info["Symbol"].str.startswith("MT-"), "Type"] = "mito"
     gene_info.loc[gene_info["Gene"].str.contains("ERCC-"), "Type"] = "ERCC"
     gene_info.loc[gene_info["Gene"].str.match(r"^ENS.*G\d+$"), "Type"] = "Cellular"
+    gene_info.index = data["Symbol"].values
 
     matrices = {}
     for key in slot_suffix.keys():
@@ -66,7 +68,7 @@ def read_grand(file_path, design = ("Condition", "Time", "Replicate"), default_s
                                columns=design,
                                index=np.arange(len(sample_names))
                                )
-    design_data.insert(0, "Name",sample_names)
+    design_data.index = sample_names
     design_data["no4sU"] = design_data["Time"].isin(["no4sU", "no4sU", "-"])                                            # Default
 
     coldata = design_data
@@ -113,7 +115,7 @@ def read_grand(file_path, design = ("Condition", "Time", "Replicate"), default_s
 # print(type_counts)                                                                                                    # Ausgabe
 
 def gene_type_counts(grandpy_obj):                                                                                      # Funktion für Gruppierung nach Zelltypen (brauchen wir die noch? Ich hab etwas den Überblick verloren)
-    return grandpy_obj.adata.var["Type"].value_counts()
+    return grandpy_obj._adata.var["Type"].value_counts()
 
 # Beispielanwendung für die Verwendung von gene_type_counts - Gruppieren und zählen nach Zelltypen
 # grandpy_obj = new_gp_object
