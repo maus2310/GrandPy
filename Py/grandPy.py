@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import anndata as ad
 import scipy.sparse as sp
-from pandas import Series
+from pandas import Series, DataFrame
 
 
 class GrandPy:
@@ -415,24 +415,35 @@ class GrandPy:
 
         return GrandPy(gene_info=new_gene_info, slots=new_slots, coldata=new_coldata, parent=self)
 
-    def coldata(self, column=None, value=None):
+    @property
+    def coldata(self) -> pd.DataFrame:
+        return self._adata.obs
+
+    def with_coldata(self, column, value=None) -> "GrandPy":
         """
+            Return a new object with modified coldata.
 
-        Parameters
-        ----------
+            Parameters
+            ----------
+            column : str, Series, or DataFrame
+                If str and value is None, returns the specified column.
+                If str and value is given, sets or updates the column with the given values.
+                If DataFrame or Series, concatenates the new columns to the existing coldata.
+            value : optional
+                The values to assign to the column, can be list, array, or Series.
 
-        Returns
-        -------
-
+            Returns
+            -------
+            GrandPy
+                A new GrandPy object with updated coldata.
         """
-        obs = self._adata.obs
-        if column is None:
-            return obs
+        obs = self._adata.obs.copy()
+        new_adata = self._adata.copy()
 
-        elif isinstance(column, (pd.DataFrame, pd.Series)):
+        if isinstance(column, (pd.DataFrame, pd.Series)):
             try:
-                self._adata.obs = pd.concat([obs, column], axis=1)
-                return self
+                new_obs = pd.concat([obs, column], axis=1)
+                new_adata.obs = new_obs
             except ValueError as e:
                 raise ValueError(f"Error concatenating column to coldata: {str(e)}")
 
@@ -454,17 +465,18 @@ class GrandPy:
 
                 try:
                     if value.index.equals(obs.index):
-                        self._adata.obs[column] = value
+                        obs[column] = value
                     else:
-                        self._adata.obs.loc[value.index, column] = value
+                        obs.loc[value.index, column] = value
                 except Exception as e:
                     raise ValueError(f"Error setting the values: {str(e)}")
             else:
-                self._adata.obs[column] = value
+                obs[column] = value
 
-            return self
+            new_adata.obs = obs
         else:
             raise ValueError("Argument combination not valid for coldata()")
+        return self._replace(new_adata)
 
     def genes(self, genes: str|list[str] = None, use_gene_symbols: bool = True, regex: bool = False) -> Series:
         """
