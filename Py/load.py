@@ -41,7 +41,7 @@ def read_grand(file_path, design = ("Condition", "Time", "Replicate"), default_s
     # gene_info.loc[gene_info["Symbol"].str.startswith("MT-"), "Type"] = "mito"
     gene_info.loc[gene_info["Gene"].str.contains("ERCC-"), "Type"] = "ERCC"
     gene_info.loc[gene_info["Gene"].str.match(r"^ENS.*G\d+$"), "Type"] = "Cellular"
-    gene_info.index = data["Symbol"].values
+    gene_info.index = data["Symbol"]
 
     matrices = {}
     for key in slot_suffix.keys():
@@ -70,13 +70,11 @@ def read_grand(file_path, design = ("Condition", "Time", "Replicate"), default_s
                                index=np.arange(len(sample_names))
                                )
     design_data.index = sample_names
+    design_data.index.name = "Name"
     design_data["no4sU"] = design_data["Time"].isin(["no4sU", "no4sU", "-"])                                            # Default
 
     coldata = design_data
 
-    # adata will Index als Strings(sonst kommt die Warnung: Transforming to str index)
-    gene_info.index = gene_info.index.astype(str)
-    coldata.index = coldata.index.astype(str)
 
     metadata = {
         "Description": "count data",
