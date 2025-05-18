@@ -348,7 +348,7 @@ class GrandPy:
                 self._adata.obs['Condition'] = pd.Series(value, index=coldata.index)
 
             return self
-
+    @property
     def metadata(self) -> dict:
         """
         Get the metadata.
@@ -505,33 +505,44 @@ class GrandPy:
         indices = self.get_index(genes, regex=regex)
         return self._adata.var.iloc[indices][column]
 
-    def columns(self, columns=None, reorder=False):
+    @property
+    def columns(self, columns=None, reorder=False) -> list[str]:
         """
+        Return a list of cell/sample names based on selection criteria.
 
         Parameters
         ----------
+        columns : str or list-like or None
+            - If None: returns all sample names.
+            - If str: interpreted as a query string (e.g., "Condition == 'Mock'").
+            - If list-like: filters the sample names using the provided values.
+        reorder : bool, default False
+            - If False: preserves original dataset order.
+            - If True: returns names in the order they appear in `columns`.
 
         Returns
         -------
-
-        """
+        list of str
+            List of sample names(index) in coldata.
+    """
         column_data = self._adata.obs
+
         if columns is None:  # Wenn keine Auswahl angegeben ist: alle Zellnamen zurückgeben
-            result = list(column_data["Name"])
+            result = list(column_data.index)
 
         elif isinstance(columns, str):  # Wenn eine Bedingung als String angegeben ist (wie "condition == 'Mock'")
             try:
-                result = list(column_data.query(columns)["Name"])
+                result = list(column_data.query(columns).index)
             except Exception as e:
                 raise ValueError(f"Invalid query string for columns: {e}")
 
         elif isinstance(columns, (list, tuple, np.ndarray, pd.Index)):  # Wenn direkt eine Liste oder ein Array mit Zellnamen übergeben wird
             selected_names = list(map(str, columns))
-            result = [name for name in selected_names if name in column_data["Name"].values]
+            result = [idx for idx in selected_names if idx in column_data.index.values]
         else:
             raise ValueError("Invalid argument combination for columns.")
 
-        result = result if reorder else [name for name in column_data["Name"] if name in result]  # Gib Zellnamen in Originalreihenfolge zurück (wie in column_data.index), wenn reorder False
+        result = result if reorder else [idx for idx in column_data.index if idx in result]  # Gib Zellnamen in Originalreihenfolge zurück (wie in column_data.index), wenn reorder False
 
         return result
 
