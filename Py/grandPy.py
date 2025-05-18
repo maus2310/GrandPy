@@ -1,6 +1,5 @@
 import warnings
 from typing import Any
-from unittest.mock import PropertyMock
 
 import numpy as np
 import pandas as pd
@@ -253,12 +252,10 @@ class GrandPy:
         if name in self._adata.layers.keys():
             raise ValueError(f"Slot '{name}' already exists. Please choose a different name.")
 
-        if self.is_sparse():
+        if self._is_sparse:
             matrix = _to_sparse(matrix)
         else:
             matrix = self._validate_and_convert_new_data(matrix)
-
-        self._check_shape(name, matrix)
 
         self._adata.layers[name] = matrix
 
@@ -420,7 +417,7 @@ class GrandPy:
         return GrandPy(gene_info=new_gene_info, slots=new_slots, coldata=new_coldata, parent=self)
 
     @property
-    def coldata(self):
+    def coldata(self) -> pd.DataFrame:
         """
         Get the coldata DataFrame.
 
@@ -434,26 +431,31 @@ class GrandPy:
         """
         return self._adata.obs
 
-    def with_coldata(self, column=None, value=None):
-        #Property von coldata haben wir definiert (brauchten deis für Columns Funktion gerade)
-        # Rest der Funktion fehlt aber noch bzw. muss noch umgeschireben werden.
+    def with_coldata(self, column, value=None) -> "GrandPy":
         """
+            Return a new object with modified coldata.
 
-        Parameters
-        ----------
+            Parameters
+            ----------
+            column : str, Series, or DataFrame
+                If str and value is None, returns the specified column.
+                If str and value is given, sets or updates the column with the given values.
+                If DataFrame or Series, concatenates the new columns to the existing coldata.
+            value : optional
+                The values to assign to the column, can be list, array, or Series.
 
-        Returns
-        -------
-
+            Returns
+            -------
+            GrandPy
+                A new GrandPy object with updated coldata.
         """
-        obs = self._adata.obs
-        if column is None:
-            return obs
+        obs = self._adata.obs.copy()
+        new_adata = self._adata.copy()
 
-        elif isinstance(column, (pd.DataFrame, pd.Series)):
+        if isinstance(column, (pd.DataFrame, pd.Series)):
             try:
-                self._adata.obs = pd.concat([obs, column], axis=1)
-                return self
+                new_obs = pd.concat([obs, column], axis=1)
+                new_adata.obs = new_obs
             except ValueError as e:
                 raise ValueError(f"Error concatenating column to coldata: {str(e)}")
 
@@ -475,17 +477,19 @@ class GrandPy:
 
                 try:
                     if value.index.equals(obs.index):
-                        self._adata.obs[column] = value
+                        obs[column] = value
                     else:
-                        self._adata.obs.loc[value.index, column] = value
+                        obs.loc[value.index, column] = value
                 except Exception as e:
                     raise ValueError(f"Error setting the values: {str(e)}")
             else:
-                self._adata.obs[column] = value
+                obs[column] = value
 
-            return self
+            new_adata.obs = obs
         else:
             raise ValueError("Argument combination not valid for coldata()")
+        return self._replace(new_adata)
+
 
     @property
     def genes(self) -> list[str]:
