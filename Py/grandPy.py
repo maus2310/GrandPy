@@ -427,14 +427,14 @@ class GrandPy:
         """
         return self._adata.var.index.tolist()
 
-    def get_genes(self, genes: str|list[str]|int|list[int] = None,*, use_gene_symbols: bool = True, regex: bool = False) -> list[str]:
+    def get_genes(self, genes: str|list[str]|int|list[int]|list[bool] = None,*, use_gene_symbols: bool = True, regex: bool = False) -> list[str]:
         """
-        Get gene names or symbols, either by their index, their name or a regex.\n
+        Get gene names or symbols. Either by their index, their name, a boolean mask, or a regex.\n
         If no genes are specified, all genes are returned.
 
         Parameters
         ----------
-        genes: str|list[str]|int|list[int]
+        genes: str|list[str]|int|list[int]|list[bool]
             Genes to be retrieved.
         use_gene_symbols: bool
             If True, gene symbols will be returned. Otherwise, gene names will be returned.
