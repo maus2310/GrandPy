@@ -4,7 +4,6 @@ import numpy as np
 import pandas as pd
 import anndata as ad
 import scipy.sparse as sp
-from pandas import Series, DataFrame
 
 
 class GrandPy:
@@ -42,8 +41,7 @@ class GrandPy:
                  slots: dict = None,
                  metadata: dict = None,
                  analyses = None,
-                 plots = None,
-                 parent: ad.AnnData = None):
+                 plots = None):
 
         if gene_info is None:
             raise ValueError("GrandPy object must have gene_info.")
@@ -70,9 +68,9 @@ class GrandPy:
             for key, matrix in slots.items():
                 self._adata.layers[key] = matrix
 
-    def _initialize_uns_data(self, prefix, metadata, analyses, plots, parent=None):
-        self._adata.uns['prefix'] = prefix if prefix is not None else parent.adata.uns.get('prefix') if parent is not None else None
-        self._adata.uns['metadata'] = metadata if metadata is not None else parent.adata.uns.get('metadata') if parent is not None else None
+    def _initialize_uns_data(self, prefix, metadata, analyses, plots):
+        self._adata.uns['prefix'] = prefix
+        self._adata.uns['metadata'] = metadata
         self._adata.uns['analyses'] = analyses
         self._adata.uns['plots'] = plots
 
@@ -119,7 +117,7 @@ class GrandPy:
         Returns
         -------
         str
-            A title consisting of the filename in `prefix`.
+            A string consisting of the filename in `prefix`.
         """
         prefix = self._adata.uns.get('prefix')
         if prefix is None:
@@ -131,7 +129,7 @@ class GrandPy:
     @property
     def shape(self) -> tuple[int]:
         """
-        Get the dimension of the data(slots).
+        Get the dimension of the slots(data).
 
         Parameters
         ----------
@@ -139,7 +137,7 @@ class GrandPy:
         Returns
         -------
         tuple
-            Dimension of the data.
+            A tuple containing dimension of the slots(data).
         """
         return self._adata.X.shape
 
@@ -154,8 +152,7 @@ class GrandPy:
         Returns
         -------
         tuple
-            Two lists containing the column and row names.
-
+            A tuple containing two lists of column and row names.
         """
         row_names = self._adata.obs_names.tolist()
         column_names = self._adata.var_names.tolist()
@@ -163,6 +160,17 @@ class GrandPy:
 
     @property
     def default_slot(self) -> str:
+        """
+        Get the name of the default slot
+
+        Parameters
+        ----------
+
+        Returns
+        -------
+        str
+            The name of the default slot.
+        """
         return self._adata.uns.get('metadata').get('default_slot')
 
     def with_default_slot(self, value) -> "GrandPy":
@@ -177,8 +185,7 @@ class GrandPy:
         Returns
         -------
         "GrandPy"
-            Returns the GrandPy object with the new default slot.
-
+            Returns a new GrandPy object having the new default slot.
         """
         assert value in self._adata.layers.keys(), "Trying to set a default_slot that is not an available slot"
 
@@ -190,43 +197,18 @@ class GrandPy:
     @property
     def slots(self) -> list[str]:
         """
-        Get the names of available data slots.
+        Get the names of all available data slots.
 
         Parameters
         ----------
 
         Returns
         -------
-        list of str
-            Names of all slots
+        list[str]
+            A list containing the names of all slots
         """
         return list(self._adata.layers.keys())
 
-    def drop_slot(self, slot_pattern) -> "GrandPy":
-        """
-        Remove slots matching a pattern.
-
-        Parameters
-        ----------
-        slot_pattern: str or list of str
-            All slots matching this pattern will be removed.
-
-        Returns
-        -------
-        "GrandPy"
-            Returns the GrandPy object with slots matching the pattern removed.
-        """
-        pattern = [slot_pattern] if isinstance(slot_pattern, str) else slot_pattern
-
-        keep_keys = [key for key in self._adata.layers.keys() if key not in pattern]
-        if not keep_keys:
-            raise ValueError("Cannot drop all slots!")
-
-        if self.default_slot not in keep_keys:
-            self._adata.uns['metadata']['default_slot'] = keep_keys[0]
-
-        self._adata.layers = {k: self._adata.layers[k] for k in keep_keys}
-        return self
 
     def with_dropped_slots(self, slots_to_remove: str | list[str]) -> "GrandPy":
         """
@@ -278,12 +260,10 @@ class GrandPy:
         if name in self._adata.layers.keys():
             raise ValueError(f"Slot '{name}' already exists. Please choose a different name.")
 
-        if self.is_sparse():
+        if self._is_sparse:
             matrix = _to_sparse(matrix)
         else:
             matrix = self._validate_and_convert_new_data(matrix)
-
-        self._check_shape(name, matrix)
 
         self._adata.layers[name] = matrix
 
@@ -317,8 +297,22 @@ class GrandPy:
 
         return matrix
 
-    # TODO condition(): Sich für das genaue Verhalten der Funktion entscheiden
-    def condition(self, value=None) -> Any:
+    @property
+    def condition(self) -> list[str]:
+        """
+        Get the condition of all samples/cells in the coldata.
+        Parameters
+        ----------
+
+        Returns
+        -------
+        list[str]
+            A list containing the condition of all samples/cells.
+        """
+        return self.coldata['Condition'].tolist()
+
+    #noch nicht Fertig
+    def with_condition(self, value: str | list[str]) -> Any:
         """
 
         Parameters
@@ -328,30 +322,28 @@ class GrandPy:
         -------
 
         """
-        coldata = self._adata.obs
-        if value is None:
-            return coldata['Condition'].tolist()
+
+        value = [value] if isinstance(value, str) else value
+        new_adata = self._adata.copy()
+
+        if all(v in self.coldata.columns for v in value):
+
+        #Verhalten momentan noch anders als i n GrandR, Name kann nicht benutzt werden, da wir diesen als Index Speichern.
+
+            new_adata.obs['Condition'] = self.coldata[value].astype(str).agg(" ".join, axis=1)
         else:
-            value = [value] if isinstance(value, str) else value
-            if all(v in coldata.columns for v in value):
-                # Warum existiert diese if Klausel?
-                self._adata.obs['Condition'] = coldata[value].astype(str).agg(" ".join, axis=1)
-            else:
-                # if len(value) == 1:
-                #     value = value * len(coldata.index)
-                # if len(value) == 2:
-                #     value = value * (len(coldata.index) // 2) + value[:len(coldata.index) % 2]
-                if len(value) != len(coldata.index):
-                    raise ValueError(
-                        f"Number of values ({len(value)}) does not match number of samples ({len(coldata.index)})")
+            #momentan funktioniert die Funktion nur, wenn die Länge von values gleich der Länge des Indexes von coldata ist.
+            if len(value) != len(self.coldata.index):
+                raise ValueError(
+                    f"Number of values ({len(value)}) does not match number of samples/cells ({len(self.coldata.index)})")
 
-                self._adata.obs['Condition'] = pd.Series(value, index=coldata.index)
+            new_adata.obs['Condition'] = pd.Series(value, index=self.coldata.index)
 
-            return self
-    @property
+        return self._replace(new_adata)
+
     def metadata(self) -> dict:
         """
-        Get the metadata.
+        Get the metadata about the GrandPy object.
 
         Parameters
         ----------
@@ -359,12 +351,30 @@ class GrandPy:
         Returns
         -------
         dict
-            Metadata
+            A dictionary containing the metadata.
         """
         return self._adata.uns.get('metadata')
 
     # TODO gene_info() vervollständigen
-    def gene_info(self, column=None, value=None):
+    @property
+    def gene_info(self) -> pd.DataFrame:
+        """
+        Get the gene info DataFrame.
+
+        Parameters
+        ----------
+
+        Returns
+        -------
+        pd.DataFrame
+            A pd.DataFrame containing the gene info.
+
+        """
+
+        return self._adata.var
+
+    # ist noch nicht vollständig/fehlerhaft
+    def with_gene_info(self, column=None, value=None):
         """
 
         Parameters
@@ -417,6 +427,17 @@ class GrandPy:
 
     @property
     def coldata(self) -> pd.DataFrame:
+        """
+        Get the coldata DataFrame.
+
+        Parameters
+        ----------
+
+        Returns
+        -------
+        pd.DataFrame
+            A pd.DataFrame containing the coldata.
+        """
         return self._adata.obs
 
     def with_coldata(self, column, value=None) -> "GrandPy":
@@ -478,7 +499,23 @@ class GrandPy:
             raise ValueError("Argument combination not valid for coldata()")
         return self._replace(new_adata)
 
-    def genes(self, genes: str|list[str] = None, use_gene_symbols: bool = True, regex: bool = False) -> Series:
+
+    @property
+    def genes(self) -> list[str]:
+        """
+        Get the gene symbols contained in gene info.
+
+        Parameters
+        ----------
+
+        Returns
+        -------
+        list[str]
+            A list containing the gene symbols.
+        """
+        return self._adata.var.index.tolist()
+
+    def get_genes(self, genes: str|list[str] = None,*, use_gene_symbols: bool = True, regex: bool = False) -> list[str]:
         """
         Get gene names or symbols. If no genes are specified, all genes are returned.
 
@@ -493,63 +530,52 @@ class GrandPy:
 
         Returns
         -------
-        Series
+        list[str]
             All genes or the specified genes.
 
         """
         column = "Symbol" if use_gene_symbols else "Gene"
 
         if genes is None:
-            return self._adata.var[column]
+            return self._adata.var[column].tolist()
 
         indices = self.get_index(genes, regex=regex)
-        return self._adata.var.iloc[indices][column]
+        return self._adata.var.iloc[indices][column].tolist()
 
-    @property
-    def columns(self, columns=None, reorder=False) -> list[str]:
+    def columns(self, columns=None, reorder=False):
         """
-        Return a list of cell/sample names based on selection criteria.
 
         Parameters
         ----------
-        columns : str or list-like or None
-            - If None: returns all sample names.
-            - If str: interpreted as a query string (e.g., "Condition == 'Mock'").
-            - If list-like: filters the sample names using the provided values.
-        reorder : bool, default False
-            - If False: preserves original dataset order.
-            - If True: returns names in the order they appear in `columns`.
 
         Returns
         -------
-        list of str
-            List of sample names(index) in coldata.
-    """
-        column_data = self._adata.obs
 
+        """
+        column_data = self._adata.obs
         if columns is None:  # Wenn keine Auswahl angegeben ist: alle Zellnamen zurückgeben
-            result = list(column_data.index)
+            result = list(column_data["Name"])
 
         elif isinstance(columns, str):  # Wenn eine Bedingung als String angegeben ist (wie "condition == 'Mock'")
             try:
-                result = list(column_data.query(columns).index)
+                result = list(column_data.query(columns)["Name"])
             except Exception as e:
                 raise ValueError(f"Invalid query string for columns: {e}")
 
         elif isinstance(columns, (list, tuple, np.ndarray, pd.Index)):  # Wenn direkt eine Liste oder ein Array mit Zellnamen übergeben wird
             selected_names = list(map(str, columns))
-            result = [idx for idx in selected_names if idx in column_data.index.values]
+            result = [name for name in selected_names if name in column_data["Name"].values]
         else:
             raise ValueError("Invalid argument combination for columns.")
 
-        result = result if reorder else [idx for idx in column_data.index if idx in result]  # Gib Zellnamen in Originalreihenfolge zurück (wie in column_data.index), wenn reorder False
+        result = result if reorder else [name for name in column_data["Name"] if name in result]  # Gib Zellnamen in Originalreihenfolge zurück (wie in column_data.index), wenn reorder False
 
         return result
 
-    # Braucht die Methode "warn" überhaupt?
-    def get_index(self, gene: str|list[str]|list[bool]|int|list[int] = None, regex: bool = False, warn: bool = True) -> list[int]:
+    #funkitoniert momentan nicht, muss noch angepasst werden
+    def get_index(self, gene: str|list[str]|list[bool]|int|list[int] = None, regex: bool = False) -> list[int]:
         """
-        Get the index of a gene, a list of genes or in accordance to a boolean filter.\n
+        Get the index of: a gene, a list of genes, or in accordance to a boolean filter.\n
         Integers are returned unchanged.
 
         Parameters
@@ -558,21 +584,17 @@ class GrandPy:
             Specifies which indices to return.
         regex: bool
             If True, `gene` will be interpreted as a regular expression.
-        warn: bool
-            If True, a warning will be displayed if a gene wasn't found or `gene` contains None values.
 
         Returns
         -------
         list[int]
-            All indices or the specified indices.
-
+            A list containing the specified indices.
         """
         gene_info = self._adata.var
         index = gene_info.index
 
         if isinstance(gene, (list, tuple, pd.Series, np.ndarray)) and any(pd.isna(gene)):
-            if warn:
-                warnings.warn("All None values were removed from the query.")
+            warnings.warn("All None values were removed from the query.")
             gene = [g for g in gene if pd.notna(g)]
 
         if gene is None:
@@ -614,7 +636,7 @@ class GrandPy:
         found = gene_list[gene_list.isin(ref_col)]
         missing = gene_list[~gene_list.isin(ref_col)]
 
-        if warn and not missing.empty:
+        if not missing.empty:
             preview = ", ".join(missing.head(5))
             more = " ..." if len(missing) > 5 else ""
             warnings.warn(f"Could not find given genes (n={len(missing)}, e.g. {preview}{more})")
@@ -710,3 +732,4 @@ def _to_sparse(matrix):
         raise ValueError("Matrix could not be converted to a sparse matrix. Use numpy.ndarray or a pandas.DataFrame only containing numbers")
 
     return sparse_matrix
+
