@@ -109,15 +109,8 @@ class GrandPy:
     @property
     def title(self) -> str:
         """
-        Get a title for the GrandPy object
-
-        Parameters
-        ----------
-
-        Returns
-        -------
-        str
-            A string consisting of the filename in `prefix`.
+        Get a title for the GrandPy object.
+        The title is derived from the prefix.
         """
         prefix = self._adata.uns.get('prefix')
         if prefix is None:
@@ -130,14 +123,6 @@ class GrandPy:
     def shape(self) -> tuple[int]:
         """
         Get the dimension of the slots(data).
-
-        Parameters
-        ----------
-
-        Returns
-        -------
-        tuple
-            A tuple containing dimension of the slots(data).
         """
         return self._adata.X.shape
 
@@ -145,14 +130,6 @@ class GrandPy:
     def dim_names(self) -> tuple[list[str], list[str]]:
         """
         Get the column and row names of the data.
-
-        Parameters
-        ----------
-
-        Returns
-        -------
-        tuple
-            A tuple containing two lists of column and row names.
         """
         row_names = self._adata.obs_names.tolist()
         column_names = self._adata.var_names.tolist()
@@ -162,14 +139,6 @@ class GrandPy:
     def default_slot(self) -> str:
         """
         Get the name of the default slot
-
-        Parameters
-        ----------
-
-        Returns
-        -------
-        str
-            The name of the default slot.
         """
         return self._adata.uns.get('metadata').get('default_slot')
 
@@ -198,14 +167,6 @@ class GrandPy:
     def slots(self) -> list[str]:
         """
         Get the names of all available data slots.
-
-        Parameters
-        ----------
-
-        Returns
-        -------
-        list[str]
-            A list containing the names of all slots
         """
         return list(self._adata.layers.keys())
 
@@ -240,9 +201,9 @@ class GrandPy:
 
         return self._replace(new_adata)
 
-    def add_slot(self, name, matrix, set_to_default = False):
+    def add_slot(self, name, matrix, *, set_to_default = False) -> "GrandPy":
         """
-        Add a new data slot to the GrandPy object.
+        Returns a new GrandPy Object with the new slot added.
 
         Parameters
         ----------
@@ -263,51 +224,21 @@ class GrandPy:
         if self._is_sparse:
             matrix = _to_sparse(matrix)
         else:
-            matrix = self._validate_and_convert_new_data(matrix)
+            matrix = _validate_and_convert_new_data(matrix)
 
-        self._adata.layers[name] = matrix
+        new_adata = self._adata.copy()
+
+        new_adata.layers[name] = matrix
 
         if set_to_default:
-            self._adata.uns['metadata']['default_slot'] = name
+            new_adata.uns['metadata']['default_slot'] = name
 
-        return self
-
-    def _validate_and_convert_new_data(self, matrix) -> "np.ndarray" or "sp.csr_matrix":
-        # Falls DataFrame → zu NumPy
-        if isinstance(matrix, pd.DataFrame):
-            matrix = matrix.values
-
-        # Falls Liste → zu NumPy
-        if isinstance(matrix, list):
-            matrix = np.array(matrix)
-
-        # Falls sparse, aber nicht csr → zu csr
-        if sp.issparse(matrix) and not isinstance(matrix, sp.csr_matrix):
-            matrix = sp.csr_matrix(matrix)
-
-        # Falls dicht → alles okay
-        elif not sp.issparse(matrix):
-            if not isinstance(matrix, np.ndarray):
-                raise TypeError("Matrix must be ndarray, DataFrame, or scipy sparse matrix")
-
-        shape = matrix.shape
-        # Shape prüfen
-        if matrix.shape != shape:
-            raise ValueError(f"Matrix shape {matrix.shape} does not match expected shape {shape}")
-
-        return matrix
+        return self._replace(new_adata)
 
     @property
     def condition(self) -> list[str]:
         """
         Get the condition of all samples/cells in the coldata.
-        Parameters
-        ----------
-
-        Returns
-        -------
-        list[str]
-            A list containing the condition of all samples/cells.
         """
         return self.coldata['Condition'].tolist()
 
@@ -360,15 +291,6 @@ class GrandPy:
     def gene_info(self) -> pd.DataFrame:
         """
         Get the gene info DataFrame.
-
-        Parameters
-        ----------
-
-        Returns
-        -------
-        pd.DataFrame
-            A pd.DataFrame containing the gene info.
-
         """
 
         return self._adata.var
@@ -429,14 +351,6 @@ class GrandPy:
     def coldata(self) -> pd.DataFrame:
         """
         Get the coldata DataFrame.
-
-        Parameters
-        ----------
-
-        Returns
-        -------
-        pd.DataFrame
-            A pd.DataFrame containing the coldata.
         """
         return self._adata.obs
 
@@ -504,14 +418,6 @@ class GrandPy:
     def genes(self) -> list[str]:
         """
         Get the gene symbols contained in gene info.
-
-        Parameters
-        ----------
-
-        Returns
-        -------
-        list[str]
-            A list containing the gene symbols.
         """
         return self._adata.var.index.tolist()
 
@@ -704,6 +610,30 @@ class GrandPy:
 
         return resolved
 
+def _validate_and_convert_new_data(matrix) -> "np.ndarray" or "sp.csr_matrix":
+        # Falls DataFrame → zu NumPy
+        if isinstance(matrix, pd.DataFrame):
+            matrix = matrix.values
+
+        # Falls Liste → zu NumPy
+        if isinstance(matrix, list):
+            matrix = np.array(matrix)
+
+        # Falls sparse, aber nicht csr → zu csr
+        if sp.issparse(matrix) and not isinstance(matrix, sp.csr_matrix):
+            matrix = sp.csr_matrix(matrix)
+
+        # Falls dicht → alles okay
+        elif not sp.issparse(matrix):
+            if not isinstance(matrix, np.ndarray):
+                raise TypeError("Matrix must be ndarray, DataFrame, or scipy sparse matrix")
+
+        shape = matrix.shape
+        # Shape prüfen
+        if matrix.shape != shape:
+            raise ValueError(f"Matrix shape {matrix.shape} does not match expected shape {shape}")
+
+        return matrix
 
 def _to_sparse(matrix):
     """
