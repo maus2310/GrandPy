@@ -282,7 +282,7 @@ class GrandPy:
         """
         Get the metadata about the GrandPy object.
         """
-        return self._adata.uns.get('metadata')
+        return self._adata.uns.get('metadata').copy()
 
 
     # TODO gene_info() vervollständigen
@@ -292,7 +292,7 @@ class GrandPy:
         Get the gene info DataFrame.
         """
 
-        return self._adata.var
+        return self._adata.var.copy()
 
     # ist noch nicht vollständig/fehlerhaft
     def with_gene_info(self, column=None, value=None):
@@ -358,7 +358,7 @@ class GrandPy:
         """
         Get the coldata DataFrame.
         """
-        return self._adata.obs
+        return self._adata.obs.copy()
 
     def with_coldata(self, column, value=None) -> "GrandPy":
         """
@@ -461,8 +461,11 @@ class GrandPy:
             indices = self.get_index(genes, regex=regex)
             return self._adata.var.iloc[indices]["Gene"].tolist()
 
+    @property
+    def columns(self):
+        return list(self._adata.obs.index)
 
-    def columns(self, columns=None, reorder=False):
+    def get_columns(self, columns=None, reorder=False):
         """
 
         Parameters
@@ -511,7 +514,7 @@ class GrandPy:
         list[int]
             A list containing the specified indices.
         """
-        gene_info = self._adata.var
+        gene_info = self._adata.var.copy()
         index = list(range(len(gene_info.index)))
 
         if isinstance(gene, (list, tuple, pd.Series, np.ndarray)) and any(pd.isna(gene)):
