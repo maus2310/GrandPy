@@ -1,6 +1,5 @@
 import warnings
 from typing import Any
-
 import numpy as np
 import pandas as pd
 import anndata as ad
@@ -118,7 +117,7 @@ class GrandPy:
         Returns
         -------
         str
-            A title consisting of the filename in `prefix`.
+            A string consisting of the filename in `prefix`.
         """
         prefix = self._adata.uns.get('prefix')
         if prefix is None:
@@ -138,7 +137,7 @@ class GrandPy:
         Returns
         -------
         tuple
-            Dimension of the slots(data).
+            A tuple containing dimension of the slots(data).
         """
         return self._adata.X.shape
 
@@ -153,8 +152,7 @@ class GrandPy:
         Returns
         -------
         tuple
-            Two lists containing the column and row names.
-
+            A tuple containing two lists of column and row names.
         """
         row_names = self._adata.obs_names.tolist()
         column_names = self._adata.var_names.tolist()
@@ -162,6 +160,17 @@ class GrandPy:
 
     @property
     def default_slot(self) -> str:
+        """
+        Get the name of the default slot
+
+        Parameters
+        ----------
+
+        Returns
+        -------
+        str
+            The name of the default slot.
+        """
         return self._adata.uns.get('metadata').get('default_slot')
 
     def with_default_slot(self, value) -> "GrandPy":
@@ -176,8 +185,7 @@ class GrandPy:
         Returns
         -------
         "GrandPy"
-            Returns the GrandPy object with the new default slot.
-
+            Returns a new GrandPy object having the new default slot.
         """
         assert value in self._adata.layers.keys(), "Trying to set a default_slot that is not an available slot"
 
@@ -189,15 +197,15 @@ class GrandPy:
     @property
     def slots(self) -> list[str]:
         """
-        Get the names of available data slots.
+        Get the names of all available data slots.
 
         Parameters
         ----------
 
         Returns
         -------
-        list of str
-            Names of all slots
+        list[str]
+            A list containing the names of all slots
         """
         return list(self._adata.layers.keys())
 
@@ -290,15 +298,16 @@ class GrandPy:
         return matrix
 
     @property
-    def condition(self):
+    def condition(self) -> list[str]:
         """
-
+        Get the condition of all samples/cells in the coldata.
         Parameters
         ----------
 
         Returns
         -------
-
+        list[str]
+            A list containing the condition of all samples/cells.
         """
         return self.coldata['Condition'].tolist()
 
@@ -334,7 +343,7 @@ class GrandPy:
 
     def metadata(self) -> dict:
         """
-        Get the metadata.
+        Get the metadata about the GrandPy object.
 
         Parameters
         ----------
@@ -342,7 +351,7 @@ class GrandPy:
         Returns
         -------
         dict
-            Metadata
+            A dictionary containing the metadata.
         """
         return self._adata.uns.get('metadata')
 
@@ -350,7 +359,7 @@ class GrandPy:
     @property
     def gene_info(self) -> pd.DataFrame:
         """
-        Get the gene info dataframe.
+        Get the gene info DataFrame.
 
         Parameters
         ----------
@@ -358,7 +367,7 @@ class GrandPy:
         Returns
         -------
         pd.DataFrame
-            returns the gene info dataframe.
+            A pd.DataFrame containing the gene info.
 
         """
 
@@ -426,8 +435,8 @@ class GrandPy:
 
         Returns
         -------
-        Pandas DataFrame
-            The coldata of the GrandPy object.
+        pd.DataFrame
+            A pd.DataFrame containing the coldata.
         """
         return self._adata.obs
 
@@ -495,14 +504,14 @@ class GrandPy:
     def genes(self) -> list[str]:
         """
         Get the gene symbols contained in gene info.
+
         Parameters
         ----------
 
         Returns
         -------
         list[str]
-            List containing the gene symbols.
-
+            A list containing the gene symbols.
         """
         return self._adata.var.index.tolist()
 
@@ -564,9 +573,9 @@ class GrandPy:
         return result
 
     #funkitoniert momentan nicht, muss noch angepasst werden
-    def get_index(self, gene: str|list[str]|list[bool]|int|list[int] = None, regex: bool = False, warn: bool = True) -> list[int]:
+    def get_index(self, gene: str|list[str]|list[bool]|int|list[int] = None, regex: bool = False) -> list[int]:
         """
-        Get the index of a gene, a list of genes or in accordance to a boolean filter.\n
+        Get the index of: a gene, a list of genes, or in accordance to a boolean filter.\n
         Integers are returned unchanged.
 
         Parameters
@@ -575,21 +584,17 @@ class GrandPy:
             Specifies which indices to return.
         regex: bool
             If True, `gene` will be interpreted as a regular expression.
-        warn: bool
-            If True, a warning will be displayed if a gene wasn't found or `gene` contains None values.
 
         Returns
         -------
         list[int]
-            All indices or the specified indices.
-
+            A list containing the specified indices.
         """
         gene_info = self._adata.var
         index = gene_info.index
 
         if isinstance(gene, (list, tuple, pd.Series, np.ndarray)) and any(pd.isna(gene)):
-            if warn:
-                warnings.warn("All None values were removed from the query.")
+            warnings.warn("All None values were removed from the query.")
             gene = [g for g in gene if pd.notna(g)]
 
         if gene is None:
@@ -631,7 +636,7 @@ class GrandPy:
         found = gene_list[gene_list.isin(ref_col)]
         missing = gene_list[~gene_list.isin(ref_col)]
 
-        if warn and not missing.empty:
+        if not missing.empty:
             preview = ", ".join(missing.head(5))
             more = " ..." if len(missing) > 5 else ""
             warnings.warn(f"Could not find given genes (n={len(missing)}, e.g. {preview}{more})")
