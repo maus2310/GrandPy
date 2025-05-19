@@ -201,7 +201,7 @@ class GrandPy:
 
         return self._replace(new_adata)
 
-    def add_slot(self, name, matrix, *, set_to_default = False) -> "GrandPy":
+    def with_slot(self, name, matrix, *, set_to_default = False) -> "GrandPy":
         """
         Returns a new GrandPy Object with the new slot added.
 
@@ -272,17 +272,10 @@ class GrandPy:
 
         return self._replace(new_adata)
 
+    @property
     def metadata(self) -> dict:
         """
         Get the metadata about the GrandPy object.
-
-        Parameters
-        ----------
-
-        Returns
-        -------
-        dict
-            A dictionary containing the metadata.
         """
         return self._adata.uns.get('metadata')
 
@@ -314,9 +307,11 @@ class GrandPy:
             ...
 
     # TODO apply() vervollständigen
-    def apply(self, function, function_gene_info=None, function_coldata=None, **kwargs) -> "GrandPy":
+    def apply(self, function, *, function_gene_info=None, function_coldata=None, **kwargs) -> "GrandPy":
         """
-        Apply a function to all slots, gene_info and/or coldata.
+        Returns a new GrandPy object with the given function applied to each data slot.\n
+        Can also apply a function to the gene_info and coldata DataFrames.
+
         Parameters
         ----------
         function:
@@ -334,18 +329,21 @@ class GrandPy:
             New GrandPy object with transformed data.
 
         """
-        new_slots = {}
+        new_adata = self._adata.copy()
         for key in self._adata.layers.keys():
-            new_slots[key] = function(self._adata.layers[key], **kwargs)
+            new_adata.layers[key] = function(self._adata.layers[key], **kwargs)
 
-        new_gene_info = function_gene_info(self._adata.var, **kwargs) if function_gene_info is not None else None
-        new_coldata = function_coldata(self._adata.obs, **kwargs) if function_coldata is not None else None
-        new_analyses = None
+        if function_gene_info is not None:
+            new_adata.var = function_gene_info(self._adata.var, **kwargs)
+        if function_coldata is not None:
+            new_adata.obs = function_coldata(self._adata.obs, **kwargs)
+
+        # Noch nicht vollständig
 
         if self._adata.uns['analyses'] is not None:
             ...
 
-        return GrandPy(gene_info=new_gene_info, slots=new_slots, coldata=new_coldata, parent=self)
+        return self._replace(new_adata)
 
     @property
     def coldata(self) -> pd.DataFrame:
