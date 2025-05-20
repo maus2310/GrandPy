@@ -128,7 +128,6 @@ class GrandPy:
         """
         return self._adata.X.shape
 
-
     @property
     def dim_names(self) -> tuple[list[str], list[str]]:
         """
@@ -166,6 +165,7 @@ class GrandPy:
         new_adata.uns['metadata']['default_slot'] = value
 
         return self._replace(new_adata)
+
 
     @property
     def slots(self) -> list[str]:
@@ -289,13 +289,52 @@ class GrandPy:
     @property
     def gene_info(self) -> pd.DataFrame:
         """
-        Get the gene info DataFrame.
+        Get the gene_info DataFrame.
+
+        Returns
+        -------
+        pd.DataFrame
+            A pd.Dataframe containing the gene_info.
+
+        See Also
+        --------
+        get_gene_info: Get a subset of the gene_info DataFrame
+
+        with_gene_info: Set a subset of the gene_info DataFrame
         """
 
         return self._adata.var.copy()
 
+    def get_gene_info(self, columns: str | list[str] = None) -> pd.DataFrame:
+        """
+        Get a subset of the gene_info DataFrame.
+
+        Parameters
+        ----------
+        columns: str | list[str]
+            A column name or a list of column names to be retrieved from the gene_info DataFrame.
+
+        Returns
+        -------
+        pd.DataFrame
+            A DataFrame containing the specified columns from the gene_info DataFrame.
+
+        See Also
+        --------
+        with_gene_info: Set a subset of the gene_info DataFrame
+        """
+        df_gene_info = self.gene_info
+
+        if columns is None:
+            return df_gene_info
+
+        if isinstance(columns, str):
+            columns = [columns]
+
+        return df_gene_info[list(columns)]
+
     # ist noch nicht vollständig/fehlerhaft
-    def with_gene_info(self, column=None, value=None):
+    def with_gene_info(self, column: str, value) -> "GrandPy":
         """
 
         Parameters
@@ -303,14 +342,31 @@ class GrandPy:
 
         Returns
         -------
+        "GrandPy"
+            A new GrandPy object with the specified column in gene_info set to the specified value.
 
+        See Also
+        --------
+        get_gene_info: Get a subset of the gene_info DataFrame
         """
-        if column is None:
-            return self._adata.var
-        elif value is None:
-            return pd.Series(self._adata.var[column].values, index=self._adata.var["Symbol"])
-        else:
+        new_adata = self._adata.copy()
+        df_gene_info = new_adata.var
+
+        if isinstance(value, dict):
             ...
+
+        if not (np.isscalar(value) or len(value) == len(df_gene_info)):
+            raise ValueError(f"Value has wrong length: {len(value)} vs {len(df_gene_info)} rows in gene_info")
+
+        if column == "Symbol":
+            if np.isscalar(value):
+                raise ValueError("Symbol cannot be set to a scalar value(length of 1).")
+            df_gene_info.index = pd.Index(value, name = "Symbol")
+            return self._replace(new_adata)
+
+        df_gene_info[column] = value
+
+        return self._replace(new_adata)
 
 
     # TODO apply() vervollständigen
@@ -427,7 +483,7 @@ class GrandPy:
         """
         return self._adata.var.index.tolist()
 
-    def get_genes(self, genes: str|list[str]|int|list[int]|list[bool] = None,*, use_gene_symbols: bool = True, regex: bool = False) -> list[str]:
+    def get_genes(self, genes: str|list[str]|int|list[int]|list[bool] = None, *, use_gene_symbols: bool = True, regex: bool = False) -> list[str]:
         """
         Get gene names or symbols. Either by their index, their name, a boolean mask, or a regex.
 
@@ -461,6 +517,7 @@ class GrandPy:
             indices = self.get_index(genes, regex=regex)
             return self._adata.var.iloc[indices]["Gene"].tolist()
 
+
     #TODO: columns und get_columns doc Strings als Template für andere übernehmen
     @property
     def columns(self):
@@ -472,7 +529,7 @@ class GrandPy:
         Returns
         -------
         list[str]
-            list of sample/cell names
+            A list of sample/cell names
 
         See Also
         --------
@@ -480,7 +537,7 @@ class GrandPy:
         """
         return list(self._adata.obs.index)
 
-    def get_columns(self, sample_or_cell_names: int|list[int]|str|list[str]|list[bool] = None,* , reorder: bool = False) -> list[str]:
+    def get_columns(self, sample_or_cell_names: int|list[int]|str|list[str]|list[bool] = None, *, reorder: bool = False) -> list[str]:
         """
         Get sample/cell names. Either by their index, their name, or a boolean mask.
 
@@ -493,6 +550,7 @@ class GrandPy:
 
         reorder: bool
             If True, the returned list will be in the same order as the original column data.
+
             Otherwise, the returned list will be in the same order as the input.
 
         Returns
@@ -504,37 +562,37 @@ class GrandPy:
         --------
         get_genes: get the gene symbols/names(columns of the data slots)
         """
-        column_data = self._adata.obs.index
-        result = []
+        all_names = self._adata.obs.index
 
         if sample_or_cell_names is None:
             return self.columns
 
+        # Single-value handling(str, int)
         elif isinstance(sample_or_cell_names, (int, np.integer)):
-            return [column_data[sample_or_cell_names]]
-
+            return [all_names[sample_or_cell_names]]
         elif isinstance(sample_or_cell_names, (str, np.str_)):
             return [sample_or_cell_names]
 
-        elif isinstance(sample_or_cell_names, (list, tuple, np.ndarray, pd.Series)):
-            if all(isinstance(i, (int, np.integer)) for i in sample_or_cell_names):
-                result = [column_data[i] for i in sample_or_cell_names]
+        if not isinstance(sample_or_cell_names, (list, tuple, np.ndarray, pd.Series)):
+            raise TypeError("Invalid input type for sample_or_cell_names. Must be int, str, list, tuple, np.ndarray, or pd.Series.")
 
-            if all(isinstance(i, (str, np.str_)) for i in sample_or_cell_names):
-                result = sample_or_cell_names
+        # list handling(list, tuple)
+        if all(isinstance(i, (int, np.integer)) for i in sample_or_cell_names):
+            result = [all_names[i] for i in sample_or_cell_names]
+        if all(isinstance(i, (str, np.str_)) for i in sample_or_cell_names):
+            result = sample_or_cell_names
+        elif all(isinstance(i, (bool, np.bool_)) for i in sample_or_cell_names):
+            if len(sample_or_cell_names) != len(all_names.index):
+                raise ValueError("Length of boolean filter must match number of samples/cells.")
+            result = list(all_names.index[sample_or_cell_names])
+        else:
+            raise TypeError("Inkonsistent input types for sample_or_cell_names. All values in the iterable must have the same type(int, str or bool).)")
 
-            elif all(isinstance(i, (bool, np.bool_)) for i in sample_or_cell_names):
-                if len(sample_or_cell_names) != len(column_data.index):
-                    raise ValueError("Length of boolean filter must match number of samples/cells.")
-                result = list(column_data.index[sample_or_cell_names])
-
-        result = result if reorder else [name for name in column_data if name in result]
-
-        return result
+        return result if reorder else [name for name in all_names if name in result]
 
 
     #funkitoniert momentan nicht, muss noch angepasst werden
-    def get_index(self, gene: str|list[str]|list[bool]|int|list[int] = None,* , regex: bool = False) -> list[int]:
+    def get_index(self, gene: str|list[str]|list[bool]|int|list[int] = None, *, regex: bool = False) -> list[int]:
         """
         Get the index of: a gene, a list of genes, or in accordance to a boolean filter.\n
         Integers are returned unchanged.
