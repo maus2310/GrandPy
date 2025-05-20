@@ -32,22 +32,22 @@ print(gp)
 # ------------------------------------------------------------
 
 print("Sample Metadata (coldata):")
-print(gp.coldata().head())
+print(gp.coldata)
 
 # Example: list all samples treated with 4sU
 print("Samples with 4sU treatment:")
-print(gp.coldata().index[~gp.coldata()["no4sU"]].tolist())
+print(gp.coldata.index[gp.coldata["no4sU"] == False].tolist())
 
 # ------------------------------------------------------------
 # Step 5: Inspect gene_info (gene metadata)
 # ------------------------------------------------------------
 
 print("Gene Metadata (gene_info):")
-print(gp.gene_info().head())
+print(gp.gene_info)
 
 # Count gene types
 print("Distribution of gene types:")
-print(gp.gene_info()["Type"].value_counts())
+print(gp.gene_info["Type"].value_counts())
 
 # ------------------------------------------------------------
 # Step 6: Inspect data slots
@@ -65,7 +65,7 @@ print(gp.shape)                             # (samples, genes)
 # ------------------------------------------------------------
 
 gene = "GAPDH"                              # random
-gene_idx = list(gp.gene_info()["Symbol"]).index(gene)
+gene_idx = list(gp.gene_info["Symbol"]).index(gene)
 counts = gp._adata.layers["count"]
 
 print(f'Expression values for {gene}:')
@@ -78,7 +78,7 @@ print(counts[:, gene_idx])
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-df_plot = gp.coldata().copy()
+df_plot = gp.coldata.copy()
 df_plot["expression"] = counts[:, gene_idx]
 
 plt.figure(figsize=(6, 4))

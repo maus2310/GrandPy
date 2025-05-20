@@ -425,7 +425,7 @@ class GrandPy:
         """
         Get the gene symbols, which are both: the column names of the data slots and the row names of gene_info.
         """
-        return self._adata.var.index.tolist()
+        return self._adata.var["Symbol"].tolist()
 
     def get_genes(self, genes: str|list[str]|int|list[int]|list[bool] = None,*, use_gene_symbols: bool = True, regex: bool = False) -> list[str]:
         """
