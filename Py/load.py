@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import warnings
 import scipy.sparse as sp
-from Py.grandPy import GrandPy, _to_sparse
+from Py.grandPy import GrandPy, _to_sparse, Any
 
 
 def default_classify_genes(df) -> any: # Hilfsfunktion, um Gene zu klassifizieren
@@ -27,7 +27,74 @@ def default_classify_genes(df) -> any: # Hilfsfunktion, um Gene zu klassifiziere
     types[df["Symbol"].str.startswith("MT-")] = "mito"
     return types
 
-def read_grand(file_path, default_slot="count", sparse=False, design=None, classify_genes=None) -> GrandPy:
+# Beispiel aufruf für die Funktion
+# sars = read_grand(
+#     "data/sars_R.tsv",
+#     viral_genes=["ORF3a", "E", "M", "N"],
+#     viral_genes_label="SARS-CoV-2",
+#     use_default_classification=False
+# )
+def classify_genes(gene_info: pd.DataFrame,
+                   custom_classes: dict[str, Any] = None,
+                   use_default: bool = True,
+                   name_unknown: str = "Unknown") -> pd.Series:
+    """
+    Assigns a type to each gene (e.g. "Cellular", "mito", or custom classes).
+
+    Parameters
+    ----------
+    gene_info : pd.DataFrame
+        Gene metadata with at least columns "Gene" and "Symbol".
+
+    custom_classes : dict[str, Any], optional
+        Custom class definitions as {class_name: function}, where each function returns a boolean mask.
+
+    use_default : bool, default=True
+        Whether to include default classes ("mito", "ERCC", "Cellular").
+
+    name_unknown : str, default="Unknown"
+        Label for unmatched genes.
+
+    Returns
+    -------
+    pd.Series
+        A categorical Series assigning each gene to a type.
+    """
+    classes = {}
+
+    # Benutzerdefinierte Klassen übernehmen
+    if custom_classes:
+        classes.update(custom_classes)
+
+    # Standardklassen ergänzen
+    if use_default:
+        classes.update({
+            "mito": lambda df: df["Symbol"].str.startswith("MT-", na=False),
+            "ERCC": lambda df: df["Gene"].str.contains(r"ERCC-\d{5}", na=False),
+            "Cellular": lambda df: df["Gene"].str.match(r"^ENS.*G\d+$", na=False)
+        })
+
+    # Unknown-Klasse als Fallback
+    classes[name_unknown] = lambda df: pd.Series([True] * len(df), index=df.index)
+
+    # Ergebnis-Vektor initialisieren
+    gene_type = pd.Series(index=gene_info.index, dtype="object")
+
+    # Klassifikation rückwärts (benutzerdefiniert überschreibt Standard)
+    for name, func in reversed(list(classes.items())):
+        matches = func(gene_info)
+        gene_type[matches] = name
+
+    return gene_type.astype("category")
+
+def read_grand(file_path,
+               default_slot="count",
+               sparse=False,
+               design=None, *,
+               viral_genes=None,
+               viral_genes_label="Default",
+               use_default_classification=True,
+               classify_genes_func=None) -> GrandPy:
     """
     Reads GRAND-SLAM TSV-File and creates a GrandPy-Object.
 
@@ -74,12 +141,18 @@ def read_grand(file_path, default_slot="count", sparse=False, design=None, class
 
     sample_index = pd.Index(sample_names, name="Name")
 
-    gene_info = df[["Gene", "Symbol", "Length"]].copy()
-    if classify_genes is not None:
-        gene_info["Type"] = classify_genes(gene_info)
-    else:
-        gene_info["Type"] = default_classify_genes(gene_info)
+    if classify_genes_func is None:
+        if viral_genes is not None:
+            classify_genes_func = lambda gene_info: classify_genes(
+                gene_info,
+                custom_classes={viral_genes_label: lambda g: g["Symbol"].isin(viral_genes)},
+                use_default=use_default_classification
+            )
+        else:
+            classify_genes_func = default_classify_genes
 
+    gene_info = df[["Gene", "Symbol", "Length"]].copy()
+    gene_info["Type"] = classify_genes_func(gene_info)
     gene_info = gene_info[["Symbol", "Gene", "Length", "Type"]]
 
     if design is not None:
