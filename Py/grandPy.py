@@ -423,13 +423,14 @@ class GrandPy:
     @property
     def genes(self) -> list[str]:
         """
-        Get the gene symbols contained in gene info.
+        Get the gene symbols, which are both: the column names of the data slots and the row names of gene_info.
         """
         return self._adata.var.index.tolist()
 
     def get_genes(self, genes: str|list[str]|int|list[int]|list[bool] = None,*, use_gene_symbols: bool = True, regex: bool = False) -> list[str]:
         """
-        Get gene names or symbols. Either by their index, their name, a boolean mask, or a regex.\n
+        Get gene names or symbols. Either by their index, their name, a boolean mask, or a regex.
+
         If no genes are specified, all genes are returned.
 
         Parameters
@@ -445,11 +446,10 @@ class GrandPy:
         -------
         list[str]
             A list containing the specified genes.
-
         """
         if use_gene_symbols:
             if genes is None:
-                return self._adata.var.index.tolist()
+                return self.genes
 
             indices = self.get_index(genes, regex=regex)
             return self._adata.var.iloc[indices].index.tolist()
@@ -461,37 +461,74 @@ class GrandPy:
             indices = self.get_index(genes, regex=regex)
             return self._adata.var.iloc[indices]["Gene"].tolist()
 
+    #TODO: columns und get_columns doc Strings als Template für andere übernehmen
     @property
     def columns(self):
-        return list(self._adata.obs.index)
-
-    def get_columns(self, columns=None, reorder=False):
         """
+        Get the sample/cell names
 
-        Parameters
-        ----------
+        These names are used as the row names of the data slots and the column names of the coldata.
 
         Returns
         -------
+        list[str]
+            list of sample/cell names
 
+        See Also
+        --------
+        coldata : get the entire coldata DataFrame
         """
-        column_data = self._adata.obs
-        if columns is None:  # Wenn keine Auswahl angegeben ist: alle Zellnamen zurückgeben
-            result = list(column_data["Name"])
+        return list(self._adata.obs.index)
 
-        elif isinstance(columns, str):  # Wenn eine Bedingung als String angegeben ist (wie "condition == 'Mock'")
-            try:
-                result = list(column_data.query(columns)["Name"])
-            except Exception as e:
-                raise ValueError(f"Invalid query string for columns: {e}")
+    def get_columns(self, sample_or_cell_names: int|list[int]|str|list[str]|list[bool] = None,* , reorder: bool = False) -> list[str]:
+        """
+        Get sample/cell names. Either by their index, their name, or a boolean mask.
 
-        elif isinstance(columns, (list, tuple, np.ndarray, pd.Index)):  # Wenn direkt eine Liste oder ein Array mit Zellnamen übergeben wird
-            selected_names = list(map(str, columns))
-            result = [name for name in selected_names if name in column_data["Name"].values]
-        else:
-            raise ValueError("Invalid argument combination for columns.")
+        If no columns are specified, all columns are returned.
 
-        result = result if reorder else [name for name in column_data["Name"] if name in result]  # Gib Zellnamen in Originalreihenfolge zurück (wie in column_data.index), wenn reorder False
+        Parameters
+        ----------
+        sample_or_cell_names: int|list[int]|str|list[str]|list[bool]
+            Samples/cell to be retrieved.
+
+        reorder: bool
+            If True, the returned list will be in the same order as the original column data.
+            Otherwise, the returned list will be in the same order as the input.
+
+        Returns
+        -------
+        list[str]
+            A list containing the specified samples/cells.
+
+        See Also
+        --------
+        get_genes: get the gene symbols/names(columns of the data slots)
+        """
+        column_data = self._adata.obs.index
+        result = []
+
+        if sample_or_cell_names is None:
+            return self.columns
+
+        elif isinstance(sample_or_cell_names, (int, np.integer)):
+            return [column_data[sample_or_cell_names]]
+
+        elif isinstance(sample_or_cell_names, (str, np.str_)):
+            return [sample_or_cell_names]
+
+        elif isinstance(sample_or_cell_names, (list, tuple, np.ndarray, pd.Series)):
+            if all(isinstance(i, (int, np.integer)) for i in sample_or_cell_names):
+                result = [column_data[i] for i in sample_or_cell_names]
+
+            if all(isinstance(i, (str, np.str_)) for i in sample_or_cell_names):
+                result = sample_or_cell_names
+
+            elif all(isinstance(i, (bool, np.bool_)) for i in sample_or_cell_names):
+                if len(sample_or_cell_names) != len(column_data.index):
+                    raise ValueError("Length of boolean filter must match number of samples/cells.")
+                result = list(column_data.index[sample_or_cell_names])
+
+        result = result if reorder else [name for name in column_data if name in result]
 
         return result
 
