@@ -91,6 +91,7 @@ class GrandPy:
             f"Default data slot: {self._adata.uns['metadata'].get('default_slot', None)}\n"
         )
 
+
     def _replace(self, adata: ad.AnnData) -> 'GrandPy':
         def _safe_copy(obj):
             return obj.copy() if obj is not None else None
@@ -119,12 +120,14 @@ class GrandPy:
             x = prefix.split('/')
             return x[-1]
 
+
     @property
     def shape(self) -> tuple[int]:
         """
         Get the dimension of the slots(data).
         """
         return self._adata.X.shape
+
 
     @property
     def dim_names(self) -> tuple[list[str], list[str]]:
@@ -134,6 +137,7 @@ class GrandPy:
         row_names = self._adata.obs_names.tolist()
         column_names = self._adata.var_names.tolist()
         return row_names, column_names
+
 
     @property
     def default_slot(self) -> str:
@@ -170,7 +174,6 @@ class GrandPy:
         """
         return list(self._adata.layers.keys())
 
-
     def with_dropped_slots(self, slots_to_remove: str | list[str]) -> "GrandPy":
         """
         Return a new GrandPy object with specified slot(s) removed.
@@ -201,7 +204,7 @@ class GrandPy:
 
         return self._replace(new_adata)
 
-    def add_slot(self, name, matrix, *, set_to_default = False) -> "GrandPy":
+    def with_slot(self, name, matrix, *, set_to_default = False) -> "GrandPy":
         """
         Returns a new GrandPy Object with the new slot added.
 
@@ -234,6 +237,7 @@ class GrandPy:
             new_adata.uns['metadata']['default_slot'] = name
 
         return self._replace(new_adata)
+
 
     @property
     def condition(self) -> list[str]:
@@ -272,19 +276,14 @@ class GrandPy:
 
         return self._replace(new_adata)
 
+
+    @property
     def metadata(self) -> dict:
         """
         Get the metadata about the GrandPy object.
-
-        Parameters
-        ----------
-
-        Returns
-        -------
-        dict
-            A dictionary containing the metadata.
         """
-        return self._adata.uns.get('metadata')
+        return self._adata.uns.get('metadata').copy()
+
 
     # TODO gene_info() vervollständigen
     @property
@@ -293,7 +292,7 @@ class GrandPy:
         Get the gene info DataFrame.
         """
 
-        return self._adata.var
+        return self._adata.var.copy()
 
     # ist noch nicht vollständig/fehlerhaft
     def with_gene_info(self, column=None, value=None):
@@ -313,10 +312,13 @@ class GrandPy:
         else:
             ...
 
+
     # TODO apply() vervollständigen
-    def apply(self, function, function_gene_info=None, function_coldata=None, **kwargs) -> "GrandPy":
+    def apply(self, function, *, function_gene_info=None, function_coldata=None, **kwargs) -> "GrandPy":
         """
-        Apply a function to all slots, gene_info and/or coldata.
+        Returns a new GrandPy object with the given function applied to each data slot.\n
+        Can also apply a function to the gene_info and coldata DataFrames.
+
         Parameters
         ----------
         function:
@@ -334,25 +336,29 @@ class GrandPy:
             New GrandPy object with transformed data.
 
         """
-        new_slots = {}
+        new_adata = self._adata.copy()
         for key in self._adata.layers.keys():
-            new_slots[key] = function(self._adata.layers[key], **kwargs)
+            new_adata.layers[key] = function(self._adata.layers[key], **kwargs)
 
-        new_gene_info = function_gene_info(self._adata.var, **kwargs) if function_gene_info is not None else None
-        new_coldata = function_coldata(self._adata.obs, **kwargs) if function_coldata is not None else None
-        new_analyses = None
+        if function_gene_info is not None:
+            new_adata.var = function_gene_info(self._adata.var, **kwargs)
+        if function_coldata is not None:
+            new_adata.obs = function_coldata(self._adata.obs, **kwargs)
+
+        # Noch nicht vollständig
 
         if self._adata.uns['analyses'] is not None:
             ...
 
-        return GrandPy(gene_info=new_gene_info, slots=new_slots, coldata=new_coldata, parent=self)
+        return self._replace(new_adata)
+
 
     @property
     def coldata(self) -> pd.DataFrame:
         """
         Get the coldata DataFrame.
         """
-        return self._adata.obs
+        return self._adata.obs.copy()
 
     def with_coldata(self, column, value=None) -> "GrandPy":
         """
@@ -421,13 +427,14 @@ class GrandPy:
         """
         return self._adata.var.index.tolist()
 
-    def get_genes(self, genes: str|list[str] = None,*, use_gene_symbols: bool = True, regex: bool = False) -> list[str]:
+    def get_genes(self, genes: str|list[str]|int|list[int]|list[bool] = None,*, use_gene_symbols: bool = True, regex: bool = False) -> list[str]:
         """
-        Get gene names or symbols. If no genes are specified, all genes are returned.
+        Get gene names or symbols. Either by their index, their name, a boolean mask, or a regex.\n
+        If no genes are specified, all genes are returned.
 
         Parameters
         ----------
-        genes: str or list of str
+        genes: str|list[str]|int|list[int]|list[bool]
             Genes to be retrieved.
         use_gene_symbols: bool
             If True, gene symbols will be returned. Otherwise, gene names will be returned.
@@ -437,18 +444,28 @@ class GrandPy:
         Returns
         -------
         list[str]
-            All genes or the specified genes.
+            A list containing the specified genes.
 
         """
-        column = "Symbol" if use_gene_symbols else "Gene"
+        if use_gene_symbols:
+            if genes is None:
+                return self._adata.var.index.tolist()
 
-        if genes is None:
-            return self._adata.var[column].tolist()
+            indices = self.get_index(genes, regex=regex)
+            return self._adata.var.iloc[indices].index.tolist()
 
-        indices = self.get_index(genes, regex=regex)
-        return self._adata.var.iloc[indices][column].tolist()
+        else:
+            if genes is None:
+                return self._adata.var.get("Gene").tolist()
 
-    def columns(self, columns=None, reorder=False):
+            indices = self.get_index(genes, regex=regex)
+            return self._adata.var.iloc[indices]["Gene"].tolist()
+
+    @property
+    def columns(self):
+        return list(self._adata.obs.index)
+
+    def get_columns(self, columns=None, reorder=False):
         """
 
         Parameters
@@ -478,8 +495,9 @@ class GrandPy:
 
         return result
 
+
     #funkitoniert momentan nicht, muss noch angepasst werden
-    def get_index(self, gene: str|list[str]|list[bool]|int|list[int] = None, regex: bool = False) -> list[int]:
+    def get_index(self, gene: str|list[str]|list[bool]|int|list[int] = None,* , regex: bool = False) -> list[int]:
         """
         Get the index of: a gene, a list of genes, or in accordance to a boolean filter.\n
         Integers are returned unchanged.
@@ -496,8 +514,8 @@ class GrandPy:
         list[int]
             A list containing the specified indices.
         """
-        gene_info = self._adata.var
-        index = gene_info.index
+        gene_info = self._adata.var.copy()
+        index = list(range(len(gene_info.index)))
 
         if isinstance(gene, (list, tuple, pd.Series, np.ndarray)) and any(pd.isna(gene)):
             warnings.warn("All None values were removed from the query.")
@@ -512,35 +530,32 @@ class GrandPy:
         if isinstance(gene, (list, tuple, np.ndarray)) and all(isinstance(g, (int, np.integer)) for g in gene):
             return gene
 
-        gene_col = gene_info.get("Gene")
-        symbol_col = gene_info.get("Symbol")
+        gene_column = gene_info.get("Gene")
+        symbol_column = gene_info.index
 
         if regex and isinstance(gene, str):
-            mask = gene_col.astype(str).str.contains(gene, regex=True) | \
-                   symbol_col.astype(str).str.contains(gene, regex=True)
-            return index[mask].tolist()
-
-        if isinstance(gene, (list, tuple, np.ndarray)) and all(isinstance(g, (int, np.integer)) for g in gene):
-            return list(gene)
+            mask = gene_column.astype(str).str.contains(gene, regex=True) | \
+                   symbol_column.astype(str).str.contains(gene, regex=True)
+            return list(np.where(mask)[0])
 
         if isinstance(gene, (list, tuple, np.ndarray)) and all(isinstance(g, (bool, np.bool_)) for g in gene):
             if len(gene) != len(index):
                 raise ValueError("Length of boolean filter must match number of genes.")
-            return list(index[np.where(gene)[0]])
+            return list(np.where(gene)[0])
 
         gene_list = pd.Series(gene, dtype=str)
 
-        matches_in_gene = gene_list[gene_list.isin(gene_col)]
-        matches_in_symbol = gene_list[gene_list.isin(symbol_col)]
+        matches_in_gene = gene_list[gene_list.isin(gene_column)]
+        matches_in_symbol = gene_list[gene_list.isin(symbol_column)]
 
         if len(matches_in_gene) >= len(matches_in_symbol):
-            ref_col = gene_col
+            return_column = gene_column
         else:
-            ref_col = symbol_col
+            return_column = symbol_column
 
-        mapping = pd.Series(index, index=ref_col)
-        found = gene_list[gene_list.isin(ref_col)]
-        missing = gene_list[~gene_list.isin(ref_col)]
+        mapping = pd.Series(index, index=return_column)
+        found = gene_list[gene_list.isin(return_column)]
+        missing = gene_list[~gene_list.isin(return_column)]
 
         if not missing.empty:
             preview = ", ".join(missing.head(5))
@@ -548,6 +563,7 @@ class GrandPy:
             warnings.warn(f"Could not find given genes (n={len(missing)}, e.g. {preview}{more})")
 
         return mapping.loc[found].tolist()
+
 
     def _check_slot(self, slot_name) -> bool:
         """
