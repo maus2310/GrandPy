@@ -76,7 +76,7 @@ class GrandPy:
         self._adata.uns['plots'] = plots
 
     def _ensure_no4sU_column(self):
-        if 'no4sU' not in self._adata.obs.columns:
+        if 'no4sU' not in self._adata.var.columns:
             warnings.warn("No no4sU entry in coldata, assuming all samples/cells as 4sU treated!")
             self._adata.obs["no4sU"] = False
 
@@ -92,6 +92,10 @@ class GrandPy:
             f"Default data slot: {self._adata.uns['metadata'].get('default_slot', None)}\n"
         )
 
+    def __getitem__(self, items):
+        new_adata = self._adata.copy()
+        new_adata = new_adata[items]
+        return self._replace(new_adata)
 
     def _replace(self, adata: ad.AnnData) -> 'GrandPy':
         def _safe_copy(obj):
@@ -289,7 +293,6 @@ class GrandPy:
         return self._adata.uns.get('metadata').copy()
 
 
-    # TODO gene_info() vervollständigen
     @property
     def gene_info(self) -> pd.DataFrame:
         """
