@@ -52,6 +52,7 @@ class GrandPy:
         if "count" not in slots:
             raise ValueError("GrandPy object must have a count slot.")
 
+        # obs and var are swapped to allow the data to be gene * sample
         self._adata = ad.AnnData(
             X = slots["count"],
             obs = gene_info,
@@ -84,7 +85,7 @@ class GrandPy:
         return (
             f"GrandPy:\n"
             f"Read from {self._adata.uns.get('prefix', 'Unknown')}\n"
-            f"{self._adata.n_vars} genes, {self._adata.n_obs} samples/cells\n"
+            f"{self._adata.n_obs} genes, {self._adata.n_vars} samples/cells\n"
             f"Available data slots: {', '.join(self._adata.layers.keys()) or {} or 'None'}\n"
             f"Available analyses: {', '.join(self._adata.uns.get('analyses') or {}) or 'None'}\n"
             f"Available plots: {', '.join(self._adata.uns.get('plots') or {}) or 'None'}\n"
@@ -98,8 +99,8 @@ class GrandPy:
 
         return self.__class__(
             prefix = adata.uns.get('prefix'),
-            gene_info = _safe_copy(adata.var),
-            coldata = _safe_copy(adata.obs),
+            gene_info = _safe_copy(adata.obs),
+            coldata = _safe_copy(adata.var),
             slots = {**adata.layers},
             metadata = _safe_copy(adata.uns.get("metadata",)),
             analyses = _safe_copy(adata.uns.get("analyses")),
@@ -133,8 +134,8 @@ class GrandPy:
         """
         Get the column and row names of the data.
         """
-        row_names = self._adata.obs_names.tolist()
-        column_names = self._adata.var_names.tolist()
+        row_names = self._adata.var_names.tolist()
+        column_names = self._adata.obs_names.tolist()
         return row_names, column_names
 
 
@@ -263,7 +264,7 @@ class GrandPy:
 
         if all(v in self.coldata.columns for v in value):
 
-        #Verhalten momentan noch anders als i n GrandR, Name kann nicht benutzt werden, da wir diesen als Index Speichern.
+        #Verhalten momentan noch anders als in GrandR, Name kann nicht benutzt werden, da wir diesen als Index Speichern.
 
             new_adata.obs['Condition'] = self.coldata[value].astype(str).agg(" ".join, axis=1)
         else:
@@ -303,7 +304,7 @@ class GrandPy:
         with_gene_info: Set a subset of the gene_info DataFrame
         """
 
-        return self._adata.var.copy()
+        return self._adata.obs.copy()
 
     def get_gene_info(self, columns: str | list[str] = None) -> pd.DataFrame:
         """
@@ -355,14 +356,14 @@ class GrandPy:
         if isinstance(value, dict):
             ...
 
-        if not (np.isscalar(value) or len(value) == len(df_gene_info)):
-            raise ValueError(f"Value has wrong length: {len(value)} vs {len(df_gene_info)} rows in gene_info")
+        # if not (np.isscalar(value) or len(value) == len(df_gene_info)):
+        #     raise ValueError(f"Value has wrong length: {len(value)} vs {len(df_gene_info)} rows in gene_info")
 
-        if column == "Symbol":
-            if np.isscalar(value):
-                raise ValueError("Symbol cannot be set to a scalar value(length of 1).")
-            df_gene_info.index = pd.Index(value, name = "Symbol")
-            return self._replace(new_adata)
+        # if column == "Symbol":
+        #     if np.isscalar(value):
+        #         raise ValueError("Symbol cannot be set to a scalar value(length of 1).")
+        #     df_gene_info.index = pd.Index(value, name = "Symbol")
+        #     return self._replace(new_adata)
 
         df_gene_info[column] = value
 
@@ -414,7 +415,7 @@ class GrandPy:
         """
         Get the coldata DataFrame.
         """
-        return self._adata.obs.copy()
+        return self._adata.var.copy()
 
     def with_coldata(self, column, value=None) -> "GrandPy":
         """
@@ -473,6 +474,7 @@ class GrandPy:
             new_adata.obs = obs
         else:
             raise ValueError("Argument combination not valid for coldata()")
+
         return self._replace(new_adata)
 
 
@@ -481,7 +483,7 @@ class GrandPy:
         """
         Get the gene symbols, which are both: the column names of the data slots and the row names of gene_info.
         """
-        return self._adata.var["Symbol"].tolist()
+        return self.gene_info["Symbol"]
 
     def get_genes(self, genes: str|list[str]|int|list[int]|list[bool] = None, *, use_gene_symbols: bool = True, regex: bool = False) -> list[str]:
         """
@@ -508,14 +510,14 @@ class GrandPy:
                 return self.genes
 
             indices = self.get_index(genes, regex=regex)
-            return self._adata.var.iloc[indices].index.tolist()
+            return self.gene_info.iloc[indices].index.tolist()
 
         else:
             if genes is None:
-                return self._adata.var.get("Gene").tolist()
+                return self.gene_info["Gene"]
 
             indices = self.get_index(genes, regex=regex)
-            return self._adata.var.iloc[indices]["Gene"].tolist()
+            return self.gene_info.iloc[indices]["Gene"].tolist()
 
 
     #TODO: columns und get_columns doc Strings als Template für andere übernehmen
@@ -535,7 +537,7 @@ class GrandPy:
         --------
         coldata : get the entire coldata DataFrame
         """
-        return list(self._adata.obs.index)
+        return self.coldata["Name"]
 
     def get_columns(self, sample_or_cell_names: int|list[int]|str|list[str]|list[bool] = None, *, reorder: bool = False) -> list[str]:
         """
@@ -562,10 +564,10 @@ class GrandPy:
         --------
         get_genes: get the gene symbols/names(columns of the data slots)
         """
-        all_names = self._adata.obs.index
+        all_names = self.columns
 
         if sample_or_cell_names is None:
-            return self.columns
+            return all_names
 
         # Single-value handling(str, int)
         elif isinstance(sample_or_cell_names, (int, np.integer)):
@@ -582,7 +584,7 @@ class GrandPy:
         if all(isinstance(i, (str, np.str_)) for i in sample_or_cell_names):
             result = sample_or_cell_names
         elif all(isinstance(i, (bool, np.bool_)) for i in sample_or_cell_names):
-            if len(sample_or_cell_names) != len(all_names.index):
+            if len(sample_or_cell_names) != len(all_names):
                 raise ValueError("Length of boolean filter must match number of samples/cells.")
             result = list(all_names.index[sample_or_cell_names])
         else:
@@ -609,7 +611,7 @@ class GrandPy:
         list[int]
             A list containing the specified indices.
         """
-        gene_info = self._adata.var.copy()
+        gene_info = self.gene_info
         index = list(range(len(gene_info.index)))
 
         if isinstance(gene, (list, tuple, pd.Series, np.ndarray)) and any(pd.isna(gene)):
@@ -626,7 +628,7 @@ class GrandPy:
             return gene
 
         gene_column = gene_info.get("Gene")
-        symbol_column = gene_info.index
+        symbol_column = gene_info.get("Symbol")
 
         if regex and isinstance(gene, str):
             mask = gene_column.astype(str).str.contains(gene, regex=True) | \

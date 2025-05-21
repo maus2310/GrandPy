@@ -160,8 +160,8 @@ def read_grand(file_path,
         coldata = pd.DataFrame(index=sample_index)
         coldata["Condition"] = ["sample"] * len(sample_index)
 
-    coldata["SampleName"] = coldata.index
-    coldata = coldata[["SampleName"] + [c for c in coldata.columns if c != "SampleName"]]
+    coldata["Name"] = coldata.index
+    coldata = coldata[["Name"] + [c for c in coldata.columns if c != "Name"]]
 
     if "Time" in coldata.columns:
         coldata["no4sU"] = coldata["Time"].isin(["no4sU", "nos4U", "-"])
@@ -195,8 +195,8 @@ def read_grand(file_path,
         metadata=metadata
     )
 
-gp_dense = read_grand("data/sars.tsv", design =("Condition", "Time", "Replicate"))
-print(gp_dense.gene_info)                          # Output: GrandPy-Object
+# gp_dense = read_grand("data/sars.tsv", design =("Condition", "Time", "Replicate"))
+# print(gp_dense.gene_info)                          # Output: GrandPy-Object
 
 # print(gp_dense._adata.uns["prefix"])    # Output: "data/sars.tsv"
 # print(gp_dense._adata.n_obs)            # Output: No. of samples "12"
