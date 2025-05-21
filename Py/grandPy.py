@@ -1,5 +1,5 @@
 import warnings
-from typing import Any
+from typing import Any, Union
 import numpy as np
 import pandas as pd
 import anndata as ad
@@ -177,7 +177,7 @@ class GrandPy:
 
     def with_dropped_slots(self, slots_to_remove: str | list[str]) -> "GrandPy":
         """
-        Return a new GrandPy object with specified slot(s) removed.
+        Returns a new GrandPy object with specified slot(s) removed.
 
         Parameters
         ----------
@@ -248,15 +248,18 @@ class GrandPy:
         return self.coldata['Condition'].tolist()
 
     #noch nicht Fertig
-    def with_condition(self, value: str | list[str]) -> Any:
+    def with_condition(self, value: str | list[str] | pd.Series) -> "GrandPy":
         """
 
         Parameters
         ----------
+        value: str | list[str] | pd.Series
+            The condition to be set for the samples/cells.
 
         Returns
         -------
-
+        GrandPy
+            A new GrandPy object with the specified condition.
         """
 
         value = [value] if isinstance(value, str) else value
@@ -306,7 +309,8 @@ class GrandPy:
 
         return self._adata.obs.copy()
 
-    def get_gene_info(self, columns: str | list[str] = None) -> pd.DataFrame:
+    # TODO: Einigen, ob Typen wie hier angegeben werden sollen(Union[str,int]) oder wie bisher(str|int)
+    def get_gene_info(self, columns: Union[str, list[str]] = None) -> pd.DataFrame:
         """
         Get a subset of the gene_info DataFrame.
 
@@ -335,15 +339,26 @@ class GrandPy:
         return df_gene_info[list(columns)]
 
     # ist noch nicht vollständig/fehlerhaft
-    def with_gene_info(self, column: str, value) -> "GrandPy":
+    def with_gene_info(self, column: str, value: Any) -> "GrandPy":
         """
+        Returns a new GrandPy object with the specified column in gene_info set to the specified value.
+
+
+
+        Examples
+        --------
+        gp.with_gene_info("Condition", {"gene_1": "Control", "gene_2": "Treatment"})
 
         Parameters
         ----------
+        value: Any
+
+        column: str
+
 
         Returns
         -------
-        "GrandPy"
+        GrandPy
             A new GrandPy object with the specified column in gene_info set to the specified value.
 
         See Also
@@ -351,19 +366,21 @@ class GrandPy:
         get_gene_info: Get a subset of the gene_info DataFrame
         """
         new_adata = self._adata.copy()
-        df_gene_info = new_adata.var
+        df_gene_info = new_adata.obs
+        column_to_change = new_adata.obs.columns.get_loc(column)
 
         if isinstance(value, dict):
-            ...
+            indices = self.get_index(value.keys())
+            new_adata.obs.iloc[indices, column_to_change] = list(value.values())
+            return self._replace(new_adata)
 
-        # if not (np.isscalar(value) or len(value) == len(df_gene_info)):
-        #     raise ValueError(f"Value has wrong length: {len(value)} vs {len(df_gene_info)} rows in gene_info")
+        if isinstance(value, (pd.Series, pd.DataFrame)):
+            indices = self.get_index(value.index)
+            new_adata.obs.iloc[indices, column_to_change] = value
+            return self._replace(new_adata)
 
-        # if column == "Symbol":
-        #     if np.isscalar(value):
-        #         raise ValueError("Symbol cannot be set to a scalar value(length of 1).")
-        #     df_gene_info.index = pd.Index(value, name = "Symbol")
-        #     return self._replace(new_adata)
+        if not (np.isscalar(value) or len(value) == len(df_gene_info)):
+            raise ValueError(f"Value has wrong length: {len(value)} vs {len(df_gene_info)} rows in gene_info")
 
         df_gene_info[column] = value
 
@@ -485,15 +502,17 @@ class GrandPy:
         """
         return self.gene_info["Symbol"]
 
-    def get_genes(self, genes: str|list[str]|int|list[int]|list[bool] = None, *, use_gene_symbols: bool = True, regex: bool = False) -> list[str]:
+    def get_genes(self, genes: Any = None, *, use_gene_symbols: bool = True, regex: bool = False) -> list[str]:
         """
-        Get gene names or symbols. Either by their index, their name, a boolean mask, or a regex.
+        Get gene names or symbols.
+
+        Either by their index, their name, a boolean mask, or a regex.
 
         If no genes are specified, all genes are returned.
 
         Parameters
         ----------
-        genes: str|list[str]|int|list[int]|list[bool]
+        genes: Any
             Genes to be retrieved.
         use_gene_symbols: bool
             If True, gene symbols will be returned. Otherwise, gene names will be returned.
@@ -594,14 +613,17 @@ class GrandPy:
 
 
     #funkitoniert momentan nicht, muss noch angepasst werden
-    def get_index(self, gene: str|list[str]|list[bool]|int|list[int] = None, *, regex: bool = False) -> list[int]:
+    def get_index(self, gene: Any = None, *, regex: bool = False) -> list[int]:
         """
-        Get the index of: a gene, a list of genes, or in accordance to a boolean filter.\n
+        Get the index of: a gene, a list of genes, or in accordance to a boolean filter.
+
+        Either by gene name or symbol, or by a boolean mask.
+
         Integers are returned unchanged.
 
         Parameters
         ----------
-        gene: str or list of str or list of bool or int or list of int
+        gene: Any
             Specifies which indices to return.
         regex: bool
             If True, `gene` will be interpreted as a regular expression.
