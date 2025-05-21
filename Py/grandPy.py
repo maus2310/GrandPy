@@ -54,8 +54,8 @@ class GrandPy:
 
         self._adata = ad.AnnData(
             X = slots["count"],
-            obs = coldata,
-            var = gene_info,
+            obs = gene_info,
+            var = coldata,
         )
         self._is_sparse = True if isinstance(slots.get("count"), sp.csr_matrix) else False
 

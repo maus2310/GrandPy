@@ -5,7 +5,7 @@ import scipy.sparse as sp
 from Py.grandPy import GrandPy, _to_sparse, Any
 
 
-def default_classify_genes(df) -> any: # Hilfsfunktion, um Gene zu klassifizieren
+def default_classify_genes(df) -> pd.Series: # Hilfsfunktion, um Gene zu klassifizieren
     """
     Classify genes into types based on patterns in "Gene" or "Symbol".
 
@@ -21,45 +21,38 @@ def default_classify_genes(df) -> any: # Hilfsfunktion, um Gene zu klassifiziere
         indexed identically to the input.
     """
 
-    types = pd.Series("Unknown", index=df.index) # Initialisierung, unten: Einteilung
-    types[df["Gene"].str.contains("ERCC-")] = "ERCC"
-    types[df["Gene"].str.match(r"^ENS.*G\d+$")] = "Cellular" # Regex-Muster: Start mit ENS, irgendwo ein G und dann eine Folge von Zahlen
-    types[df["Symbol"].str.startswith("MT-")] = "mito"
+    types = pd.Series("Unknown", index = df.index) # Initialisierung, unten: Einteilung
+    types[df["Gene"].str.contains("ERCC-", na=False)] = "ERCC"
+    types[df["Gene"].str.match(r"^ENS.*G\d+$", na=False)] = "Cellular" # Regex-Muster: Start mit ENS, irgendwo ein G und dann eine Folge von Zahlen
+    types[df["Symbol"].str.startswith("MT-", na=False)] = "mito"
     return types
 
-# Beispiel aufruf für die Funktion
-# sars = read_grand(
-#     "data/sars_R.tsv",
-#     viral_genes=["ORF3a", "E", "M", "N"],
-#     viral_genes_label="SARS-CoV-2",
-#     use_default_classification=False
-# )
 def classify_genes(gene_info: pd.DataFrame,
                    custom_classes: dict[str, Any] = None,
                    use_default: bool = True,
                    name_unknown: str = "Unknown") -> pd.Series:
     """
-    Assigns a type to each gene (e.g. "Cellular", "mito", or custom classes).
+        Assigns a type to each gene (e.g. "Cellular", "mito", or custom classes).
 
-    Parameters
-    ----------
-    gene_info : pd.DataFrame
-        Gene metadata with at least columns "Gene" and "Symbol".
+        Parameters
+        ----------
+        gene_info : pd.DataFrame
+            Gene metadata with at least columns "Gene" and "Symbol".
 
-    custom_classes : dict[str, Any], optional
-        Custom class definitions as {class_name: function}, where each function returns a boolean mask.
+        custom_classes : dict[str, Any], optional
+            Custom class definitions as {class_name: function}, where each function returns a boolean mask.
 
-    use_default : bool, default=True
-        Whether to include default classes ("mito", "ERCC", "Cellular").
+        use_default : bool, default=True
+            Whether to include default classes ("mito", "ERCC", "Cellular").
 
-    name_unknown : str, default="Unknown"
-        Label for unmatched genes.
+        name_unknown : str, default="Unknown"
+            Label for unmatched genes.
 
-    Returns
-    -------
-    pd.Series
-        A categorical Series assigning each gene to a type.
-    """
+        Returns
+        -------
+        pd.Series
+            A categorical Series assigning each gene to a type.
+        """
     classes = {}
 
     # Benutzerdefinierte Klassen übernehmen
@@ -92,27 +85,27 @@ def read_grand(file_path,
                sparse=False,
                design=None, *,
                viral_genes=None,
-               viral_genes_label="Default",
+               viral_genes_label="Viral", # statt "Default"
                use_default_classification=True,
                classify_genes_func=None) -> GrandPy:
     """
-    Reads GRAND-SLAM TSV-File and creates a GrandPy-Object.
+        Reads GRAND-SLAM TSV-File and creates a GrandPy-Object.
 
-    Parameters
-    ----------
-    file_path : str
-        Path to GRAND-SLAM TSV-File:
-    default_slot : str
-        The slot to be used as the default ("count", "ntr", etc.)
-    sparse : bool
-        If True, sparse matrices are being used.
-    design : tuple of str, optional
-        Column names to extract from sample names by splitting on "." (e.g., ("Condition", "Time", "Replicate")).
-        Used to construct the coldata DataFrame.
-    Returns
-    -------
-        GrandPy-Object.
-    """
+        Parameters
+        ----------
+        file_path : str
+            Path to GRAND-SLAM TSV-File:
+        default_slot : str
+            The slot to be used as the default ("count", "ntr", etc.)
+        sparse : bool
+            If True, sparse matrices are being used.
+        design : tuple of str, optional
+            Column names to extract from sample names by splitting on "." (e.g., ("Condition", "Time", "Replicate")).
+            Used to construct the coldata DataFrame.
+        Returns
+        -------
+            GrandPy-Object.
+        """
 
     df = pd.read_csv(file_path, sep="\t")
 
@@ -130,7 +123,7 @@ def read_grand(file_path,
         cols = [c for c in df.columns if c.endswith(suffix)]
         if not cols:
             continue
-        mat = df[cols].to_numpy().T
+        mat = df[cols].to_numpy()
         mat = np.where(np.isnan(mat), 0, mat)
         if sparse:
             mat = _to_sparse(mat)
@@ -167,29 +160,32 @@ def read_grand(file_path,
         coldata = pd.DataFrame(index=sample_index)
         coldata["Condition"] = ["sample"] * len(sample_index)
 
+    coldata["SampleName"] = coldata.index
+    coldata = coldata[["SampleName"] + [c for c in coldata.columns if c != "SampleName"]]
+
     if "Time" in coldata.columns:
         coldata["no4sU"] = coldata["Time"].isin(["no4sU", "nos4U", "-"])
-    else:
-        coldata["no4sU"] = False
+
 
     # Metadata muss noch angepasst werden, die Version fehlt
     metadata = {
-    "Description": "Loaded via read_grand()",
-    "default_slot": default_slot,
-    "Output": "sparse" if sparse else "dense"
+        "Description": "Loaded via read_grand()",
+        "default_slot": default_slot,
+        "Output": "sparse" if sparse else "dense",
+        "Version": 2 # Hardcoded
     }
 
     # correct_matrix() Ersatz, damit werden die Slots korrigiert, falls einzelne Slots weniger Samples enthalten -> selbe Zeilenanzahl durch 0-Ergänzung
-    max_samples = max(mat.shape[0] for mat in slots.values())
+    max_samples = max(mat.shape[1] for mat in slots.values())
     for key, mat in slots.items():
-        if mat.shape[0] < max_samples:
-            missing = max_samples - mat.shape[0]
-            pad = np.zeros((missing, mat.shape[1]))
+        if mat.shape[1] < max_samples:
+            missing = max_samples - mat.shape[1]
+            pad = np.zeros((mat.shape[0], missing))
             if sparse:
                 pad = sp.csr_matrix(pad)
-                slots[key] = sp.vstack([mat, pad])
+                slots[key] = sp.hstack([mat, pad])
             else:
-                slots[key] = np.vstack([mat, pad])
+                slots[key] = np.hstack([mat, pad])
 
     return GrandPy(
         prefix=file_path,
@@ -199,13 +195,13 @@ def read_grand(file_path,
         metadata=metadata
     )
 
-# gp_dense = read_grand("data/sars.tsv", design=("Condition", "duration", "Replicate"), default_slot="count", sparse=False)
-# print(gp_dense)                          # Output: GrandPy-Object
+gp_dense = read_grand("data/sars.tsv", design =("Condition", "Time", "Replicate"))
+print(gp_dense.gene_info)                          # Output: GrandPy-Object
 
 # print(gp_dense._adata.uns["prefix"])    # Output: "data/sars.tsv"
 # print(gp_dense._adata.n_obs)            # Output: No. of samples "12"
 # print(gp_dense._adata.n_vars)           # Output: No. of genes "19659"
-
+#
 # test_data = {
 #     "Gene": ["ENSG000001", "ENSG000002", "ENSG000003", "ENSG000004"],
 #     "Symbol": ["GAPDH", "ACTB", "ERCC-00001", "MT-CO1"],
@@ -224,3 +220,13 @@ def read_grand(file_path,
 # df.to_csv("sars_sparse_test.tsv", sep="\t", index=False)
 # gp_sparse = read_grand("sars_sparse_test.tsv", sparse=True)
 # print(gp_sparse)
+#
+# # Beispiel aufruf für die Funktion
+# sars = read_grand(
+#     "data/sars_R.tsv",
+#     viral_genes=["ORF3a", "E", "M", "N"],
+#     viral_genes_label="SARS-CoV-2",
+#     use_default_classification=False
+# )
+#
+# print(sars)
