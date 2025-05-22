@@ -748,6 +748,61 @@ class GrandPy:
 
         return resolved
 
+
+    # TODO: get_data() um die fehlenden Parameter aus R erweitern.
+    def get_data(self, mode_slot: str = None, genes: str|list[str] = None, columns: str|list[str] = None, with_coldata: bool = True) -> pd.DataFrame:
+        """
+        Get a subset of a data slot.
+
+        Parameters
+        ----------
+        mode_slot: str
+            The name of the desired data slot. If None, uses the default slot.
+
+        genes: str|list[str]
+            The genes to be retrieved. Can be gene symbols or names.
+
+        columns: str|list[str]
+            The cells/samples to be retrieved.
+
+        with_coldata: bool
+            If True, the coldata DataFrame will be concatenated to the result.
+
+        Returns
+        -------
+        pd.DataFrame
+            A DataFrame containing the data for the specified genes and columns.
+
+        See Also
+        --------
+
+        """
+        if mode_slot is None:
+            mode_slot = self.default_slot
+
+        # Mode slot muss noch verarbeitet werden.
+        # Vorübergehender Ersatz:
+        data = self._adata.layers[mode_slot]
+
+        if isinstance(columns, str):
+            columns = [columns]
+
+        row_indices = [self.coldata.index.get_loc(column) for column in columns] if columns is not None else range(len(self.coldata))
+        column_indices = self.get_index(genes)
+
+        result_rows = self.coldata.iloc[row_indices]["Name"].tolist()
+        result_columns = self.gene_info.iloc[column_indices]["Symbol"].tolist()
+
+        data_subset = data[np.ix_(row_indices, column_indices)]
+
+
+        result_df = pd.DataFrame(data_subset, index = result_rows, columns = result_columns)
+
+        if with_coldata:
+            result_df = pd.concat([self.coldata.iloc[row_indices], result_df], axis=1)
+
+        return result_df
+
 def _validate_and_convert_new_data(matrix) -> "np.ndarray" or "sp.csr_matrix":
         # Falls DataFrame → zu NumPy
         if isinstance(matrix, pd.DataFrame):
