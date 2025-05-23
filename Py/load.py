@@ -51,6 +51,38 @@ def parse_slots(df, suffixes, sparse):
     return slots, sample_names
 
 
+# Über diese Funktion müssen wir nochmal nachdenken, weil so sind zwar zum Beispiel in gene_Info die Symbole
+# unique aber immer, wenn man nach den Symbolen filtert müsste man irgendwie automatisch beachten, dass man
+# da ja auch Symbole mit _1 ... existieren. Und beim Ausgeben von gene_info sieht man dann auch dieses _1 ...
+# Ich hab das jetzt erstmal so gemacht. Falls irgendwas deswegen grad nicht funktioniert einfach die Zeile
+# gene_info["Symbol"] = make_unique(gene_info["Symbol"]) in def build_gene_info(df, classify_func):
+# auskommentieren :)
+def make_unique(series: pd.Series) -> pd.Series:
+    """
+        Ensures all values in a Series are unique by appending suffixes to duplicates.
+
+        Parameters
+        ----------
+        series : pd.Series
+            Input Series containing potentially non-unique values (e.g., gene symbols).
+
+        Returns
+        -------
+        pd.Series
+            Series with unique values. Duplicates are renamed by appending '_1', '_2', etc.
+        """
+    counts = {}
+    result = []
+
+    for val in series:
+        if val not in counts:
+            counts[val] = 0
+            result.append(val)
+        else:
+            counts[val] += 1
+            result.append(f"{val}_{counts[val]}")
+    return pd.Series(result, index=series.index)
+
 def build_gene_info(df, classify_func):
     """Extracts gene metadata and assigns a gene type to each entry.
 
@@ -70,7 +102,13 @@ def build_gene_info(df, classify_func):
 
     validate_input(df, ["Gene", "Symbol", "Length"], context="gene_info")
     gene_info = df[["Gene", "Symbol", "Length"]].copy()
+
+    if not gene_info["Symbol"].is_unique:
+        duplicates_list = gene_info["Symbol"][gene_info["Symbol"].duplicated()].unique()
+        warnings.warn(f"Non-unique gene symbols found: {', '.join(duplicates_list)}")
+
     gene_info["Type"] = classify_func(gene_info)
+    gene_info["Symbol"] = make_unique(gene_info["Symbol"])
     return gene_info[["Symbol", "Gene", "Length", "Type"]]
 
 
