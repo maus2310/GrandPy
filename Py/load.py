@@ -284,7 +284,7 @@ def read_grand(file_path,
 
     if classify_genes_func is None:
         if viral_genes is not None:
-            custom = {viral_genes: lambda g: g["Symbol"].isin(viral_genes)}
+            custom = {viral_genes_label: lambda g: g["Symbol"].isin(viral_genes)}
         else:
             custom = None
 
