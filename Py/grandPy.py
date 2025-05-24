@@ -532,7 +532,7 @@ class GrandPy:
                 return self.genes
 
             indices = self.get_index(genes, regex=regex)
-            return self.gene_info.iloc[indices].index.tolist()
+            return self.gene_info.iloc[indices]["Symbol"].tolist()
 
         else:
             if genes is None:
