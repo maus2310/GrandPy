@@ -31,10 +31,15 @@ def with_default_slots_test_immutability():
 def slots_test():
 
     gp = read_grand("../data/sars.tsv")
-    ueberpruefliste = list['count', 'ntr', 'alpha', 'beta']
+    control_list = list['count', 'ntr', 'alpha', 'beta']
     slots_test = gp.slots
     for slots in slots_test:
-        assert slots in ueberpruefliste
+        assert slots in control_list
+
+def with_slots_test():
+
+    gp = read_grand("../data/sars.tsv")
+
 
 
     # test_data = {
