@@ -42,14 +42,33 @@ def with_slots_test():
 
 
 
-    # test_data = {
-    #     "Gene": ["ENSG000001", "ENSG000002"],
-    #     "Symbol": ["GAPDH", "ACTB"],
-    #     "Length": [1000, 1200],
-    #     "Sample1 MAP": [0.9, 0.1],
-    #     "Sample2 MAP": [0.8, 0.2]
-    # }
-    # test_df = pd.DataFrame(test_data)
-    # test_file = tmp_path / "test_de.tsv"
-    # test_df.to_csv(test_file, sep="\t", index=False)
+
+def test_get_genes():
+    gp = read_grand("../data/sars_R.tsv")
+    all_genes_test = gp.get_genes()
+    all_genes_test_names = gp.get_genes(use_gene_symbols=False)
+    assert gp.gene_info.shape[0] == len(all_genes_test) and gp.gene_info.shape[0] == len(all_genes_test_names)
+    int_genes_test = gp.get_genes(0)
+    int_genes_test_names = gp.get_genes(0, use_gene_symbols=False)
+    assert int_genes_test == ["UHMK1"] and int_genes_test_names == ["ENSG00000152332"]
+    str_genes_test = gp.get_genes("UHMK1")
+    str_genes_test_names = gp.get_genes("UHMK1", use_gene_symbols=False)
+    assert str_genes_test == ["UHMK1"] and str_genes_test_names == ["ENSG00000152332"]
+    list_int_genes_test = gp.get_genes([0, 1])
+    assert list_int_genes_test == ["UHMK1", "ATF3"]
+    list_str_genes_test = gp.get_genes(["UHMK1", "ATF3"])
+    assert list_str_genes_test == ["UHMK1", "ATF3"]
+    mixed_genes_test = gp.get_genes([0, "UHMK1"])
+    assert mixed_genes_test == ["UHMK1"]
+    regex_genes_test = gp.get_genes(r"^U.*1$", regex = True)
+    regex_genes_test_names = gp.get_genes(r"^U.*1$", regex = True, use_gene_symbols=False)
+    assert regex_genes_test == ["UHMK1", "UPP1", "UBA1"] and regex_genes_test_names == ["ENSG00000152332", "ENSG00000183696", "ENSG00000130985"]
+
+def test_get_genes_immutability():
+    gp = read_grand("../data/sars_R.tsv")
+    get_genes_immutability_test = gp.get_genes()
+    get_genes_immutability_test[0] = "UHMK2"
+    assert gp.get_genes()[0] != "UHMK2"
+
+
 
