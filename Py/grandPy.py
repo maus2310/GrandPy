@@ -178,7 +178,7 @@ class GrandPy:
         """
         Get the names and data of all available slots.
         """
-        return self._adata.layers
+        return self._adata.layers.copy()
 
     @property
     def slot_names(self) -> list[str]:
