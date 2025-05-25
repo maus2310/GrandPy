@@ -1,10 +1,44 @@
 import warnings
-from typing import Any, Union
+from typing import Any
 import numpy as np
 import pandas as pd
 import anndata as ad
 import scipy.sparse as sp
-from functools import wraps
+
+class ModeSlot:
+    """
+    Used to store a mode slot.
+
+    Modes can either be 'new', 'old' or 'total'.
+
+    For new the data slot value is multiplied by ntr.
+    For old the data slot value is multiplied by 1-ntr.
+
+    Parameters
+    ----------
+    mode: str
+        A mode string. Can either be 'new', 'old' or 'total'.
+
+    slot: str
+        An available slot.
+
+    """
+    def __init__(self, mode, slot):
+        self._set_mode(mode)
+        self.slot = slot
+
+    def __str__(self):
+        return f"{self.mode}_{self.slot}"
+
+    def _set_mode(self, mode):
+        if mode == "n" or mode == "new":
+            self.mode = "new"
+        elif mode == "o" or mode == "old":
+            self.mode = "old"
+        elif mode == "t" or mode == "total" or mode == "":
+            self.mode = "total"
+        else:
+            raise ValueError(f"Invalid mode: {mode}. Can either be 'new', 'old' or 'total'.")
 
 
 class GrandPy:
@@ -29,9 +63,6 @@ class GrandPy:
     analyses:
 
     plots:
-
-    Returns
-    -------
 
     """
 
@@ -97,6 +128,7 @@ class GrandPy:
         new_adata = self._adata.copy()
         new_adata = new_adata[items]
         return self._replace(new_adata)
+
 
     def _replace(self, adata: ad.AnnData) -> 'GrandPy':
         def _safe_copy(obj):
@@ -305,23 +337,10 @@ class GrandPy:
     def gene_info(self) -> pd.DataFrame:
         """
         Get the gene_info DataFrame.
-
-        Returns
-        -------
-        pd.DataFrame
-            A pd.Dataframe containing the gene_info.
-
-        See Also
-        --------
-        get_gene_info: Get a subset of the gene_info DataFrame
-
-        with_gene_info: Set a subset of the gene_info DataFrame
         """
-
         return self._adata.obs.copy()
 
-    # TODO: Einigen, ob Typen wie hier angegeben werden sollen(Union[str,int]) oder wie bisher(str|int)
-    def get_gene_info(self, columns: Union[str, list[str]] = None) -> pd.DataFrame:
+    def get_gene_info(self, columns: str|list[str] = None) -> pd.DataFrame:
         """
         Get a subset of the gene_info DataFrame.
 
@@ -354,18 +373,17 @@ class GrandPy:
         """
         Returns a new GrandPy object with the specified column in gene_info set to the specified value.
 
-
-
         Examples
         --------
         gp.with_gene_info("Condition", {"gene_1": "Control", "gene_2": "Treatment"})
 
         Parameters
         ----------
-        value: Any
+        column: Any
+            The column to be modified.
 
-        column: str
-
+        value: str
+            The value to be set for the specified column. Can be a single value, a dictionary, a Series, or a DataFrame.
 
         Returns
         -------
@@ -534,6 +552,10 @@ class GrandPy:
         -------
         list[str]
             A list containing the specified genes.
+
+        See Also
+        --------
+        get_index: Get the index of gene names or symbols.
         """
         if use_gene_symbols:
             if genes is None:
@@ -550,7 +572,6 @@ class GrandPy:
             return self.gene_info.iloc[indices]["Gene"].tolist()
 
 
-    #TODO: columns und get_columns doc Strings als Template für andere übernehmen
     @property
     def columns(self):
         """
@@ -623,7 +644,6 @@ class GrandPy:
         return result if reorder else [name for name in all_names if name in result]
 
 
-    #funkitoniert momentan nicht, muss noch angepasst werden
     def get_index(self, gene: Any = None, *, regex: bool = False) -> list[int]:
         """
         Get the index of: a gene, a list of genes, or in accordance to a boolean filter.
@@ -631,6 +651,8 @@ class GrandPy:
         Either by gene name or symbol, or by a boolean mask.
 
         Integers are returned unchanged.
+
+        If names and indices are mixed, only one of them will be used. Chosen by the higher number of matches.
 
         Parameters
         ----------
@@ -695,69 +717,72 @@ class GrandPy:
         return mapping.loc[found].tolist()
 
 
-    def _check_slot(self, slot_name) -> bool:
+    def _check_slot(self, slot: str, *, allow_ntr = True) -> bool:
         """
-        Check wether a given slot exists in the GrandPy object.
+        Checks if a given slot exists in the data slots.
+
         Parameters
         ----------
-        slot_name : str
-            The name of the slot to check.
+        slot: str
+            The slot to be checked.
+
+        allow_ntr:
+            If True, the slot "ntr" is allowed as input.
 
         Returns
-        ----------
-        bool
+        -------
+        bool:
             True if the slot exists, False otherwise.
         """
-        if slot_name not in self._adata.layers:
-            raise KeyError(f"Slot '{slot_name}' not found.")
-        return True
+        if not allow_ntr and slot == "ntr":
+            return False
+        return slot in self.slot_names
 
-    def _check_mode_slot(self, slot_name, mode):
-        slot = self._adata.uns.get("mode_layers", {}).get(slot_name)
-        if isinstance(slot, dict) and mode in slot:
-            return True
-        raise KeyError(f"Mode-Slot '{slot_name}' with mode '{mode}' not found.")
-
-    def _parse_mode_slot(self, slot, mode=None, check=True) -> str:
+    def _resolve_mode_slot(self, mode_slot: str | ModeSlot, *, allow_ntr = True) -> np.ndarray|sp.csr_matrix:
         """
-        Resolve a mode-specific slot name.
+        Checks if the given slot is valid and computes the resulting mode slot, if a mode was specified.
 
         Parameters
-        -----------
-        slot : str
-            Base slot name (e.g. "ntr").
-        mode : str
-            Mode name (e.g. "MAP"). If None, returns the base slot name.
-        check : bool
-            If True, raises KeyError if the resolved slot does not exist.
+        ----------
+        mode_slot: str|ModeSlot
+            A slot or mode slot to be resolved.
+
+        allow_ntr: bool
+            If True, the slot "ntr" is allowed as input.
 
         Returns
-        -----------
-        str
-            The resolved slot name (e.g. "ntr_MAP" or "ntr").
+        -------
+        np.ndarray|sp.csr_matrix:
+            The resulting slot after the mode has been applied.
         """
+        if isinstance(mode_slot, str):
+            if not self._check_slot(mode_slot, allow_ntr=allow_ntr):
+                raise ValueError(f"Slot '{mode_slot}' not found in data slots.")
+            return mode_slot
 
-        if mode is None:
-            if check:
-                self._check_slot(slot)
-            return slot
-
-        mode_slots = self._adata.uns.get("mode_layers", {})
-
-        if slot not in mode_slots or not isinstance(mode_slots[slot], dict):
-            raise KeyError(f"Slot '{slot}' does not support modes.")
-
-        resolved = mode_slots[slot].get(mode)
-        if resolved is None:
-            raise KeyError(f"Mode '{mode}' does not resolve to '{slot}'.")
-
-        if check:
-            self._check_slot(resolved)
-
-        return resolved
+        if not self._check_slot(mode_slot.slot, allow_ntr=allow_ntr):
+            raise ValueError(f"Slot '{mode_slot.slot}' not found in data slots.")
 
 
-    # TODO: get_data() um die fehlenden Parameter aus R erweitern.
+        slot = self._adata.layers[mode_slot.slot]
+        ntr = self._adata.layers["ntr"]
+
+        resulting_mode_slot = slot
+
+        if mode_slot.mode != "total":
+            if self._is_sparse:
+                resulting_mode_slot = slot.multiply(ntr) if mode_slot.mode == "new" else slot.multiply(_one_minus(ntr))
+            else:
+                resulting_mode_slot = slot * ntr if mode_slot.mode == "new" else slot * (1 - ntr)
+
+            # Eliminate columns where no4sU is True, when the mode is not 'total'
+            row_mask = self.coldata["no4sU"].to_numpy()
+            resulting_mode_slot[:,row_mask] = None
+
+        return resulting_mode_slot
+
+
+    # TODO: get_data() um die fehlenden Parameter aus R erweitern und eingabe mehrerer slots ermöglichen.
     def get_data(self, mode_slot: str = None, genes: str|list[str] = None, columns: str|list[str] = None, with_coldata: bool = True) -> pd.DataFrame:
         """
         Get a subset of a data slot.
@@ -811,30 +836,32 @@ class GrandPy:
 
         return result_df
 
-def _validate_and_convert_new_data(matrix) -> "np.ndarray" or "sp.csr_matrix":
-        # Falls DataFrame → zu NumPy
-        if isinstance(matrix, pd.DataFrame):
-            matrix = matrix.values
 
-        # Falls Liste → zu NumPy
-        if isinstance(matrix, list):
-            matrix = np.array(matrix)
+def _validate_and_convert_new_data(matrix) -> np.ndarray | sp.csr_matrix:
+    # Falls DataFrame → zu NumPy
+    if isinstance(matrix, pd.DataFrame):
+        matrix = matrix.values
 
-        # Falls sparse, aber nicht csr → zu csr
-        if sp.issparse(matrix) and not isinstance(matrix, sp.csr_matrix):
-            matrix = sp.csr_matrix(matrix)
+    # Falls Liste → zu NumPy
+    if isinstance(matrix, list):
+        matrix = np.array(matrix)
 
-        # Falls dicht → alles okay
-        elif not sp.issparse(matrix):
-            if not isinstance(matrix, np.ndarray):
-                raise TypeError("Matrix must be ndarray, DataFrame, or scipy sparse matrix")
+    # Falls sparse, aber nicht csr → zu csr
+    if sp.issparse(matrix) and not isinstance(matrix, sp.csr_matrix):
+        matrix = sp.csr_matrix(matrix)
 
-        shape = matrix.shape
-        # Shape prüfen
-        if matrix.shape != shape:
-            raise ValueError(f"Matrix shape {matrix.shape} does not match expected shape {shape}")
+    # Falls dicht → alles okay
+    elif not sp.issparse(matrix):
+        if not isinstance(matrix, np.ndarray):
+            raise TypeError("Matrix must be ndarray, DataFrame, or scipy sparse matrix")
 
-        return matrix
+    shape = matrix.shape
+    # Shape prüfen
+    if matrix.shape != shape:
+        raise ValueError(f"Matrix shape {matrix.shape} does not match expected shape {shape}")
+
+    return matrix
+
 
 def _to_sparse(matrix):
     """
@@ -860,21 +887,16 @@ def _to_sparse(matrix):
     try:
         sparse_matrix = csr_matrix(matrix)
     except ValueError:
-        raise ValueError("Matrix could not be converted to a sparse matrix. Use numpy.ndarray or a pandas.DataFrame only containing numbers")
+        raise ValueError(
+            "Matrix could not be converted to a sparse matrix. Use numpy.ndarray or a pandas.DataFrame only containing numbers")
 
     return sparse_matrix
 
-def with_property(attr_name):
+def _one_minus(matrix: sp.csr_matrix) -> sp.csr_matrix:
     """
-    Decorator für eine Methode wie `name(self, new_value)`,
-    die dann intern `with_<attr>` aufruft.
+    Helper funktion to compute one minus a sparse matrix.
     """
-    def decorator(func):
-        @wraps(func)
-        def wrapper(self, value):
-            # Nutzt automatisch die passende `with_<attr>`-Methode
-            with_method = getattr(self, f"with_{attr_name}")
-            return with_method(value)
-        return wrapper
-    return decorator
+    ones = sp.csr_matrix(np.ones(matrix.shape), dtype=matrix.dtype)
+
+    return ones - matrix
 

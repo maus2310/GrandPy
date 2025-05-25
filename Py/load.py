@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import warnings
 import scipy.sparse as sp
-from Py.grandPy import GrandPy, _to_sparse, Any
+from Py.grandPy import GrandPy, _to_sparse, Any, ModeSlot
 
 
 # Behavior mirrors grandR::read.grand():
@@ -151,7 +151,7 @@ def build_coldata(sample_names, design):
 
     return coldata
 
-
+# TODO: Die Spalten die wir ergänzen sollten None sein(nicht 0) und an den Stellen sein, an denen 'no4sU' == True ist.
 def pad_slots(slots, sparse):
     """
     Ensures that all slot matrices have the same number of columns.
