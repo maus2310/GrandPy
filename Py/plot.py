@@ -7,7 +7,6 @@ import pandas as pd
 from scipy.stats import gaussian_kde
 
 
-
 #Zum testen: plot_scatter_simple(sars, x="Mock.no4sU.A", y="SARS.no4sU.A", slot="count")
 def plot_scatter_simple(data, x: str, y: str, slot: str = "count"):
 
