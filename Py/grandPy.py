@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import anndata as ad
 import scipy.sparse as sp
+from functools import wraps
 
 
 class GrandPy:
@@ -173,9 +174,16 @@ class GrandPy:
 
 
     @property
-    def slots(self) -> list[str]:
+    def slots(self) -> dict[str, np.ndarray]:
         """
-        Get the names of all available data slots.
+        Get the names and data of all available slots.
+        """
+        return self._adata.layers.copy()
+
+    @property
+    def slot_names(self) -> list[str]:
+        """
+        Get the names of all available slots.
         """
         return list(self._adata.layers.keys())
 
@@ -855,4 +863,18 @@ def _to_sparse(matrix):
         raise ValueError("Matrix could not be converted to a sparse matrix. Use numpy.ndarray or a pandas.DataFrame only containing numbers")
 
     return sparse_matrix
+
+def with_property(attr_name):
+    """
+    Decorator für eine Methode wie `name(self, new_value)`,
+    die dann intern `with_<attr>` aufruft.
+    """
+    def decorator(func):
+        @wraps(func)
+        def wrapper(self, value):
+            # Nutzt automatisch die passende `with_<attr>`-Methode
+            with_method = getattr(self, f"with_{attr_name}")
+            return with_method(value)
+        return wrapper
+    return decorator
 
