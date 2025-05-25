@@ -105,7 +105,7 @@ def build_gene_info(df, classify_func):
 
     if not gene_info["Symbol"].is_unique:
         duplicates_list = gene_info["Symbol"][gene_info["Symbol"].duplicated()].unique()
-        warnings.warn(f"Non-unique gene symbols found: {', '.join(duplicates_list)}")
+        warnings.warn(f"Duplicate gene symbols found: {', '.join(duplicates_list)}; they have been renamed to ensure uniqueness (e.g., MATR3 → MATR3_1).")
 
     gene_info["Type"] = classify_func(gene_info)
     gene_info["Symbol"] = make_unique(gene_info["Symbol"])
