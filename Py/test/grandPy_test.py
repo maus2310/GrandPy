@@ -6,13 +6,13 @@ from Py.load import *
 
 def test_default_slots():
 
-    gp = read_grand("data/sars.tsv")
+    gp = read_grand("../data/sars.tsv")
     default_slots_test = gp.default_slot
     assert default_slots_test in "count"
 
 def test_with_default_slots():
 
-    gp = read_grand("data/sars.tsv")
+    gp = read_grand("../data/sars.tsv")
     with_default_slots_test_alpha = gp.with_default_slot("alpha")
     assert with_default_slots_test_alpha.default_slot == "alpha"
     with_default_slots_test_beta = gp.with_default_slot("beta")
@@ -24,15 +24,17 @@ def test_with_default_slots():
 
 def with_default_slots_test_immutability():
 
-    gp = read_grand("data/sars.tsv")
+    gp = read_grand("../data/sars.tsv")
     with_default_slots_test_immutability = gp.with_default_slot("alpha")
     assert with_default_slots_test_immutability.default_slot != gp.default_slot
 
 def slots_test():
 
-    gp = read_grand("data/sars.tsv")
+    gp = read_grand("../data/sars.tsv")
+    ueberpruefliste = list['count', 'ntr', 'alpha', 'beta']
     slots_test = gp.slots
     for slots in slots_test:
+        assert slots in ueberpruefliste
 
 
     # test_data = {
