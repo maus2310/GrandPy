@@ -23,7 +23,7 @@ class ModeSlot:
         An available slot.
 
     """
-    def __init__(self, mode, slot):
+    def __init__(self, mode: str, slot: str):
         self._set_mode(mode)
         self.slot = slot
 
@@ -35,7 +35,7 @@ class ModeSlot:
             self.mode = "new"
         elif mode == "o" or mode == "old":
             self.mode = "old"
-        elif mode == "t" or mode == "total" or mode == "":
+        elif mode == "t" or mode == "total" or mode == "" or mode is None:
             self.mode = "total"
         else:
             raise ValueError(f"Invalid mode: {mode}. Can either be 'new', 'old' or 'total'.")
@@ -738,14 +738,46 @@ class GrandPy:
             return False
         return slot in self.slot_names
 
+    def _parse_mode_slot(self, mode_slot_unparsed: str) -> ModeSlot:
+        """
+        Parse a mode_slot string.
+
+        Parameters
+        ----------
+        mode_slot_unparsed: str
+            A potential mode_slot to be parsed.
+
+        Returns
+        -------
+        ModeSlot:
+            A ModeSlot object parsed from the string.
+        """
+
+        mode_slot_candidate = mode_slot_unparsed.split("_", 1)
+
+        if len(mode_slot_candidate) == 1:
+            if not self._check_slot(mode_slot_candidate[0]):
+                raise ValueError(f"The input mode_slot was interpreted as a slot without a mode('total'). Slot '{mode_slot_unparsed}' not found in data slots.")
+            return ModeSlot("total", mode_slot_unparsed)
+
+        if len(mode_slot_candidate) != 2:
+            raise ValueError(f"Invalid mode_slot: '{mode_slot_unparsed}'. Expected format: '<mode>_<slot>' or ModeSlot('<mode>', '<slot>').")
+
+        mode, slot = mode_slot_candidate
+
+        if not self._check_slot(slot):
+            raise ValueError(f"Slot '{slot}' not found in data slots.")
+
+        return ModeSlot(mode, slot)
+
     def _resolve_mode_slot(self, mode_slot: str | ModeSlot, *, allow_ntr = True) -> np.ndarray|sp.csr_matrix:
         """
-        Checks if the given slot is valid and computes the resulting mode slot, if a mode was specified.
+        Checks whether the given slot is valid and computes the resulting mode slot if a mode was specified.
 
         Parameters
         ----------
         mode_slot: str|ModeSlot
-            A slot or mode slot to be resolved.
+            A slot or a mode slot to be resolved.
 
         allow_ntr: bool
             If True, the slot "ntr" is allowed as input.
@@ -756,13 +788,10 @@ class GrandPy:
             The resulting slot after the mode has been applied.
         """
         if isinstance(mode_slot, str):
-            if not self._check_slot(mode_slot, allow_ntr=allow_ntr):
-                raise ValueError(f"Slot '{mode_slot}' not found in data slots.")
-            return mode_slot
+            mode_slot = self._parse_mode_slot(mode_slot)
 
         if not self._check_slot(mode_slot.slot, allow_ntr=allow_ntr):
             raise ValueError(f"Slot '{mode_slot.slot}' not found in data slots.")
-
 
         slot = self._adata.layers[mode_slot.slot]
         ntr = self._adata.layers["ntr"]
@@ -774,10 +803,6 @@ class GrandPy:
                 resulting_mode_slot = slot.multiply(ntr) if mode_slot.mode == "new" else slot.multiply(_one_minus(ntr))
             else:
                 resulting_mode_slot = slot * ntr if mode_slot.mode == "new" else slot * (1 - ntr)
-
-            # Eliminate columns where no4sU is True, when the mode is not 'total'
-            row_mask = self.coldata["no4sU"].to_numpy()
-            resulting_mode_slot[:,row_mask] = None
 
         return resulting_mode_slot
 
