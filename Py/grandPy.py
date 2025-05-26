@@ -1,5 +1,5 @@
 import warnings
-from typing import Any
+from typing import Any, Union, Sequence
 import numpy as np
 import pandas as pd
 import anndata as ad
@@ -738,45 +738,15 @@ class GrandPy:
             return False
         return slot in self.slot_names
 
-    def _parse_mode_slot(self, mode_slot_unparsed: str) -> ModeSlot:
-        """
-        Parse a mode_slot string.
-
-        Parameters
-        ----------
-        mode_slot_unparsed: str
-            A potential mode_slot to be parsed.
-
-        Returns
-        -------
-        ModeSlot:
-            A ModeSlot object parsed from the string.
-        """
-
-        mode_slot_candidate = mode_slot_unparsed.split("_", 1)
-
-        if len(mode_slot_candidate) == 1:
-            if not self._check_slot(mode_slot_candidate[0]):
-                raise ValueError(f"The input mode_slot was interpreted as a slot without a mode('total'). Slot '{mode_slot_unparsed}' not found in data slots.")
-            return ModeSlot("total", mode_slot_unparsed)
-
-        if len(mode_slot_candidate) != 2:
-            raise ValueError(f"Invalid mode_slot: '{mode_slot_unparsed}'. Expected format: '<mode>_<slot>' or ModeSlot('<mode>', '<slot>').")
-
-        mode, slot = mode_slot_candidate
-
-        if not self._check_slot(slot):
-            raise ValueError(f"Slot '{slot}' not found in data slots.")
-
-        return ModeSlot(mode, slot)
-
-    def _resolve_mode_slot(self, mode_slot: str | ModeSlot, *, allow_ntr = True) -> np.ndarray|sp.csr_matrix:
+    def _resolve_mode_slot(self, mode_slot: Union[str, ModeSlot], *, allow_ntr = True) -> Union[np.ndarray, sp.csr_matrix]:
         """
         Checks whether the given slot is valid and computes the resulting mode slot if a mode was specified.
 
+        Mode slots can be specified in the following formats: ModeSlot('<mode>', '<slot>'), '<mode>_<slot>', or '<slot>'.
+
         Parameters
         ----------
-        mode_slot: str|ModeSlot
+        mode_slot: Union[str, ModeSlot]
             A slot or a mode slot to be resolved.
 
         allow_ntr: bool
@@ -784,11 +754,31 @@ class GrandPy:
 
         Returns
         -------
-        np.ndarray|sp.csr_matrix:
+        Union[np.ndarray, sp.csr_matrix]
             The resulting slot after the mode has been applied.
         """
+
+        def _parse_mode_slot(mode_slot_unparsed: str) -> ModeSlot:
+            """
+            Parse a mode_slot string.
+            """
+            mode_slot_candidate = mode_slot_unparsed.split("_", 1)
+
+            if len(mode_slot_candidate) == 1:
+                return ModeSlot("total", mode_slot_unparsed)
+
+            if len(mode_slot_candidate) != 2:
+                raise ValueError(
+                    f"Invalid mode_slot: '{mode_slot_unparsed}'. Expected format: '<mode>_<slot>' or ModeSlot('<mode>', '<slot>').")
+
+            mode, slot = mode_slot_candidate
+
+            return ModeSlot(mode, slot)
+
+        # if mode_slot is a string, it gets parsed into a ModeSlot Object
         if isinstance(mode_slot, str):
-            mode_slot = self._parse_mode_slot(mode_slot)
+            mode_slot = _parse_mode_slot(mode_slot)
+
 
         if not self._check_slot(mode_slot.slot, allow_ntr=allow_ntr):
             raise ValueError(f"Slot '{mode_slot.slot}' not found in data slots.")
@@ -798,6 +788,7 @@ class GrandPy:
 
         resulting_mode_slot = slot
 
+        # The resulting data is computed, depending on the mode
         if mode_slot.mode != "total":
             if self._is_sparse:
                 resulting_mode_slot = slot.multiply(ntr) if mode_slot.mode == "new" else slot.multiply(_one_minus(ntr))
@@ -808,19 +799,24 @@ class GrandPy:
 
 
     # TODO: get_data() um die fehlenden Parameter aus R erweitern und eingabe mehrerer slots ermöglichen.
-    def get_data(self, mode_slot: str = None, genes: str|list[str] = None, columns: str|list[str] = None, with_coldata: bool = True) -> pd.DataFrame:
+    def get_data(self,
+                 mode_slot: Union[str, ModeSlot, Sequence[str|ModeSlot]] = None,
+                 genes: Union[str, Sequence[str]] = None,
+                 columns: Union[str, Sequence[str]] = None,
+                 *,
+                 with_coldata: bool = True) -> pd.DataFrame:
         """
-        Get a subset of a data slot.
+        Get a subset of on or multiple data slots.
 
         Parameters
         ----------
-        mode_slot: str
+        mode_slot: Union[str, ModeSlot, Sequence[str|ModeSlot]]]
             The name of the desired data slot. If None, uses the default slot.
 
-        genes: str|list[str]
+        genes: Union[str, Sequence[str]]
             The genes to be retrieved. Can be gene symbols or names.
 
-        columns: str|list[str]
+        columns: Union[str, Sequence[str]]
             The cells/samples to be retrieved.
 
         with_coldata: bool
@@ -833,10 +829,11 @@ class GrandPy:
 
         See Also
         --------
+        ModeSlot: Represents a mode slot.
 
         """
         if mode_slot is None:
-            mode_slot = self.default_slot
+            mode_slot = self._adata.layers[self.default_slot].copy()
 
         # Mode slot muss noch verarbeitet werden.
         # Vorübergehender Ersatz:
