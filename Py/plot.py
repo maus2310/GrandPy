@@ -4,20 +4,34 @@ import matplotlib.pyplot as plt
 from scipy.stats import gaussian_kde
 
 def plot_scatter_simple(data, x: str, y: str, slot: str = "count", remove_outlier: bool = False):
-    # Matrix holen
+    """
+        ScatterPlot
+
+        Parameters
+        ----------
+        x: str
+            an expression to compute the x value or a character corresponding to a sample (or cell) name or a fully qualified analysis result name
+        y: str
+            an expression to compute the y value or a character corresponding to a sample (or cell) name or a fully qualified analysis result name
+        slot: str
+            Count, Ntr ...
+        remove_outlier: bool
+            Detects and removes outliers
+
+        Returns
+        -------
+        Plot:
+            Plot object containing the scatter plot
+        """
     matrix = data._adata.layers[slot]
     if hasattr(matrix, "toarray"):
         matrix = matrix.toarray()
 
-    # Spaltenindizes holen
     x_idx = list(data.coldata["Name"]).index(x)
     y_idx = list(data.coldata["Name"]).index(y)
-
-    # Daten extrahieren
     x_vals = matrix[:, x_idx]
     y_vals = matrix[:, y_idx]
 
-    # Outlier entfernen (IQR-Methode)
     if remove_outlier:
         def filter_iqr(vals):
             q1, q3 = np.percentile(vals, [25, 75])
@@ -32,17 +46,13 @@ def plot_scatter_simple(data, x: str, y: str, slot: str = "count", remove_outlie
         x_vals = x_vals[mask]
         y_vals = y_vals[mask]
 
-    # Dichte berechnen (2D KDE)
     xy = np.vstack([x_vals, y_vals])
-    kde = gaussian_kde(xy)(xy)  # Dichtewerte für jeden Punkt
-
-    # Sortiere Punkte nach Dichte, damit hohe Dichte oben liegt (bessere Sichtbarkeit)
+    kde = gaussian_kde(xy)(xy)
     idx = kde.argsort()
     x_vals, y_vals, kde = x_vals[idx], y_vals[idx], kde[idx]
 
-    # Plot
     plt.figure(figsize=(6, 6))
-    scatter = plt.scatter(x_vals, y_vals, c=kde, s=10, cmap='viridis', alpha=0.8)
+    scatter = plt.scatter(x_vals, y_vals, c=kde, s=1, cmap='viridis', alpha=0.8)
     plt.xscale("linear")
     plt.yscale("linear")
     plt.xlabel(x)
