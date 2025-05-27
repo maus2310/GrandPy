@@ -619,19 +619,11 @@ class GrandPy:
         if sample_or_cell_name is None:
             return all_names
 
-        # Single-value handling(str, int)
-        elif isinstance(sample_or_cell_name, (int, np.integer)):
-            return [all_names[sample_or_cell_name]]
-        elif isinstance(sample_or_cell_name, (str, np.str_)):
-            return [sample_or_cell_name]
+        sample_or_cell_name = _ensure_list(sample_or_cell_name)
 
-        if not isinstance(sample_or_cell_name, (list, tuple, np.ndarray, pd.Series)):
-            raise TypeError("Invalid input type for sample_or_cell_names. Must be int, str, list, tuple, np.ndarray, or pd.Series.")
-
-        # list handling(list, tuple)
         if all(isinstance(i, (int, np.integer)) for i in sample_or_cell_name):
             result = [all_names[i] for i in sample_or_cell_name]
-        if all(isinstance(i, (str, np.str_)) for i in sample_or_cell_name):
+        elif all(isinstance(i, (str, np.str_)) for i in sample_or_cell_name):
             result = sample_or_cell_name
         elif all(isinstance(i, (bool, np.bool_)) for i in sample_or_cell_name):
             if len(sample_or_cell_name) != len(all_names):
@@ -797,60 +789,75 @@ class GrandPy:
         return resulting_mode_slot
 
 
-    # TODO: get_data() um die fehlenden Parameter aus R erweitern und eingabe mehrerer slots ermöglichen.
+    # TODO: get_data() um die fehlenden Parameter aus R erweitern. (ntr.na, by.rows)
     def get_data(self,
-                 mode_slot: Union[str, ModeSlot, Sequence[Union[str, ModeSlot]]] = None,
-                 gene: Union[str, Sequence[str]] = None,
-                 columns: Union[str, Sequence[str]] = None,
+                 mode_slots: Union[str, ModeSlot, Sequence[Union[str, ModeSlot]]] = None,
+                 genes: Union[str, int, Sequence[Union[str, int]]] = None,
+                 columns: Union[str, int, Sequence[Union[str, int]]] = None,
                  *,
-                 with_coldata: bool = True) -> pd.DataFrame:
+                 with_coldata: bool = True,
+                 name_genes_by = "Symbol") -> pd.DataFrame:
         """
-        Get a subset of on or multiple data slots.
+        Get a DataFrame containing the data from data slots.
 
         Parameters
         ----------
-        mode_slot: Union[str, ModeSlot, Sequence[str|ModeSlot]]]
-            The name of the desired data slot. If None, uses the default slot.
+        mode_slots: Union[str, ModeSlot, Sequence[Union[str, ModeSlot]]]
+            The name of the data slots. If None, uses the default slot.
 
-        gene: Union[str, Sequence[str]]
-            The genes to be retrieved. Can be gene symbols or names.
+            A mode("new"|"old") can be specified in the following formats: ModeSlot('<mode>', '<slot>') or '<mode>_<slot>'
 
-        columns: Union[str, Sequence[str]]
-            The cells/samples to be retrieved.
+        genes: Union[str, int, Sequence[Union[str, int]]]
+            The genes to be retrieved. Can be gene symbols, names, or an index.
+
+        columns: Union[str, int, Sequence[Union[str, int]]]
+            The cells/samples to be retrieved. Either by name or index.
 
         with_coldata: bool
             If True, the coldata DataFrame will be concatenated to the result.
 
+        name_genes_by: str
+            A column in the gene_info DataFrame to be used as the name of the genes.
+
         Returns
         -------
         pd.DataFrame
-            A DataFrame containing the data for the specified genes and columns.
+            A DataFrame containing the specified data for the genes and columns.
 
         See Also
         --------
-        ModeSlot: Represents a mode slot.
+        get_table():
+
+        get_analysis_table():
 
         """
-        if mode_slot is None:
-            mode_slot = self.default_slot
+        if mode_slots is None:
+            mode_slots = self.default_slot
 
-        # Mode slot muss noch verarbeitet werden.
-        # Vorübergehender Ersatz:
-        data = self._adata.layers[mode_slot]
+        # Transforming all parameters into lists
+        mode_slots = _ensure_list(mode_slots)
+        genes = _ensure_list(genes)
+        columns = _ensure_list(columns)
 
-        if isinstance(columns, str):
-            columns = [columns]
+        # Retrieving the indices of the selected genes and columns
+        column_indices = self.get_index(genes) if genes != [None] else self.get_index(None)
+        row_indices = [self.coldata.index.get_loc(column) for column in self.get_columns(columns)] if columns != [None] else range(len(self.coldata))
 
-        row_indices = [self.coldata.index.get_loc(column) for column in columns] if columns is not None else range(len(self.coldata))
-        column_indices = self.get_index(gene)
+        # Retrieving the names of the selected genes and columns
+        column_names = self.gene_info.iloc[column_indices][name_genes_by].tolist()
+        row_names = self.coldata.iloc[row_indices]["Name"].tolist()
 
-        result_rows = self.coldata.iloc[row_indices]["Name"].tolist()
-        result_columns = self.gene_info.iloc[column_indices]["Symbol"].tolist()
+        result_df = pd.DataFrame()
 
-        data_subset = data[np.ix_(row_indices, column_indices)]
+        for slot_name in mode_slots:
+            all_data = self._resolve_mode_slot(slot_name)
 
+            data_subset = all_data[np.ix_(column_indices, row_indices)].T
+            local_column_names = [name +  "_" + slot_name for name in column_names]
+            processed_data = pd.DataFrame(data_subset, index=row_names, columns=local_column_names)
 
-        result_df = pd.DataFrame(data_subset, index = result_rows, columns = result_columns)
+            result_df = pd.concat([result_df, processed_data], axis=1)
+
 
         if with_coldata:
             result_df = pd.concat([self.coldata.iloc[row_indices], result_df], axis=1)
