@@ -151,76 +151,35 @@ def build_coldata(sample_names, design):
 
     return coldata
 
-# NOTE(TO-DO): Die Spalten die wir ergänzen sollten None sein (nicht 0) und an den Stellen sein, an denen 'no4sU' == True ist.
-# Fehlende Daten werden bei no4sU-Samples mit NaN (oder 0 bei sparse=True) ergänzt.
-# Für alle anderen Samples führt fehlende Slot-Information zu einem Fehler eig bei grandR::read.grand() - bei uns jetzt erstmal nur warnings
-
-def pad_slots(slots, sparse, coldata):
+# TODO: Die Spalten die wir ergänzen sollten None sein(nicht 0) und an den Stellen sein, an denen 'no4sU' == True ist.
+def pad_slots(slots, sparse):
     """
     Ensures that all slot matrices have the same number of columns.
 
     Parameters
     ----------
     slots : dict[str, np.ndarray or sp.csr_matrix]
-        slot matrices, possibly missing some columns.
+        Dictionary of slot matrices (e.g. count, ntr).
 
     sparse : bool
-        If True, uses sparse matrices.
-
-    coldata : pd.DataFrame
-        Contains the full list and order of samples
+        Whether to use sparse padding matrices.
 
     Returns
     -------
     dict[str, np.ndarray or sp.csr_matrix]
-        Aligned slot matrices with missing samples padded with None (or 0).
+        Dictionary with padded matrices, aligned by number of samples.
 
     """
-
-    sample_names = list(coldata["Name"])
-
-    for slot, mat in slots.items():
-
-        suffix_map = {
-            "count": " Readcount",
-            "ntr": " MAP",
-            "alpha": "alpha",
-            "beta": "beta"
-        }
-
-        suffix = suffix_map.get(slot)
-        if suffix is None:
-            continue
-
-        if suffix is None:
-            continue
-
-        # Alle Namen, die vorhanden sind für diesen Slot
-        current_names = [name + suffix for name in sample_names if (name + suffix) in coldata.columns]
-        mat_names = [name.replace(suffix, "") for name in current_names]
-
-        # Baue neue Matrix mit allen Sample-Namen
-        new_mat = []
-        missing_samples = []
-
-        for name in sample_names:
-            if name in mat_names:
-                idx = mat_names.index(name)
-                new_mat.append(mat[:, idx])
+    max_samples = max(mat.shape[1] for mat in slots.values())
+    for key, mat in slots.items():
+        if mat.shape[1] < max_samples:
+            missing = max_samples - mat.shape[1]
+            pad = np.zeros((mat.shape[0], missing))
+            if sparse:
+                pad = sp.csr_matrix(pad)
+                slots[key] = sp.hstack([mat, pad])
             else:
-                fill_value = np.nan if not sparse else 0
-                new_mat.append(np.full(mat.shape[0], fill_value))
-                missing_samples.append(name)
-
-        if missing_samples:
-            warnings.warn(f"{len(missing_samples)} missing samples for slot {'slot'}:  {missing_samples[:5]}{'...' if len(missing_samples) > 5 else ''}. Filled with NaN/0.")
-
-        new_mat = np.stack(new_mat, axis=1)
-
-        if sparse:
-            new_mat = sp.csr_matrix(new_mat)
-
-        slots[slot] = new_mat
+                slots[key] = np.hstack([mat, pad])
 
     return slots
 
@@ -374,7 +333,7 @@ def read_grand(file_path,
 
     gene_info = build_gene_info(df, classify_genes_func)
     coldata = build_coldata(sample_names, design)
-    slots = pad_slots(slots, sparse, coldata)
+    slots = pad_slots(slots, sparse)
 
     # Metadata muss noch angepasst werden, die Version fehlt
     metadata = {
@@ -394,7 +353,7 @@ def read_grand(file_path,
 
 # wird bald gelöscht, wenn wir mit der Test-Einheit vorangekommen sind!
 # gp_dense = read_grand("data/sars.tsv", design =("Condition", "Time", "Replicate"))
-# print(gp_dense)
+# print(gp_dense.coldata)
 
 # print(gp_dense._adata.uns["prefix"])    # Output: "data/sars.tsv"
 # print(gp_dense._adata.n_obs)            # Output: No. of samples "12"
