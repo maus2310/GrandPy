@@ -35,20 +35,26 @@ def parse_slots(df, suffixes, sparse):
 
     slots = {}
     sample_names = None
+    slot_sample_names = {}
 
     for slot, suffix in suffixes.items():
         cols = [c for c in df.columns if c.endswith(suffix)]
         if not cols:
             continue
+
         mat = df[cols].to_numpy()
         mat = np.where(np.isnan(mat), 0, mat)
         if sparse:
             mat = _to_sparse(mat)
         slots[slot] = mat
 
+        sample_names_this_slot = [c.replace(suffix, "") for c in cols]
+        slot_sample_names[slot] = sample_names_this_slot
+
         if sample_names is None:
-            sample_names = [c.replace(suffix, "") for c in cols]
-    return slots, sample_names
+            sample_names = sample_names_this_slot
+
+    return slots, sample_names, slot_sample_names
 
 
 # Über diese Funktion müssen wir nochmal nachdenken, weil so sind zwar zum Beispiel in gene_Info die Symbole
@@ -151,35 +157,82 @@ def build_coldata(sample_names, design):
 
     return coldata
 
-# TODO: Die Spalten die wir ergänzen sollten None sein(nicht 0) und an den Stellen sein, an denen 'no4sU' == True ist.
-def pad_slots(slots, sparse):
+# altes: TO_DO: Die Spalten die wir ergänzen sollten None sein(nicht 0) und an den Stellen sein, an denen 'no4sU' == True ist.
+# ich habe mal alles auch strikt kommentiert, um nachvollziehen zu können wie ich das angestellt habe, da ich mir etwas unsicher war,
+# ob das nun so wirklich passt
+def pad_slots(slots, sparse, coldata, slot_sample_names) -> dict:
     """
-    Ensures that all slot matrices have the same number of columns.
+    Pads all slot matrices to have the same columns (samples), based on coldata["Name"].
+    If a sample is missing in a slot:
+    - If no4sU == True: fill with 0 (sparse) or NaN (dense)
+    - else: warn (as in grandR)
+    Ensures slot columns align exactly with coldata["Name"] order.
 
     Parameters
     ----------
-    slots : dict[str, np.ndarray or sp.csr_matrix]
-        Dictionary of slot matrices (e.g. count, ntr).
+    slots : dict[str] -> np.ndarray or sparse matrix
+        Dictionary of data matrices, e.g. count, ntr, alpha, beta
 
     sparse : bool
-        Whether to use sparse padding matrices.
+        If True, output matrices are sparse, otherwise they are dense.
+
+    coldata : pd.DataFrame
+        Sample metadata; must include "Name" and optionally "no4sU".
+
+    slot_sample_names : dict[str, list[str]]
+        Slot-specific sample names, parsed from column names (e.g. from 'Mock.1h.A alpha").
 
     Returns
     -------
-    dict[str, np.ndarray or sp.csr_matrix]
-        Dictionary with padded matrices, aligned by number of samples.
-
+    dict[str, np.ndarray or sparse matrix]
+        Updated slots with padded sample columns
     """
-    max_samples = max(mat.shape[1] for mat in slots.values())
-    for key, mat in slots.items():
-        if mat.shape[1] < max_samples:
-            missing = max_samples - mat.shape[1]
-            pad = np.zeros((mat.shape[0], missing))
-            if sparse:
-                pad = sp.csr_matrix(pad)
-                slots[key] = sp.hstack([mat, pad])
+
+    # Liste aller erwarteten Samples aus coldata:
+    all_samples = coldata["Name"].tolist()
+
+    for slot_name, matrix in slots.items():
+        # Liste der Samples, die im aktuellen Slot tatsächlich vorhanden sind
+        slot_samples = slot_sample_names[slot_name]
+        n_genes, n_existing_samples = matrix.shape
+
+        new_matrix = []
+
+        # Iteration über alle gewünschten Samples
+        for sample in all_samples:
+            if sample in slot_samples:
+                col_idx = slot_samples.index(sample)
+                # Wenn das Sample im Slot vorhanden ist, wird die Spalte übernommen
+                col = matrix[:, col_idx]
+                # Bei Sparse-Matrix -> Umwandlung in einen dichten Vektor
+                if sp.issparse(matrix):
+                    col = col.toarray().ravel()
+                else:
+                    col = col.ravel()
             else:
-                slots[key] = np.hstack([mat, pad])
+                # Sample fehlt im Slot - hier muss dann 'gepadded' werden
+                if "no4sU" in coldata.columns and coldata.loc[sample, "no4sU"]:
+                    # Falls no4sU == True -> auffüllen mit 0 oder NaN (abhängig von Matrix-Art)
+                    col = np.zeros(n_genes) if sparse else np.full(n_genes, np.nan)
+                else:
+                    # Sample fehlt, ist aber 4sU-behandelt -> Warnung wird ausgegeben
+                    # das ist anders als in grandR - da wird ein Fehler ausgeworfen
+                    warnings.warn(f"Sample '{sample}' missing in slot '{slot_name}' but not marked as no4sU.",
+                                  stacklevel=2)
+                    col = np.zeros(n_genes) if sparse else np.full(n_genes, np.nan)
+
+            # Hinzufügen der Spalte
+            new_matrix.append(col)
+
+        # Neue Matrix wird zusammengesetzt aus Gene x Sample
+        stacked = np.stack(new_matrix, axis=1)
+
+        # Optional als Sparse-Matrix zurückgeben
+        if sparse:
+            stacked = _to_sparse(stacked)
+
+        # Slot ersetzen durch gepaddete Matrix
+        slots[slot_name] = stacked
 
     return slots
 
@@ -305,7 +358,7 @@ def read_grand(file_path,
         "beta": "beta"
     }
 
-    slots, sample_names = parse_slots(df, slot_suffixes, sparse)
+    slots, sample_names, slot_sample_names = parse_slots(df, slot_suffixes, sparse)
 
     # Check if the default_slot exists
     if default_slot not in slots:
@@ -333,7 +386,7 @@ def read_grand(file_path,
 
     gene_info = build_gene_info(df, classify_genes_func)
     coldata = build_coldata(sample_names, design)
-    slots = pad_slots(slots, sparse)
+    slots = pad_slots(slots, sparse, coldata, slot_sample_names)
 
     # Metadata muss noch angepasst werden, die Version fehlt
     metadata = {
@@ -352,12 +405,9 @@ def read_grand(file_path,
     )
 
 # wird bald gelöscht, wenn wir mit der Test-Einheit vorangekommen sind!
-# gp_dense = read_grand("data/sars.tsv", design =("Condition", "Time", "Replicate"))
+# gp_dense = read_grand("data/sars_R.tsv", design =("Condition", "Time", "Replicate"))
 # print(gp_dense.coldata)
-
-# print(gp_dense._adata.uns["prefix"])    # Output: "data/sars.tsv"
-# print(gp_dense._adata.n_obs)            # Output: No. of samples "12"
-# print(gp_dense._adata.n_vars)           # Output: No. of genes "19659"
+# print(gp_dense.slots["ntr"])
 
 # test_data = {
 #     "Gene": ["ENSG000001", "ENSG000002", "ENSG000003", "ENSG000004"],
