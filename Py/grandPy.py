@@ -465,6 +465,7 @@ class GrandPy:
         """
         return self._adata.var.copy()
 
+    # aktuell extrem schlecht
     def with_coldata(self, column: Union[str, pd.Series, pd.DataFrame], value: Sequence[Any] = None) -> "GrandPy":
         """
         Return a new object with modified coldata.
@@ -484,7 +485,7 @@ class GrandPy:
         GrandPy
             A new GrandPy object with updated coldata.
         """
-        obs = self._adata.obs.copy()
+        obs = self.coldata
         new_adata = self._adata.copy()
 
         if isinstance(column, (pd.DataFrame, pd.Series)):
@@ -529,7 +530,7 @@ class GrandPy:
         """
         return self.gene_info["Symbol"]
 
-    def get_genes(self, genes: Union[str, int, Sequence[str|int|bool]] = None, *, use_gene_symbols: bool = True, regex: bool = False) -> list[str]:
+    def get_genes(self, gene: Union[str, int, Sequence[Union[str, int, bool]]] = None, *, use_gene_symbols: bool = True, regex: bool = False) -> list[str]:
         """
         Get gene names or symbols.
 
@@ -539,7 +540,7 @@ class GrandPy:
 
         Parameters
         ----------
-        genes: Union[str, int, Sequence[str|int|bool]]
+        gene: Union[str, int, Sequence[str|int|bool]]
             Genes to be retrieved.
         use_gene_symbols: bool
             If True, gene symbols will be returned. Otherwise, gene names will be returned.
@@ -556,17 +557,17 @@ class GrandPy:
         get_index: Get the index of gene names or symbols.
         """
         if use_gene_symbols:
-            if genes is None:
+            if gene is None:
                 return self.genes
 
-            indices = self.get_index(genes, regex=regex)
+            indices = self.get_index(gene, regex=regex)
             return self.gene_info.iloc[indices]["Symbol"].tolist()
 
         else:
-            if genes is None:
+            if gene is None:
                 return self.gene_info["Gene"]
 
-            indices = self.get_index(genes, regex=regex)
+            indices = self.get_index(gene, regex=regex)
             return self.gene_info.iloc[indices]["Gene"].tolist()
 
 
@@ -588,7 +589,7 @@ class GrandPy:
         """
         return self.coldata["Name"].tolist()
 
-    def get_columns(self, sample_or_cell_names: Union[str, int, Sequence[str|int|bool]] = None, *, reorder: bool = False) -> list[str]:
+    def get_columns(self, sample_or_cell_name: Union[str, int, Sequence[Union[str, int, bool]]] = None, *, reorder: bool = False) -> list[str]:
         """
         Get sample/cell names. Either by their index, their name, or a boolean mask.
 
@@ -596,7 +597,7 @@ class GrandPy:
 
         Parameters
         ----------
-        sample_or_cell_names: Union[str, int, Sequence[str|int|bool]]
+        sample_or_cell_name: Union[str, int, Sequence[str|int|bool]]
             Samples/cell to be retrieved.
 
         reorder: bool
@@ -615,34 +616,34 @@ class GrandPy:
         """
         all_names = self.columns
 
-        if sample_or_cell_names is None:
+        if sample_or_cell_name is None:
             return all_names
 
         # Single-value handling(str, int)
-        elif isinstance(sample_or_cell_names, (int, np.integer)):
-            return [all_names[sample_or_cell_names]]
-        elif isinstance(sample_or_cell_names, (str, np.str_)):
-            return [sample_or_cell_names]
+        elif isinstance(sample_or_cell_name, (int, np.integer)):
+            return [all_names[sample_or_cell_name]]
+        elif isinstance(sample_or_cell_name, (str, np.str_)):
+            return [sample_or_cell_name]
 
-        if not isinstance(sample_or_cell_names, (list, tuple, np.ndarray, pd.Series)):
+        if not isinstance(sample_or_cell_name, (list, tuple, np.ndarray, pd.Series)):
             raise TypeError("Invalid input type for sample_or_cell_names. Must be int, str, list, tuple, np.ndarray, or pd.Series.")
 
         # list handling(list, tuple)
-        if all(isinstance(i, (int, np.integer)) for i in sample_or_cell_names):
-            result = [all_names[i] for i in sample_or_cell_names]
-        if all(isinstance(i, (str, np.str_)) for i in sample_or_cell_names):
-            result = sample_or_cell_names
-        elif all(isinstance(i, (bool, np.bool_)) for i in sample_or_cell_names):
-            if len(sample_or_cell_names) != len(all_names):
+        if all(isinstance(i, (int, np.integer)) for i in sample_or_cell_name):
+            result = [all_names[i] for i in sample_or_cell_name]
+        if all(isinstance(i, (str, np.str_)) for i in sample_or_cell_name):
+            result = sample_or_cell_name
+        elif all(isinstance(i, (bool, np.bool_)) for i in sample_or_cell_name):
+            if len(sample_or_cell_name) != len(all_names):
                 raise ValueError("Length of boolean filter must match number of samples/cells.")
-            result = list(all_names[sample_or_cell_names])
+            result = list(all_names[sample_or_cell_name])
         else:
             raise TypeError("Inkonsistent input types for sample_or_cell_names. All values in the iterable must have the same type(int, str or bool).)")
 
         return result if reorder else [name for name in all_names if name in result]
 
 
-    def get_index(self, gene: Union[str, int, Sequence[str|int|bool]] = None, *, regex: bool = False) -> list[int]:
+    def get_index(self, gene: Union[str, int, Sequence[Union[str, int, bool]]] = None, *, regex: bool = False) -> list[int]:
         """
         Get the index of: a gene, a list of genes, or in accordance to a boolean filter.
 
@@ -654,7 +655,7 @@ class GrandPy:
 
         Parameters
         ----------
-        gene: Union[str, int, Sequence[str|int|bool]]
+        gene: Union[str, int, Sequence[Union[str, int, bool]]]
             Specifies which indices to return.
         regex: bool
             If True, `gene` will be interpreted as a regular expression.
@@ -667,18 +668,8 @@ class GrandPy:
         gene_info = self.gene_info
         index = list(range(len(gene_info.index)))
 
-        if isinstance(gene, (list, tuple, pd.Series, np.ndarray)) and any(pd.isna(gene)):
-            warnings.warn("All None values were removed from the query.")
-            gene = [g for g in gene if pd.notna(g)]
-
         if gene is None:
-            return list(index)
-
-        if isinstance(gene, int):
-            return [gene]
-
-        if isinstance(gene, (list, tuple, np.ndarray)) and all(isinstance(g, (int, np.integer)) for g in gene):
-            return gene
+            return index
 
         gene_column = gene_info.get("Gene")
         symbol_column = gene_info.get("Symbol")
@@ -688,7 +679,17 @@ class GrandPy:
                    symbol_column.astype(str).str.contains(gene, regex=True)
             return list(np.where(mask)[0])
 
-        if isinstance(gene, (list, tuple, np.ndarray)) and all(isinstance(g, (bool, np.bool_)) for g in gene):
+        # gene zu einer Liste konvertieren
+        gene = _ensure_list(gene)
+
+        if isinstance(gene, list) and any(pd.isna(gene)):
+            warnings.warn("All None values were removed from the query.")
+            gene = [g for g in gene if pd.notna(g)]
+
+        if isinstance(gene, list) and all(isinstance(g, (int, np.integer)) for g in gene):
+            return gene
+
+        if isinstance(gene, list) and all(isinstance(g, (bool, np.bool_)) for g in gene):
             if len(gene) != len(index):
                 raise ValueError("Length of boolean filter must match number of genes.")
             return list(np.where(gene)[0])
@@ -798,8 +799,8 @@ class GrandPy:
 
     # TODO: get_data() um die fehlenden Parameter aus R erweitern und eingabe mehrerer slots ermöglichen.
     def get_data(self,
-                 mode_slot: Union[str, ModeSlot, Sequence[str|ModeSlot]] = None,
-                 genes: Union[str, Sequence[str]] = None,
+                 mode_slot: Union[str, ModeSlot, Sequence[Union[str, ModeSlot]]] = None,
+                 gene: Union[str, Sequence[str]] = None,
                  columns: Union[str, Sequence[str]] = None,
                  *,
                  with_coldata: bool = True) -> pd.DataFrame:
@@ -811,7 +812,7 @@ class GrandPy:
         mode_slot: Union[str, ModeSlot, Sequence[str|ModeSlot]]]
             The name of the desired data slot. If None, uses the default slot.
 
-        genes: Union[str, Sequence[str]]
+        gene: Union[str, Sequence[str]]
             The genes to be retrieved. Can be gene symbols or names.
 
         columns: Union[str, Sequence[str]]
@@ -841,7 +842,7 @@ class GrandPy:
             columns = [columns]
 
         row_indices = [self.coldata.index.get_loc(column) for column in columns] if columns is not None else range(len(self.coldata))
-        column_indices = self.get_index(genes)
+        column_indices = self.get_index(gene)
 
         result_rows = self.coldata.iloc[row_indices]["Name"].tolist()
         result_columns = self.gene_info.iloc[column_indices]["Symbol"].tolist()
@@ -918,4 +919,9 @@ def _one_minus(matrix: sp.csr_matrix) -> sp.csr_matrix:
     ones = sp.csr_matrix(np.ones(matrix.shape), dtype=matrix.dtype)
 
     return ones - matrix
+
+def _ensure_list(x):
+    if isinstance(x, (str, int, bool)) or x is None:
+        return [x]
+    return list(x)
 
