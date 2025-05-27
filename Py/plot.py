@@ -1,9 +1,18 @@
-from Py.load import *
-import numpy as np
+from sklearn.decomposition import PCA
 import matplotlib.pyplot as plt
+import pandas as pd
+import numpy as np
+from typing import Optional
+from Py.load import *
 from scipy.stats import gaussian_kde
 
-def plot_scatter_simple(data, x: str, y: str, slot: str = "count", remove_outlier: bool = False):
+def plot_scatter(data,
+                        x: str,
+                        y: str,
+                        mode_slot: str | ModeSlot = None,
+                        remove_outlier: bool = False,
+                        xlim: Optional[tuple[float, float]] = None,
+                        ylim: Optional[tuple[float, float]] = None):
     """
         ScatterPlot
 
@@ -13,7 +22,7 @@ def plot_scatter_simple(data, x: str, y: str, slot: str = "count", remove_outlie
             an expression to compute the x value or a character corresponding to a sample (or cell) name or a fully qualified analysis result name
         y: str
             an expression to compute the y value or a character corresponding to a sample (or cell) name or a fully qualified analysis result name
-        slot: str
+        mode_slot: str | ModeSLot
             Count, Ntr ...
         remove_outlier: bool
             Detects and removes outliers
@@ -23,7 +32,8 @@ def plot_scatter_simple(data, x: str, y: str, slot: str = "count", remove_outlie
         Plot:
             Plot object containing the scatter plot
         """
-    matrix = data._adata.layers[slot]
+    matrix = data._resolve_mode_slot(mode_slot)
+
     if hasattr(matrix, "toarray"):
         matrix = matrix.toarray()
 
@@ -57,7 +67,11 @@ def plot_scatter_simple(data, x: str, y: str, slot: str = "count", remove_outlie
     plt.yscale("linear")
     plt.xlabel(x)
     plt.ylabel(y)
-    plt.title(f"{x} vs {y} ({slot})")
+    plt.title(f"{x} vs {y} ({mode_slot})")
     plt.colorbar(scatter, label='Density')
+    if xlim is not None:
+        plt.xlim(xlim)
+    if ylim is not None:
+        plt.ylim(ylim)
     plt.grid(False)
     plt.show()
