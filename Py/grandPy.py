@@ -130,7 +130,7 @@ class GrandPy:
         return self._replace(new_adata)
 
 
-    def _replace(self, adata: ad.AnnData) -> 'GrandPy':
+    def _replace(self, adata: ad.AnnData) -> "GrandPy":
         def _safe_copy(obj):
             return obj.copy() if obj is not None else None
 
@@ -183,7 +183,7 @@ class GrandPy:
         """
         return self._adata.uns.get('metadata').get('default_slot')
 
-    def with_default_slot(self, value) -> "GrandPy":
+    def with_default_slot(self, value: str) -> "GrandPy":
         """
         Returns a copy of the GrandPy object with the default slot set to `value`.
 
@@ -206,7 +206,7 @@ class GrandPy:
 
 
     @property
-    def slots(self) -> dict[str, np.ndarray]:
+    def slots(self) -> dict[str, Union[np.ndarray, sp.csr_matrix]]:
         """
         Get the names and data of all available slots.
         """
@@ -219,13 +219,13 @@ class GrandPy:
         """
         return list(self._adata.layers.keys())
 
-    def with_dropped_slots(self, slots_to_remove: str | list[str]) -> "GrandPy":
+    def with_dropped_slots(self, slots_to_remove: Union[str, Sequence[str]]) -> "GrandPy":
         """
         Returns a new GrandPy object with specified slot(s) removed.
 
         Parameters
         ----------
-        slots_to_remove: str or list of str
+        slots_to_remove: Union[str, Sequence[str]]
             One or more slots to remove from the data.
 
         Returns
@@ -249,15 +249,17 @@ class GrandPy:
 
         return self._replace(new_adata)
 
-    def with_slot(self, name, matrix, *, set_to_default = False) -> "GrandPy":
+    def with_slot(self, name: str, matrix: Union[np.ndarray, pd.DataFrame, sp.csr_matrix], *, set_to_default = False) -> "GrandPy":
         """
         Returns a new GrandPy Object with the new slot added.
+
+        The matrix given is expected to have rows and columns in the same order as existing slots.
 
         Parameters
         ----------
         name: str
             Name of the new slot.
-        matrix: numpy.ndarray or pandas.DataFrame or scipy sparse matrix
+        matrix: Union[np.ndarray, pd.DataFrame, sp.csr_matrix]
             The data to be added as a new slot.
         set_to_default: bool
             If True, sets the new slot as the default slot.
@@ -292,12 +294,12 @@ class GrandPy:
         return self.coldata['Condition'].tolist()
 
     #noch nicht Fertig
-    def with_condition(self, value: str | list[str] | pd.Series) -> "GrandPy":
+    def with_condition(self, value: Union[str, list[str], pd.Series]) -> "GrandPy":
         """
 
         Parameters
         ----------
-        value: str | list[str] | pd.Series
+        value: Union[str, list[str], pd.Series]
             The condition to be set for the samples/cells.
 
         Returns
@@ -326,7 +328,7 @@ class GrandPy:
 
 
     @property
-    def metadata(self) -> dict:
+    def metadata(self) -> dict[str, Any]:
         """
         Get the metadata about the GrandPy object.
         """
@@ -340,13 +342,13 @@ class GrandPy:
         """
         return self._adata.obs.copy()
 
-    def get_gene_info(self, columns: str|list[str] = None) -> pd.DataFrame:
+    def get_gene_info(self, columns: Union[str, Sequence[str]] = None) -> pd.DataFrame:
         """
         Get a subset of the gene_info DataFrame.
 
         Parameters
         ----------
-        columns: str | list[str]
+        columns: Union[str, Sequence[str]]
             A column name or a list of column names to be retrieved from the gene_info DataFrame.
 
         Returns
@@ -382,7 +384,7 @@ class GrandPy:
         column: Any
             The column to be modified.
 
-        value: str
+        value: Any
             The value to be set for the specified column. Can be a single value, a dictionary, a Series, or a DataFrame.
 
         Returns
@@ -463,23 +465,24 @@ class GrandPy:
         """
         return self._adata.var.copy()
 
-    def with_coldata(self, column, value=None) -> "GrandPy":
+    def with_coldata(self, column: Union[str, pd.Series, pd.DataFrame], value: Sequence[Any] = None) -> "GrandPy":
         """
-            Return a new object with modified coldata.
+        Return a new object with modified coldata.
 
-            Parameters
-            ----------
-            column : str, Series, or DataFrame
-                If str and value is None, returns the specified column.
-                If str and value is given, sets or updates the column with the given values.
-                If DataFrame or Series, concatenates the new columns to the existing coldata.
-            value : optional
-                The values to assign to the column, can be list, array, or Series.
+        Parameters
+        ----------
+        column : Union[str, pd.Series, pd.DataFrame]
+            If string, sets or updates the column with the given values.
 
-            Returns
-            -------
-            GrandPy
-                A new GrandPy object with updated coldata.
+            If DataFrame or Series, concatenates the new columns to the existing coldata.(value is ignored)
+
+        value : Sequence[Any]
+            The values to assign to the column can be list, array, or Series.
+
+        Returns
+        -------
+        GrandPy
+            A new GrandPy object with updated coldata.
         """
         obs = self._adata.obs.copy()
         new_adata = self._adata.copy()
@@ -490,11 +493,6 @@ class GrandPy:
                 new_adata.obs = new_obs
             except ValueError as e:
                 raise ValueError(f"Error concatenating column to coldata: {str(e)}")
-
-        elif isinstance(column, str) and value is None:
-            if column not in obs:
-                raise KeyError(f"Column '{column}' not found in coldata")
-            return obs[column]
 
         elif isinstance(column, str) and value is not None:
             if isinstance(value, (list, np.ndarray)) and len(value) == len(obs):
@@ -531,7 +529,7 @@ class GrandPy:
         """
         return self.gene_info["Symbol"]
 
-    def get_genes(self, genes: Any = None, *, use_gene_symbols: bool = True, regex: bool = False) -> list[str]:
+    def get_genes(self, genes: Union[str, int, Sequence[str|int|bool]] = None, *, use_gene_symbols: bool = True, regex: bool = False) -> list[str]:
         """
         Get gene names or symbols.
 
@@ -541,7 +539,7 @@ class GrandPy:
 
         Parameters
         ----------
-        genes: Any
+        genes: Union[str, int, Sequence[str|int|bool]]
             Genes to be retrieved.
         use_gene_symbols: bool
             If True, gene symbols will be returned. Otherwise, gene names will be returned.
@@ -573,11 +571,11 @@ class GrandPy:
 
 
     @property
-    def columns(self):
+    def columns(self) -> list[str]:
         """
         Get the sample/cell names
 
-        These names are used as the row names of the data slots and the column names of the coldata.
+        These names are used as the column names of the data slots and the row names of the coldata.
 
         Returns
         -------
@@ -588,9 +586,9 @@ class GrandPy:
         --------
         coldata : get the entire coldata DataFrame
         """
-        return self.coldata["Name"]
+        return self.coldata["Name"].tolist()
 
-    def get_columns(self, sample_or_cell_names: int|list[int]|str|list[str]|list[bool] = None, *, reorder: bool = False) -> list[str]:
+    def get_columns(self, sample_or_cell_names: Union[str, int, Sequence[str|int|bool]] = None, *, reorder: bool = False) -> list[str]:
         """
         Get sample/cell names. Either by their index, their name, or a boolean mask.
 
@@ -598,7 +596,7 @@ class GrandPy:
 
         Parameters
         ----------
-        sample_or_cell_names: int|list[int]|str|list[str]|list[bool]
+        sample_or_cell_names: Union[str, int, Sequence[str|int|bool]]
             Samples/cell to be retrieved.
 
         reorder: bool
@@ -637,14 +635,14 @@ class GrandPy:
         elif all(isinstance(i, (bool, np.bool_)) for i in sample_or_cell_names):
             if len(sample_or_cell_names) != len(all_names):
                 raise ValueError("Length of boolean filter must match number of samples/cells.")
-            result = list(all_names.index[sample_or_cell_names])
+            result = list(all_names[sample_or_cell_names])
         else:
             raise TypeError("Inkonsistent input types for sample_or_cell_names. All values in the iterable must have the same type(int, str or bool).)")
 
         return result if reorder else [name for name in all_names if name in result]
 
 
-    def get_index(self, gene: Any = None, *, regex: bool = False) -> list[int]:
+    def get_index(self, gene: Union[str, int, Sequence[str|int|bool]] = None, *, regex: bool = False) -> list[int]:
         """
         Get the index of: a gene, a list of genes, or in accordance to a boolean filter.
 
@@ -656,7 +654,7 @@ class GrandPy:
 
         Parameters
         ----------
-        gene: Any
+        gene: Union[str, int, Sequence[str|int|bool]]
             Specifies which indices to return.
         regex: bool
             If True, `gene` will be interpreted as a regular expression.
@@ -833,7 +831,7 @@ class GrandPy:
 
         """
         if mode_slot is None:
-            mode_slot = self._adata.layers[self.default_slot].copy()
+            mode_slot = self.default_slot
 
         # Mode slot muss noch verarbeitet werden.
         # Vorübergehender Ersatz:
@@ -859,7 +857,7 @@ class GrandPy:
         return result_df
 
 
-def _validate_and_convert_new_data(matrix) -> np.ndarray | sp.csr_matrix:
+def _validate_and_convert_new_data(matrix) -> Union[np.ndarray, sp.csr_matrix]:
     # Falls DataFrame → zu NumPy
     if isinstance(matrix, pd.DataFrame):
         matrix = matrix.values
@@ -884,14 +882,13 @@ def _validate_and_convert_new_data(matrix) -> np.ndarray | sp.csr_matrix:
 
     return matrix
 
-
-def _to_sparse(matrix):
+def _to_sparse(matrix: Union[pd.DataFrame, np.ndarray]) -> sp.csr_matrix:
     """
     Convert a dense NumPy array or Pandas DataFrame to a csr_matrix.
 
     Parameters
     ----------
-    matrix: pandas.DataFrame or numpy.ndarray
+    matrix: Union[pd.DataFrame, np.ndarray]
         The dense matrix to convert.
 
     Returns
