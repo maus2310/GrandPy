@@ -3,7 +3,9 @@ from typing import Any, Union, Sequence
 import numpy as np
 import pandas as pd
 import anndata as ad
+import scipy.sparse
 import scipy.sparse as sp
+
 
 class ModeSlot:
     """
@@ -43,7 +45,7 @@ class ModeSlot:
 
 class GrandPy:
     """
-    GrandPy: A Python implementation of the GrandR data model for RNA labeling analysis.
+    Create a GrandPy object.
 
     Data is typically loaded using the `read_grand()` function, which parses preprocessed GrandR-compatible
     data formats into a usable GrandPy object.
@@ -84,7 +86,7 @@ class GrandPy:
         if "count" not in slots:
             raise ValueError("GrandPy object must have a count slot.")
 
-        # obs and var are swapped to allow the data to be gene * sample
+        # obs and var are swapped to allow the data to be gene * sample instead of sample * gene
         self._adata = ad.AnnData(
             X = slots["count"],
             obs = gene_info,
@@ -249,36 +251,67 @@ class GrandPy:
 
         return self._replace(new_adata)
 
-    def with_slot(self, name: str, matrix: Union[np.ndarray, pd.DataFrame, sp.csr_matrix], *, set_to_default = False) -> "GrandPy":
+    def with_slot(self, name: str, new_slot: Union[np.ndarray, pd.DataFrame, sp.csr_matrix, list], *, set_to_default = False) -> "GrandPy":
         """
         Returns a new GrandPy Object with the new slot added.
-
         The matrix given is expected to have rows and columns in the same order as existing slots.
+
+        Can only check the order of genes and samples/cells if the given matrix is a pandas DataFrame.
 
         Parameters
         ----------
         name: str
             Name of the new slot.
-        matrix: Union[np.ndarray, pd.DataFrame, sp.csr_matrix]
+        new_slot: Union[np.ndarray, pd.DataFrame, sp.csr_matrix]
             The data to be added as a new slot.
         set_to_default: bool
             If True, sets the new slot as the default slot.
 
         Returns
         -------
-
+        GrandPy
+            A new GrandPy object with the new slot added.
         """
         if name in self._adata.layers.keys():
             raise ValueError(f"Slot '{name}' already exists. Please choose a different name.")
 
-        if self._is_sparse:
-            matrix = _to_sparse(matrix)
-        else:
-            matrix = _validate_and_convert_new_data(matrix)
+        def _validate_and_convert_new_data(matrix: Union[pd.DataFrame, sp.csr_matrix, np.ndarray]) -> Union[np.ndarray, sp.csr_matrix]:
+            # Falls DataFrame → zu NumPy
+            if isinstance(matrix, pd.DataFrame):
+                matrix.index = _make_unique(pd.Series(matrix.index))
+                for i in range(self._adata.n_obs):
+                    if matrix.index[i] != self._adata.obs["Symbol"][i]:
+                        raise ValueError(f"Row name mismatch for slot '{name}' at index {i}")
+                for i in range(self._adata.n_vars):
+                    if matrix.columns[i] != self._adata.var["Name"][i]:
+                        raise ValueError(f"Column name mismatch for slot '{name}' at index {i}")
+
+                matrix = matrix.values
+
+            # Falls Liste → zu NumPy
+            elif isinstance(matrix, list):
+                matrix = np.array(matrix)
+
+            # Falls sparse, aber nicht csr → zu csr
+            elif sp.issparse(matrix) and not isinstance(matrix, sp.csr_matrix):
+                matrix = sp.csr_matrix(matrix)
+
+            # Falls dicht → alles okay
+            elif not sp.issparse(matrix):
+                if not isinstance(matrix, np.ndarray):
+                    raise TypeError("Matrix must be ndarray, DataFrame, or scipy sparse matrix")
+
+            shape = matrix.shape
+            # Shape prüfen
+            if matrix.shape != shape:
+                raise ValueError(f"Matrix shape {matrix.shape} does not match expected shape {shape}")
+
+            return matrix
+
+        new_slot = _validate_and_convert_new_data(new_slot)
 
         new_adata = self._adata.copy()
-
-        new_adata.layers[name] = matrix
+        new_adata.layers[name] = new_slot
 
         if set_to_default:
             new_adata.uns['metadata']['default_slot'] = name
@@ -342,6 +375,7 @@ class GrandPy:
         """
         return self._adata.obs.copy()
 
+    # Eigenltich überflüssig(.get_gene_info(["Symbol, Gene"] == .geneinfo[["Symbol", "Gene"]]))
     def get_gene_info(self, columns: Union[str, Sequence[str]] = None) -> pd.DataFrame:
         """
         Get a subset of the gene_info DataFrame.
@@ -365,10 +399,9 @@ class GrandPy:
         if columns is None:
             return df_gene_info
 
-        if isinstance(columns, str):
-            columns = [columns]
+        columns = _ensure_list(columns)
 
-        return df_gene_info[list(columns)]
+        return df_gene_info[columns]
 
     # ist noch nicht vollständig/fehlerhaft
     def with_gene_info(self, column: str, value: Any) -> "GrandPy":
@@ -377,11 +410,11 @@ class GrandPy:
 
         Examples
         --------
-        gp.with_gene_info("Condition", {"gene_1": "Control", "gene_2": "Treatment"})
+        gp.with_gene_info("Type", {"gene_1": "Unknown", "gene_2": "Cellular"})
 
         Parameters
         ----------
-        column: Any
+        column: str
             The column to be modified.
 
         value: Any
@@ -793,7 +826,7 @@ class GrandPy:
     def get_data(self,
                  mode_slots: Union[str, ModeSlot, Sequence[Union[str, ModeSlot]]] = None,
                  genes: Union[str, int, Sequence[Union[str, int]]] = None,
-                 columns: Union[str, int, Sequence[Union[str, int]]] = None,
+                 samples_or_cells: Union[str, int, Sequence[Union[str, int]]] = None,
                  *,
                  with_coldata: bool = True,
                  name_genes_by = "Symbol") -> pd.DataFrame:
@@ -805,12 +838,12 @@ class GrandPy:
         mode_slots: Union[str, ModeSlot, Sequence[Union[str, ModeSlot]]]
             The name of the data slots. If None, uses the default slot.
 
-            A mode("new"|"old") can be specified in the following formats: ModeSlot('<mode>', '<slot>') or '<mode>_<slot>'
+            A mode("new"|"old"|"total") can be specified in the following formats: ModeSlot('<mode>', '<slot>') or '<mode>_<slot>'
 
         genes: Union[str, int, Sequence[Union[str, int]]]
             The genes to be retrieved. Can be gene symbols, names, or an index.
 
-        columns: Union[str, int, Sequence[Union[str, int]]]
+        samples_or_cells: Union[str, int, Sequence[Union[str, int]]]
             The cells/samples to be retrieved. Either by name or index.
 
         with_coldata: bool
@@ -831,21 +864,24 @@ class GrandPy:
         get_analysis_table():
 
         """
+        coldata = self.coldata
+        gene_info = self.gene_info
+
         if mode_slots is None:
             mode_slots = self.default_slot
 
         # Transforming all parameters into lists
         mode_slots = _ensure_list(mode_slots)
         genes = _ensure_list(genes)
-        columns = _ensure_list(columns)
+        samples_or_cells = _ensure_list(samples_or_cells)
 
         # Retrieving the indices of the selected genes and columns
+        row_indices = [coldata.index.get_loc(column) for column in self.get_columns(samples_or_cells)] if samples_or_cells != [None] else range(len(coldata))
         column_indices = self.get_index(genes) if genes != [None] else self.get_index(None)
-        row_indices = [self.coldata.index.get_loc(column) for column in self.get_columns(columns)] if columns != [None] else range(len(self.coldata))
 
         # Retrieving the names of the selected genes and columns
-        column_names = self.gene_info.iloc[column_indices][name_genes_by].tolist()
-        row_names = self.coldata.iloc[row_indices]["Name"].tolist()
+        row_names = coldata.iloc[row_indices]["Name"].tolist()
+        column_names = gene_info.iloc[column_indices][name_genes_by].tolist()
 
         result_df = pd.DataFrame()
 
@@ -860,43 +896,62 @@ class GrandPy:
 
 
         if with_coldata:
-            result_df = pd.concat([self.coldata.iloc[row_indices], result_df], axis=1)
+            result_df = pd.concat([coldata.iloc[row_indices], result_df], axis=1)
+
+        return result_df
+
+    # TODO: get_table() um die fehlenden Parameter aus R erweitern. mode_slot soll auch noch ein regex sein können(der mit analysis names verglichen wird).
+    def get_table(self,
+                  mode_slots: Union[str, ModeSlot, Sequence[Union[str, ModeSlot]]] = None,
+                  genes: Union[str, int, Sequence[Union[str, int]]] = None,
+                  samples_or_cells: Union[str, int, Sequence[Union[str, int]]] = None,
+                  *,
+                  with_gene_info: bool = False,
+                  name_genes_by = "Symbol") -> pd.DataFrame:
+        """
+
+        """
+        coldata = self.coldata
+        gene_info = self.gene_info
+
+        if mode_slots is None:
+            mode_slots = self.default_slot
+
+        mode_slots = _ensure_list(mode_slots)
+        genes = _ensure_list(genes)
+        samples_or_cells = _ensure_list(samples_or_cells)
+
+        row_indices = self.get_index(genes) if genes != [None] else self.get_index(None)
+        column_indices = [coldata.index.get_loc(column) for column in self.get_columns(samples_or_cells)] if samples_or_cells != [None] else range(len(coldata))
+
+        row_names = gene_info.iloc[row_indices][name_genes_by].tolist()
+        column_names = coldata.iloc[column_indices]["Name"].tolist()
+
+        result_df = pd.DataFrame()
+
+        for slot_name in mode_slots:
+            all_data = self._resolve_mode_slot(slot_name)
+
+            data_subset = all_data[np.ix_(row_indices, column_indices)]
+            local_column_names = [name + "_" + slot_name for name in column_names]
+            processed_data = pd.DataFrame(data_subset, index=row_names, columns=local_column_names)
+
+            result_df = pd.concat([result_df, processed_data], axis=1)
+
+        if with_gene_info:
+            result_df = pd.concat([gene_info.iloc[row_indices], result_df], axis=1)
 
         return result_df
 
 
-def _validate_and_convert_new_data(matrix) -> Union[np.ndarray, sp.csr_matrix]:
-    # Falls DataFrame → zu NumPy
-    if isinstance(matrix, pd.DataFrame):
-        matrix = matrix.values
 
-    # Falls Liste → zu NumPy
-    if isinstance(matrix, list):
-        matrix = np.array(matrix)
-
-    # Falls sparse, aber nicht csr → zu csr
-    if sp.issparse(matrix) and not isinstance(matrix, sp.csr_matrix):
-        matrix = sp.csr_matrix(matrix)
-
-    # Falls dicht → alles okay
-    elif not sp.issparse(matrix):
-        if not isinstance(matrix, np.ndarray):
-            raise TypeError("Matrix must be ndarray, DataFrame, or scipy sparse matrix")
-
-    shape = matrix.shape
-    # Shape prüfen
-    if matrix.shape != shape:
-        raise ValueError(f"Matrix shape {matrix.shape} does not match expected shape {shape}")
-
-    return matrix
-
-def _to_sparse(matrix: Union[pd.DataFrame, np.ndarray]) -> sp.csr_matrix:
+def _to_sparse(matrix: Union[pd.DataFrame, np.ndarray, sp.csr_matrix]) -> sp.csr_matrix:
     """
-    Convert a dense NumPy array or Pandas DataFrame to a csr_matrix.
+    Convert the given matrix to a csr_matrix.
 
     Parameters
     ----------
-    matrix: Union[pd.DataFrame, np.ndarray]
+    matrix: Union[pd.DataFrame, np.ndarray, sp.csr_matrix]]
         The dense matrix to convert.
 
     Returns
@@ -919,6 +974,7 @@ def _to_sparse(matrix: Union[pd.DataFrame, np.ndarray]) -> sp.csr_matrix:
 
     return sparse_matrix
 
+
 def _one_minus(matrix: sp.csr_matrix) -> sp.csr_matrix:
     """
     Helper funktion to compute one minus a sparse matrix.
@@ -926,6 +982,34 @@ def _one_minus(matrix: sp.csr_matrix) -> sp.csr_matrix:
     ones = sp.csr_matrix(np.ones(matrix.shape), dtype=matrix.dtype)
 
     return ones - matrix
+
+
+def _make_unique(series: pd.Series) -> pd.Series:
+    """
+        Ensures all values in a Series are unique by appending suffixes to duplicates.
+
+        Parameters
+        ----------
+        series : pd.Series
+            Input Series containing potentially non-unique values (e.g., gene symbols).
+
+        Returns
+        -------
+        pd.Series
+            Series with unique values. Duplicates are renamed by appending '_1', '_2', etc.
+        """
+    counts = {}
+    result = []
+
+    for val in series:
+        if val not in counts:
+            counts[val] = 0
+            result.append(val)
+        else:
+            counts[val] += 1
+            result.append(f"{val}_{counts[val]}")
+    return pd.Series(result, index=series.index)
+
 
 def _ensure_list(x):
     if isinstance(x, (str, int, bool)) or x is None:

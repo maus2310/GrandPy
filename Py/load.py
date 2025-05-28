@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import warnings
 import scipy.sparse as sp
-from Py.grandPy import GrandPy, _to_sparse, Any, ModeSlot
+from Py.grandPy import GrandPy, _to_sparse, Any, ModeSlot, _make_unique
 
 
 # Behavior mirrors grandR::read.grand():
@@ -57,38 +57,6 @@ def parse_slots(df, suffixes, sparse):
     return slots, sample_names, slot_sample_names
 
 
-# Über diese Funktion müssen wir nochmal nachdenken, weil so sind zwar zum Beispiel in gene_Info die Symbole
-# unique aber immer, wenn man nach den Symbolen filtert müsste man irgendwie automatisch beachten, dass man
-# da ja auch Symbole mit _1 ... existieren. Und beim Ausgeben von gene_info sieht man dann auch dieses _1 ...
-# Ich hab das jetzt erstmal so gemacht. Falls irgendwas deswegen grad nicht funktioniert einfach die Zeile
-# gene_info["Symbol"] = make_unique(gene_info["Symbol"]) in def build_gene_info(df, classify_func):
-# auskommentieren :)
-def make_unique(series: pd.Series) -> pd.Series:
-    """
-        Ensures all values in a Series are unique by appending suffixes to duplicates.
-
-        Parameters
-        ----------
-        series : pd.Series
-            Input Series containing potentially non-unique values (e.g., gene symbols).
-
-        Returns
-        -------
-        pd.Series
-            Series with unique values. Duplicates are renamed by appending '_1', '_2', etc.
-        """
-    counts = {}
-    result = []
-
-    for val in series:
-        if val not in counts:
-            counts[val] = 0
-            result.append(val)
-        else:
-            counts[val] += 1
-            result.append(f"{val}_{counts[val]}")
-    return pd.Series(result, index=series.index)
-
 def build_gene_info(df, classify_func):
     """Extracts gene metadata and assigns a gene type to each entry.
 
@@ -114,7 +82,8 @@ def build_gene_info(df, classify_func):
         warnings.warn(f"Duplicate gene symbols found: {', '.join(duplicates_list)}; they have been renamed to ensure uniqueness (e.g., MATR3 → MATR3_1).")
 
     gene_info["Type"] = classify_func(gene_info)
-    gene_info["Symbol"] = make_unique(gene_info["Symbol"])
+    gene_info["Symbol"] = _make_unique(gene_info["Symbol"])
+    gene_info.index = gene_info["Symbol"]
     return gene_info[["Symbol", "Gene", "Length", "Type"]]
 
 
