@@ -39,6 +39,8 @@ def parse_slots(df, suffixes, sparse):
 
     for slot, suffix in suffixes.items():
         cols = [c for c in df.columns if c.endswith(suffix)]
+        # print(f"[DEBUG] Suffix-Suche für slot '{slots}' mit suffix '{suffix}':")
+
         if not cols:
             continue
 
@@ -189,7 +191,6 @@ def pad_slots(slots, sparse, coldata, slot_sample_names) -> dict:
                     warnings.warn(f"Sample '{sample}' missing in slot '{slot_name}' but not marked as no4sU.",
                                   stacklevel=2)
                     col = np.zeros(n_genes) if sparse else np.full(n_genes, np.nan)
-
             # Hinzufügen der Spalte
             new_matrix.append(col)
 
@@ -323,8 +324,8 @@ def read_grand(file_path,
     slot_suffixes = {
         "count": " Readcount",
         "ntr": " MAP",
-        "alpha": "alpha",
-        "beta": "beta"
+        "alpha": " alpha",
+        "beta": " beta"
     }
 
     slots, sample_names, slot_sample_names = parse_slots(df, slot_suffixes, sparse)
@@ -374,9 +375,8 @@ def read_grand(file_path,
     )
 
 # wird bald gelöscht, wenn wir mit der Test-Einheit vorangekommen sind!
-# gp_dense = read_grand("data/sars_R.tsv", design =("Condition", "Time", "Replicate"))
-# print(gp_dense.coldata)
-# print(gp_dense.slots["ntr"])
+gp_dense = read_grand("data/sars_R.tsv", design =("Condition", "Time", "Replicate"))
+# print(gp_dense.slots["beta"])
 
 # test_data = {
 #     "Gene": ["ENSG000001", "ENSG000002", "ENSG000003", "ENSG000004"],
