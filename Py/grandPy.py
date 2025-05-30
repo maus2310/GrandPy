@@ -3,7 +3,7 @@ from typing import Any, Union, Sequence
 import numpy as np
 import pandas as pd
 import anndata as ad
-import scipy.sparse
+
 import scipy.sparse as sp
 
 
@@ -132,18 +132,30 @@ class GrandPy:
         return self._replace(new_adata)
 
 
-    def _replace(self, adata: ad.AnnData) -> "GrandPy":
-        def _safe_copy(obj):
+    def _replace(self, adata: ad.AnnData = None,
+                 *,
+                 prefix: str = None,
+                 gene_info: pd.DataFrame = None,
+                 coldata: pd.DataFrame = None,
+                 slots: dict[str, Union[np.ndarray, sp.csr_matrix]] = None,
+                 metadata: dict = None) -> "GrandPy":
+        """
+        Funktion to create a new instance of GrandPy from an already existing one.
+        """
+        def safe_copy(obj):
             return obj.copy() if obj is not None else None
 
+        if adata is None:
+            adata = self._adata
+
         return self.__class__(
-            prefix = adata.uns.get('prefix'),
-            gene_info = _safe_copy(adata.obs),
-            coldata = _safe_copy(adata.var),
-            slots = {**adata.layers},
-            metadata = _safe_copy(adata.uns.get("metadata",)),
-            analyses = _safe_copy(adata.uns.get("analyses")),
-            plots = _safe_copy(adata.uns.get("plots"))
+            prefix = prefix if prefix is not None else adata.uns.get('prefix'),
+            gene_info = gene_info if gene_info is not None else safe_copy(adata.obs),
+            coldata = coldata if coldata is not None else safe_copy(adata.var),
+            slots = slots if slots is not None else {**adata.layers},
+            metadata = metadata if metadata is not None else (adata.uns.get("metadata",)),
+            analyses = safe_copy(adata.uns.get("analyses")),
+            plots = safe_copy(adata.uns.get("plots"))
         )
 
 
@@ -201,10 +213,10 @@ class GrandPy:
         """
         assert value in self._adata.layers.keys(), "Trying to set a default_slot that is not an available slot"
 
-        new_adata = self._adata.copy()
-        new_adata.uns['metadata']['default_slot'] = value
+        new_metadata = self._adata.uns.get('metadata', {}).copy()
+        new_metadata['default_slot'] = value
 
-        return self._replace(new_adata)
+        return self._replace(metadata=new_metadata)
 
 
     @property
@@ -236,27 +248,29 @@ class GrandPy:
             A new GrandPy object with specified slot(s) removed.
         """
 
-        to_remove = [slots_to_remove] if isinstance(slots_to_remove, str) else slots_to_remove
-        current_slots = list(self._adata.layers.keys())
+        to_remove = _ensure_list(slots_to_remove)
+        current_slots = self.slot_names
         remaining = [s for s in current_slots if s not in to_remove]
 
         if not remaining:
             raise ValueError("Cannot drop all slots - at least one must remain.")
 
-        new_adata = self._adata.copy()
-        new_adata.layers = {k: self._adata.layers[k] for k in remaining}
+        new_slots = self.slots
+        new_slots = {k: self._adata.layers[k] for k in remaining}
 
         if self.default_slot in to_remove:
-            new_adata.uns['metadata']['default_slot'] = remaining[0]
+            new_metadata = self._adata.uns.get('metadata', {}).copy()
+            new_metadata['default_slot'] = remaining[0]
+            return self._replace(slots=new_slots, metadata=new_metadata)
 
-        return self._replace(new_adata)
+        return self._replace(slots=new_slots)
 
     def with_slot(self, name: str, new_slot: Union[np.ndarray, pd.DataFrame, sp.csr_matrix, list], *, set_to_default = False) -> "GrandPy":
         """
         Returns a new GrandPy Object with the new slot added.
-        The matrix given is expected to have rows and columns in the same order as existing slots.
 
         Can only check the order of genes and samples/cells if the given matrix is a pandas DataFrame.
+        Otherwise, the given matrix is expected to have rows and columns in the same order as existing slots.
 
         Parameters
         ----------
@@ -276,47 +290,46 @@ class GrandPy:
             raise ValueError(f"Slot '{name}' already exists. Please choose a different name.")
 
         def _validate_and_convert_new_data(matrix: Union[pd.DataFrame, sp.csr_matrix, np.ndarray]) -> Union[np.ndarray, sp.csr_matrix]:
-            # Falls DataFrame → zu NumPy
+            # If DataFrame → to NumPy
             if isinstance(matrix, pd.DataFrame):
                 matrix.index = _make_unique(pd.Series(matrix.index))
-                for i in range(self._adata.n_obs):
-                    if matrix.index[i] != self._adata.obs["Symbol"][i]:
-                        raise ValueError(f"Row name mismatch for slot '{name}' at index {i}")
-                for i in range(self._adata.n_vars):
-                    if matrix.columns[i] != self._adata.var["Name"][i]:
-                        raise ValueError(f"Column name mismatch for slot '{name}' at index {i}")
+                # Row and column names of the new matrix must be equal to the existing ones.
+                try:
+                    for i in range(self._adata.n_obs):
+                        if matrix.index[i] != self._adata.obs["Symbol"].iloc[i]:
+                            raise ValueError(f"Row name mismatch for slot '{name}' at index {i}")
+                    for i in range(self._adata.n_vars):
+                        if matrix.columns[i] != self._adata.var["Name"].iloc[i]:
+                            raise ValueError(f"Column name mismatch for slot '{name}' at index {i}")
+                except ValueError as error:
+                    warnings.warn(f"The row and column names of the new matrix did not match the existing ones. Data will be saved regardless.\n{error}")
 
                 matrix = matrix.values
 
-            # Falls Liste → zu NumPy
-            elif isinstance(matrix, list):
-                matrix = np.array(matrix)
-
-            # Falls sparse, aber nicht csr → zu csr
-            elif sp.issparse(matrix) and not isinstance(matrix, sp.csr_matrix):
+            # If sparse, but not csr → to csr
+            if self._is_sparse and not isinstance(matrix, sp.csr_matrix):
                 matrix = sp.csr_matrix(matrix)
 
-            # Falls dicht → alles okay
-            elif not sp.issparse(matrix):
-                if not isinstance(matrix, np.ndarray):
+            # If dense, but not ndarray → to ndarray
+            if not self._is_sparse and not isinstance(matrix, np.ndarray):
+                try:
+                    matrix = np.array(matrix)
+                except:
                     raise TypeError("Matrix must be ndarray, DataFrame, or scipy sparse matrix")
-
-            shape = matrix.shape
-            # Shape prüfen
-            if matrix.shape != shape:
-                raise ValueError(f"Matrix shape {matrix.shape} does not match expected shape {shape}")
 
             return matrix
 
         new_slot = _validate_and_convert_new_data(new_slot)
 
-        new_adata = self._adata.copy()
-        new_adata.layers[name] = new_slot
+        new_slots = self.slots
+        new_slots[name] = new_slot
 
         if set_to_default:
-            new_adata.uns['metadata']['default_slot'] = name
+            new_metadata = self._adata.uns.get('metadata', {}).copy()
+            new_metadata['default_slot'] = name
+            return self._replace(slots = new_slots, metadata = new_metadata)
 
-        return self._replace(new_adata)
+        return self._replace(slots = new_slots)
 
 
     @property
@@ -375,81 +388,83 @@ class GrandPy:
         """
         return self._adata.obs.copy()
 
-    # Eigenltich überflüssig(.get_gene_info(["Symbol, Gene"] == .geneinfo[["Symbol", "Gene"]]))
-    def get_gene_info(self, columns: Union[str, Sequence[str]] = None) -> pd.DataFrame:
+    def with_gene_info(self, column: str, value: Union[dict, pd.Series, pd.DataFrame, Sequence[Any]]) -> "GrandPy":
         """
-        Get a subset of the gene_info DataFrame.
+        Returns a new object with modified gene_info. If the column name does not already exist, a new column will be added.
+
+        Otherwise, the column will be replaced by the given value or updated if a dictionary was given.
 
         Parameters
         ----------
-        columns: Union[str, Sequence[str]]
-            A column name or a list of column names to be retrieved from the gene_info DataFrame.
+        column : str
+            The name of the column to be modified.
 
-        Returns
-        -------
-        pd.DataFrame
-            A DataFrame containing the specified columns from the gene_info DataFrame.
-
-        See Also
-        --------
-        with_gene_info: Set a subset of the gene_info DataFrame
-        """
-        df_gene_info = self.gene_info
-
-        if columns is None:
-            return df_gene_info
-
-        columns = _ensure_list(columns)
-
-        return df_gene_info[columns]
-
-    # ist noch nicht vollständig/fehlerhaft
-    def with_gene_info(self, column: str, value: Any) -> "GrandPy":
-        """
-        Returns a new GrandPy object with the specified column in gene_info set to the specified value.
-
-        Examples
-        --------
-        gp.with_gene_info("Type", {"gene_1": "Unknown", "gene_2": "Cellular"})
-
-        Parameters
-        ----------
-        column: str
-            The column to be modified.
-
-        value: Any
-            The value to be set for the specified column. Can be a single value, a dictionary, a Series, or a DataFrame.
+        value : Union[dict, pd.Series, pd.DataFrame, Sequence[Any]]
+            The values to assign to the column can be any iterable. Can also be a dictionary when trying to update a column.
 
         Returns
         -------
         GrandPy
-            A new GrandPy object with the specified column in gene_info set to the specified value.
-
-        See Also
-        --------
-        get_gene_info: Get a subset of the gene_info DataFrame
+            A new GrandPy object with updated gene_info.
         """
-        new_adata = self._adata.copy()
-        df_gene_info = new_adata.obs
-        column_to_change = new_adata.obs.columns.get_loc(column)
+        new_gene_info = self.gene_info
 
         if isinstance(value, dict):
-            indices = self.get_index(value.keys())
-            new_adata.obs.iloc[indices, column_to_change] = list(value.values())
-            return self._replace(new_adata)
+            new_gene_info.loc[value.keys(), column] = list(value.values())
+            return self._replace(gene_info = new_gene_info)
 
+        # Reorders DataFrames and Series to match gene_info.
         if isinstance(value, (pd.Series, pd.DataFrame)):
-            indices = self.get_index(value.index)
-            new_adata.obs.iloc[indices, column_to_change] = value
-            return self._replace(new_adata)
+            value = value.reindex(new_gene_info.index)
 
-        if not (np.isscalar(value) or len(value) == len(df_gene_info)):
-            raise ValueError(f"Value has wrong length: {len(value)} vs {len(df_gene_info)} rows in gene_info")
+        # If the column exists, it will be replaced, otherwise a new one will be added.
+        new_gene_info[column] = value
 
-        df_gene_info[column] = value
+        return self._replace(gene_info = new_gene_info)
 
-        return self._replace(new_adata)
 
+    @property
+    def coldata(self) -> pd.DataFrame:
+        """
+        Get the coldata DataFrame.
+        """
+        return self._adata.var.copy()
+
+    def with_coldata(self, column: str, value: Union[dict, pd.Series, pd.DataFrame, Sequence[Any]]) -> "GrandPy":
+        """
+        Returns a new object with modified coldata. If the column name does not already exist, a new column will be added.
+
+        Otherwise, the column will be replaced by the given value or updated if a dictionary was given.
+
+        Parameters
+        ----------
+        column : str
+            The name of the column to be modified.
+
+        value : Union[dict, pd.Series, pd.DataFrame, Sequence[Any]]
+            The values to assign to the column can be any iterable. Can also be a dictionary when trying to update a column.
+
+        Returns
+        -------
+        GrandPy
+            A new GrandPy object with updated coldata.
+        """
+        new_coldata = self.coldata
+
+        if column in new_coldata.columns:
+            if isinstance(value, dict):
+                # updates column in correspondence to the dictionary
+                new_coldata.loc[value.keys(), column] = list(value.values())
+                return self._replace(coldata = new_coldata)
+
+        # Reorders DataFrames and Series to match the order of coldata.
+        if isinstance(value, (pd.Series, pd.DataFrame)):
+            value = value.reindex(new_coldata.index)
+
+        # If the column exists, it will be replaced, otherwise a new one will be added.
+        new_coldata[column] = value
+
+        return self._replace(coldata = new_coldata)
 
     # TODO apply() vervollständigen
     def apply(self, function, *, function_gene_info=None, function_coldata=None, **kwargs) -> "GrandPy":
@@ -487,71 +502,6 @@ class GrandPy:
 
         if self._adata.uns['analyses'] is not None:
             ...
-
-        return self._replace(new_adata)
-
-
-    @property
-    def coldata(self) -> pd.DataFrame:
-        """
-        Get the coldata DataFrame.
-        """
-        return self._adata.var.copy()
-
-    # aktuell extrem schlecht
-    def with_coldata(self, column: Union[str, pd.Series, pd.DataFrame], value: Sequence[Any] = None) -> "GrandPy":
-        """
-        Return a new object with modified coldata.
-
-        Parameters
-        ----------
-        column : Union[str, pd.Series, pd.DataFrame]
-            If string, sets or updates the column with the given values.
-
-            If DataFrame or Series, concatenates the new columns to the existing coldata.(value is ignored)
-
-        value : Sequence[Any]
-            The values to assign to the column can be list, array, or Series.
-
-        Returns
-        -------
-        GrandPy
-            A new GrandPy object with updated coldata.
-        """
-        obs = self.coldata
-        new_adata = self._adata.copy()
-
-        if isinstance(column, (pd.DataFrame, pd.Series)):
-            try:
-                new_obs = pd.concat([obs, column], axis=1)
-                new_adata.obs = new_obs
-            except ValueError as e:
-                raise ValueError(f"Error concatenating column to coldata: {str(e)}")
-
-        elif isinstance(column, str) and value is not None:
-            if isinstance(value, (list, np.ndarray)) and len(value) == len(obs):
-                value = pd.Series(value, index=obs.index)
-
-            if isinstance(value, pd.Series):
-                # Effizientere Überprüfung der Indices
-                missing_indices = set(value.index) - set(obs.index)
-                if missing_indices:
-                    raise ValueError(f"Missing indices coldata: {', '.join(map(str, list(missing_indices)[:5]))}"
-                                     f"{' ...' if len(missing_indices) > 5 else ''}")
-
-                try:
-                    if value.index.equals(obs.index):
-                        obs[column] = value
-                    else:
-                        obs.loc[value.index, column] = value
-                except Exception as e:
-                    raise ValueError(f"Error setting the values: {str(e)}")
-            else:
-                obs[column] = value
-
-            new_adata.obs = obs
-        else:
-            raise ValueError("Argument combination not valid for coldata()")
 
         return self._replace(new_adata)
 
@@ -622,16 +572,16 @@ class GrandPy:
         """
         return self.coldata["Name"].tolist()
 
-    def get_columns(self, sample_or_cell_name: Union[str, int, Sequence[Union[str, int, bool]]] = None, *, reorder: bool = False) -> list[str]:
+    def get_columns(self, samples_or_cells: Union[str, int, Sequence[Union[str, int, bool]]] = None, *, reorder: bool = False) -> list[str]:
         """
         Get sample/cell names. Either by their index, their name, or a boolean mask.
 
-        If no columns are specified, all columns are returned.
+        If no samples_or_cells are specified, all are returned.
 
         Parameters
         ----------
-        sample_or_cell_name: Union[str, int, Sequence[str|int|bool]]
-            Samples/cell to be retrieved.
+        samples_or_cells: Union[str, int, Sequence[str|int|bool]]
+            Samples/cells to be retrieved.
 
         reorder: bool
             If True, the returned list will be in the same order as the original column data.
@@ -647,28 +597,27 @@ class GrandPy:
         --------
         get_genes: get the gene symbols/names(columns of the data slots)
         """
-        all_names = self.columns
+        coldata = self.coldata
 
-        if sample_or_cell_name is None:
-            return all_names
+        if samples_or_cells is None:
+            return self.columns
 
-        sample_or_cell_name = _ensure_list(sample_or_cell_name)
+        samples_or_cells = _ensure_list(samples_or_cells)
 
-        if all(isinstance(i, (int, np.integer)) for i in sample_or_cell_name):
-            result = [all_names[i] for i in sample_or_cell_name]
-        elif all(isinstance(i, (str, np.str_)) for i in sample_or_cell_name):
-            result = sample_or_cell_name
-        elif all(isinstance(i, (bool, np.bool_)) for i in sample_or_cell_name):
-            if len(sample_or_cell_name) != len(all_names):
-                raise ValueError("Length of boolean filter must match number of samples/cells.")
-            result = list(all_names[sample_or_cell_name])
-        else:
-            raise TypeError("Inkonsistent input types for sample_or_cell_names. All values in the iterable must have the same type(int, str or bool).)")
+        # Tries to search by index
+        try:
+            result = list(coldata.iloc[samples_or_cells]["Name"])
+        except:
+            # Tries to search by name or boolean mask
+            try:
+                result = list(coldata.loc[samples_or_cells, "Name"])
+            except:
+                raise TypeError("The input must be either string, int or a boolean mask. They cannot be mixed")
 
-        return result if reorder else [name for name in all_names if name in result]
+        return result
 
 
-    def get_index(self, gene: Union[str, int, Sequence[Union[str, int, bool]]] = None, *, regex: bool = False) -> list[int]:
+    def get_index(self, genes: Union[str, int, Sequence[Union[str, int, bool]]] = None, *, regex: bool = False) -> list[int]:
         """
         Get the index of: a gene, a list of genes, or in accordance to a boolean filter.
 
@@ -680,7 +629,7 @@ class GrandPy:
 
         Parameters
         ----------
-        gene: Union[str, int, Sequence[Union[str, int, bool]]]
+        genes: Union[str, int, Sequence[Union[str, int, bool]]]
             Specifies which indices to return.
         regex: bool
             If True, `gene` will be interpreted as a regular expression.
@@ -693,33 +642,38 @@ class GrandPy:
         gene_info = self.gene_info
         index = list(range(len(gene_info.index)))
 
-        if gene is None:
+        if genes is None:
             return index
 
         gene_column = gene_info.get("Gene")
         symbol_column = gene_info.get("Symbol")
 
-        if regex and isinstance(gene, str):
-            mask = gene_column.astype(str).str.contains(gene, regex=True) | \
-                   symbol_column.astype(str).str.contains(gene, regex=True)
-            return list(np.where(mask)[0])
+        # Handles regex
+        if regex and isinstance(genes, str):
+            mask_symbol = gene_column.astype(str).str.contains(genes, regex=True) | \
+                   symbol_column.astype(str).str.contains(genes, regex=True)
+            return list(np.where(mask_symbol)[0])
 
-        # gene zu einer Liste konvertieren
-        gene = _ensure_list(gene)
+        genes = _ensure_list(genes)
 
-        if isinstance(gene, list) and any(pd.isna(gene)):
+        if any(pd.isna(genes)):
             warnings.warn("All None values were removed from the query.")
-            gene = [g for g in gene if pd.notna(g)]
+            genes = [g for g in genes if pd.notna(g)]
 
-        if isinstance(gene, list) and all(isinstance(g, (int, np.integer)) for g in gene):
-            return gene
-
-        if isinstance(gene, list) and all(isinstance(g, (bool, np.bool_)) for g in gene):
-            if len(gene) != len(index):
+        # Handles boolean mask
+        if isinstance(genes, list) and all(isinstance(g, (bool, np.bool_)) for g in genes):
+            if len(genes) != len(index):
                 raise ValueError("Length of boolean filter must match number of genes.")
-            return list(np.where(gene)[0])
+            return list(np.where(genes)[0])
 
-        gene_list = pd.Series(gene, dtype=str)
+        # Handles integers
+        if isinstance(genes, list) and all(isinstance(g, (int, np.integer)) for g in genes):
+            if all(gene < len(gene_info.index) for gene in genes):
+                return genes
+            else:
+                raise IndexError("The given index is out of range.")
+
+        gene_list = pd.Series(genes, dtype=str)
 
         matches_in_gene = gene_list[gene_list.isin(gene_column)]
         matches_in_symbol = gene_list[gene_list.isin(symbol_column)]
@@ -739,6 +693,17 @@ class GrandPy:
             warnings.warn(f"Could not find given genes (n={len(missing)}, e.g. {preview}{more})")
 
         return mapping.loc[found].tolist()
+
+        # Alternative Möglichkeit:
+
+        # # Finds all matches in 'Symbol'
+        # result = [gene_info.index.get_loc(idx) for idx in gene_info[gene_info["Symbol"].isin(genes)].index]
+        #
+        # if not result:
+        #     # Finds all matches in 'Gene'
+        #     result = [gene_info.index.get_loc(idx) for idx in gene_info[gene_info["Gene"].isin(genes)].index]
+        #
+        # return result
 
 
     def _check_slot(self, slot: str, *, allow_ntr = True) -> bool:
@@ -782,9 +747,9 @@ class GrandPy:
             The resulting slot after the mode has been applied.
         """
 
-        def _parse_mode_slot(mode_slot_unparsed: str) -> ModeSlot:
+        def parse_mode_slot(mode_slot_unparsed: str) -> ModeSlot:
             """
-            Parse a mode_slot string.
+            Helper function to parse a mode_slot string.
             """
             mode_slot_candidate = mode_slot_unparsed.split("_", 1)
 
@@ -799,10 +764,17 @@ class GrandPy:
 
             return ModeSlot(mode, slot)
 
+        def one_minus_csr_matrix(matrix: sp.csr_matrix) -> sp.csr_matrix:
+            """
+            Helper funktion to compute one minus a sparse matrix.
+            """
+            ones = sp.csr_matrix(np.ones(matrix.shape), dtype=matrix.dtype)
+
+            return ones - matrix
+
         # if mode_slot is a string, it gets parsed into a ModeSlot Object
         if isinstance(mode_slot, str):
-            mode_slot = _parse_mode_slot(mode_slot)
-
+            mode_slot = parse_mode_slot(mode_slot)
 
         if not self._check_slot(mode_slot.slot, allow_ntr=allow_ntr):
             raise ValueError(f"Slot '{mode_slot.slot}' not found in data slots.")
@@ -815,7 +787,7 @@ class GrandPy:
         # The resulting data is computed, depending on the mode
         if mode_slot.mode != "total":
             if self._is_sparse:
-                resulting_mode_slot = slot.multiply(ntr) if mode_slot.mode == "new" else slot.multiply(_one_minus(ntr))
+                resulting_mode_slot = slot.multiply(ntr) if mode_slot.mode == "new" else slot.multiply(one_minus_csr_matrix(ntr))
             else:
                 resulting_mode_slot = slot * ntr if mode_slot.mode == "new" else slot * (1 - ntr)
 
@@ -973,15 +945,6 @@ def _to_sparse(matrix: Union[pd.DataFrame, np.ndarray, sp.csr_matrix]) -> sp.csr
             "Matrix could not be converted to a sparse matrix. Use numpy.ndarray or a pandas.DataFrame only containing numbers")
 
     return sparse_matrix
-
-
-def _one_minus(matrix: sp.csr_matrix) -> sp.csr_matrix:
-    """
-    Helper funktion to compute one minus a sparse matrix.
-    """
-    ones = sp.csr_matrix(np.ones(matrix.shape), dtype=matrix.dtype)
-
-    return ones - matrix
 
 
 def _make_unique(series: pd.Series) -> pd.Series:
