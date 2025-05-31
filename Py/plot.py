@@ -1,24 +1,46 @@
-from sklearn.decomposition import PCA
+#from sklearn.decomposition import PCA
 import matplotlib.pyplot as plt
-import pandas as pd
 import numpy as np
 from typing import Optional, Union
-from Py.load import *
+from Py.grandPy import GrandPy, ModeSlot
 from scipy.stats import gaussian_kde
 
+
+
+
+
+#Parameter die noch fehlen:
+    # 1. analysis
+    # 2. xcol/ycol
+    # 3. log, log_x, log_y
+    # 4. axis, axis_x, axis_y
+    # 5. lim
+    # 6. filter
+    # 7. genes
+    # 8. highlight_label
+    # 9. label, label_repel
+    # 10. facet
+    # 11. color, collorpalette, colorbreaks, color_label, na_color
+    # 12. density_margin, density_n
+    # 13. rastersize
+    # 14. correlation, correlation_x/_y/_hjust/_vjust
+    # 15. layers.below
+
+
 def plot_scatter(data: GrandPy,
-                        x: str,
-                        y: str,
-                        mode_slot: str | ModeSlot = None,
-                        remove_outlier: bool = True,
-                        show_outlier: bool = True,              #Funktioniert noch nicht richtig
-                        path_for_save: str = None,
-                        xlim: Optional[tuple[float, float]] = None,
-                        ylim: Optional[tuple[float, float]] = None,
-                        size: float = 5,
-                        cross: Optional[bool] = None,
-                        diag: Optional[bool | float | tuple] = None,
-                        highlight: Optional[Union[list[str], dict[str, list[str]]]] = None):
+                 x: str,
+                 y: str,
+                 mode_slot: str | ModeSlot = None,
+                 remove_outlier: bool = True,
+                 show_outlier: bool = True,  #Funktioniert noch nicht richtig
+                 path_for_save: str = None,
+                 lim: Optional[tuple[float, float]] = None,
+                 x_lim: Optional[tuple[float, float]] = None,
+                 y_lim: Optional[tuple[float, float]] = None,
+                 size: float = 5,
+                 cross: Optional[bool] = None,
+                 diag: Optional[bool | float | tuple] = None,
+                 highlight: Optional[Union[list[str], dict[str, list[str]]]] = None):
     """
         ScatterPlot
 
@@ -38,9 +60,11 @@ def plot_scatter(data: GrandPy,
             If True, outliers will be plotted in light gray
         path_for_save: str
             Saves the plot as a PNG to the specified directory (filename is auto-generated)
-        xlim: tuple[float, float]
+        lim: tuple[float, float]
+            Defines both xlim and ylim if they are not set explicitly
+        x_lim: tuple[float, float]
             Define the x-axis limits (lower and upper bounds)
-        ylim: tuple[float, float]
+        y_lim: tuple[float, float]
             Define the y-axis limits (lower and upper bounds)
         size: float
             Size of each point in the scatter plot
@@ -79,6 +103,13 @@ def plot_scatter(data: GrandPy,
 
     mask_keep = np.ones_like(x_vals_all, dtype=bool)
 
+    if lim is not None:
+        if x_lim is None:
+            x_lim = lim
+        if y_lim is None:
+            y_lim = lim
+
+
     if remove_outlier:
         def get_bounds(vals):
             q1, q3 = np.percentile(vals[np.isfinite(vals)], [25, 75])
@@ -92,13 +123,13 @@ def plot_scatter(data: GrandPy,
         mask_y = (y_vals_all >= y_lower) & (y_vals_all <= y_upper)
         mask_keep = mask_x & mask_y
 
-        if xlim is None:
-            xlim = (
+        if x_lim is None:
+            x_lim = (
                 x_vals_all[mask_x].min(),
                 x_vals_all[mask_x].max()
             )
-        if ylim is None:
-            ylim = (
+        if y_lim is None:
+            y_lim = (
                 y_vals_all[mask_y].min(),
                 y_vals_all[mask_y].max()
             )
@@ -111,23 +142,22 @@ def plot_scatter(data: GrandPy,
     idx = kde.argsort()
     x_vals, y_vals, kde = x_vals[idx], y_vals[idx], kde[idx]
 
-    plt.figure(figsize=(10, 10))
+    fig, ax = plt.subplots(figsize=(10, 10))
     if remove_outlier and show_outlier:
         x_out = x_vals_all[~mask_keep]
         y_out = y_vals_all[~mask_keep]
-        plt.scatter(x_out, y_out, color="lightgray", s=size, alpha=0.5, label="Outliers")
+        ax.scatter(x_out, y_out, color="lightgray", s=size, alpha=0.5, label="Outliers")
 
-    scatter = plt.scatter(x_vals, y_vals, c=kde, s=size, cmap='viridis', alpha=0.8)
+    scatter = ax.scatter(x_vals, y_vals, c=kde, s=size, cmap='viridis', alpha=0.8)
     plt.xlabel(x)
     plt.ylabel(y)
     plt.title(f"{x} vs {y} ({mode_slot})")
-    plt.colorbar(scatter, label='Density')
+    fig.colorbar(scatter, label='Density')
 
-    if xlim is not None:
-        plt.xlim(xlim)
-    if ylim is not None:
-        plt.ylim(ylim)
-
+    if x_lim is not None:
+        plt.xlim(x_lim)
+    if y_lim is not None:
+        plt.ylim(y_lim)
 
     if diag is not None:
         x_plot = np.linspace(*plt.xlim(), 100)
@@ -162,5 +192,6 @@ def plot_scatter(data: GrandPy,
     #offsets = scatter.get_offsets()
     #print(len(offsets))
     if path_for_save is not None :
-        plt.savefig(f"{path_for_save}{x}_{y}_{mode_slot}.png", format="png", dpi=300)
+        fig.savefig(f"{path_for_save}{x}_{y}_{mode_slot}.png", format="png", dpi=300)
     plt.show()
+    plt.close(fig)
