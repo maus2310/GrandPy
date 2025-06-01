@@ -3,15 +3,41 @@ import numpy as np
 import warnings
 import scipy.sparse as sp
 from Py.grandPy import GrandPy, _to_sparse, Any, ModeSlot, _make_unique
+from pathlib import Path
 
 
-# Behavior mirrors grandR::read.grand():
-# - Critical annotation columns must exist (Gene, Symbol, Length)
-# - 'count' slot must exist (Readcount columns)
-# - 'ntr' (MAP) is optional, only a warning
+# hier muss noch einiges gemacht werden -> absolute Rohversion, sparse-Tests stehen noch aus, ich bin noch beim design dran
+
+def remove_suffixes(name, suffixes):
+    """
+    Remove specified suffix(es) from a string if present.
+
+    Parameters
+    ----------
+    name : str
+        Input string to process.
+
+    suffixes : str or tuple of str
+        Suffix or suffixes to remove.
+
+    Returns
+    -------
+    str
+        String without the suffix if matched; otherwise, original string.
+    """
+
+    if isinstance(suffixes, str):
+        if name.endswith(suffixes):
+            return name[:-len(suffixes)]
+        else:
+            return name
+    else:  # tuple of suffixes
+        for suf in suffixes:
+            if name.endswith(suf):
+                return name[:-len(suf)]
+        return name  # no suffix matched
 
 
-# implemented some help-/subfunctions -> read_grand() becomes more readable
 def parse_slots(df, suffixes, sparse):
     """
     Extracts expression matrices from the input DataFrame based on known slot suffixes.
@@ -39,7 +65,6 @@ def parse_slots(df, suffixes, sparse):
 
     for slot, suffix in suffixes.items():
         cols = [c for c in df.columns if c.endswith(suffix)]
-        # print(f"[DEBUG] Suffix-Suche für slot '{slots}' mit suffix '{suffix}':")
 
         if not cols:
             continue
@@ -50,7 +75,7 @@ def parse_slots(df, suffixes, sparse):
             mat = _to_sparse(mat)
         slots[slot] = mat
 
-        sample_names_this_slot = [c.replace(suffix, "") for c in cols]
+        sample_names_this_slot = [remove_suffixes(c, suffix) for c in cols]
         slot_sample_names[slot] = sample_names_this_slot
 
         if sample_names is None:
@@ -105,29 +130,32 @@ def build_coldata(sample_names, design):
     """
 
     sample_index = pd.Index(sample_names, name="Name")
-    if design is not None:
-        split_names = [name.split(".") for name in sample_names]
-        if not all(len(s) == len(design) for s in split_names):
-            warnings.warn("Design vector does not match the structure of sample names.")
-            coldata = pd.DataFrame(index=sample_index)
-            coldata["Condition"] = ["sample"] * len(sample_index)
-        else:
-            coldata = pd.DataFrame(split_names, columns=design, index=sample_index)
-    else:
-        coldata = pd.DataFrame(index=sample_index)
-        coldata["Condition"] = ["sample"] * len(sample_index)
 
+    split_names = [name.split(".") for name in sample_names]
+    max_len = max(len(s) for s in split_names)
+
+    if design is None:
+        design = tuple(f"Design_{i+1}" for i in range(max_len))
+
+    elif len(design) != max_len:
+        design = design[:max_len] if len(design) > max_len else design + tuple(f"Design_{i+1}" for i in range(len(design), max_len))
+    aligned_splits = [s + [None] * (max_len- len(s)) for s in split_names]
+
+    if len(design) > max_len:
+        design = design[:max_len]
+
+    coldata = pd.DataFrame(aligned_splits, columns = design, index=sample_index)
     coldata["Name"] = coldata.index
     coldata = coldata[["Name"] + [c for c in coldata.columns if c != "Name"]]
 
     if "Time" in coldata.columns:
         coldata["no4sU"] = coldata["Time"].isin(["no4sU", "nos4U", "-"])
+    else:
+        coldata["no4sU"] = False
 
     return coldata
 
-# altes: TO_DO: Die Spalten die wir ergänzen sollten None sein(nicht 0) und an den Stellen sein, an denen 'no4sU' == True ist.
-# ich habe mal alles auch strikt kommentiert, um nachvollziehen zu können wie ich das angestellt habe, da ich mir etwas unsicher war,
-# ob das nun so wirklich passt
+
 def pad_slots(slots, sparse, coldata, slot_sample_names) -> dict:
     """
     Pads all slot matrices to have the same columns (samples), based on coldata["Name"].
@@ -158,12 +186,12 @@ def pad_slots(slots, sparse, coldata, slot_sample_names) -> dict:
 
     # Liste aller erwarteten Samples aus coldata:
     all_samples = coldata["Name"].tolist()
+    warned_once = set()
 
     for slot_name, matrix in slots.items():
         # Liste der Samples, die im aktuellen Slot tatsächlich vorhanden sind
         slot_samples = slot_sample_names[slot_name]
         n_genes, n_existing_samples = matrix.shape
-
         new_matrix = []
 
         # Iteration über alle gewünschten Samples
@@ -178,6 +206,7 @@ def pad_slots(slots, sparse, coldata, slot_sample_names) -> dict:
                 else:
                     col = col.ravel()
             else:
+                warn_key = (slot_name, sample)
                 # Sample fehlt im Slot - hier muss dann 'gepadded' werden
                 if "no4sU" in coldata.columns and coldata.loc[sample, "no4sU"]:
                     # Falls no4sU == True -> auffüllen mit 0 oder NaN (abhängig von Matrix-Art)
@@ -185,7 +214,8 @@ def pad_slots(slots, sparse, coldata, slot_sample_names) -> dict:
                 else:
                     # Sample fehlt, ist aber 4sU-behandelt -> Warnung wird ausgegeben
                     # das ist anders als in grandR - da wird ein Fehler ausgeworfen
-                    warnings.warn(f"Sample '{sample}' missing in slot '{slot_name}' but not marked as no4sU.",
+                    if warn_key not in warned_once:
+                        warnings.warn(f"Sample '{sample}' missing in slot '{slot_name}' but not marked as no4sU.",
                                   stacklevel=2)
                     col = np.zeros(n_genes) if sparse else np.full(n_genes, np.nan)
             # Hinzufügen der Spalte
@@ -241,27 +271,27 @@ def classify_genes(gene_info: pd.DataFrame,
                    use_default: bool = True,
                    name_unknown: str = "Unknown") -> pd.Series:
     """
-        Assigns a type to each gene (e.g. "Cellular", "mito", or custom classes).
+    Assigns a type to each gene (e.g. "Cellular", "mito", or custom classes).
 
-        Parameters
-        ----------
-        gene_info : pd.DataFrame
-            Gene metadata with at least columns "Gene" and "Symbol".
+    Parameters
+    ----------
+    gene_info : pd.DataFrame
+        Gene metadata with at least columns "Gene" and "Symbol".
 
-        custom_classes : dict[str, Any], optional
-            Custom class definitions as {class_name: function}, where each function returns a boolean mask.
+    custom_classes : dict[str, Any], optional
+        Custom class definitions as {class_name: function}, where each function returns a boolean mask.
 
-        use_default : bool, default=True
-            Whether to include default classes ("mito", "ERCC", "Cellular").
+    use_default : bool, default=True
+        Whether to include default classes ("mito", "ERCC", "Cellular").
 
-        name_unknown : str, default="Unknown"
-            Label for unmatched genes.
+    name_unknown : str, default="Unknown"
+        Label for unmatched genes.
 
-        Returns
-        -------
-        pd.Series
-            A categorical Series assigning each gene to a type.
-        """
+    Returns
+    -------
+    pd.Series
+        A categorical Series assigning each gene to a type.
+    """
     classes = {}
 
     # Benutzerdefinierte Klassen übernehmen
@@ -290,39 +320,125 @@ def classify_genes(gene_info: pd.DataFrame,
     return gene_type.astype("category")
 
 
-def read_grand(file_path,
-               default_slot="count",
-               sparse=False,
-               design=None, *,
-               viral_genes=None,
-               viral_genes_label="Viral",
-               classify_genes_func=None) -> GrandPy:
+def read_dense(file_path, default_slot="count", design=None, *, viral_genes=None, viral_genes_label="Viral", classify_genes_func=None):
     """
-        Reads GRAND-SLAM TSV-File and creates a GrandPy-Object.
+    Reads a GRAND-SLAM TSV file as dense (NumPy) matrices and returns a GrandPy object.
 
-        Parameters
+    Parameters
+    ----------
+    file_path : str
+        Path to the input .tsv file.
+    default_slot : str, default="count"
+        The slot to use as the default slot for plotting and analysis (e.g., "count", "ntr").
+    design : tuple[str], optional
+        Tuple of design variables to extract from sample names (e.g., ("Condition", "Time")).
+    viral_genes : list[str], optional
+        List of gene symbols considered viral, to be assigned a custom type.
+    viral_genes_label : str, default="Viral"
+        Type label to assign to the genes listed in `viral_genes`.
+    classify_genes_func : callable, optional
+        Custom function to classify gene types. Overrides `viral_genes`.
+
+    Returns
+    -------
+    GrandPy
+        A GrandPy object populated with dense matrices and metadata.
+    """
+
+    return _read(file_path, sparse=False, default_slot=default_slot, design=design,
+                 viral_genes=viral_genes, viral_genes_label=viral_genes_label,
+                 classify_genes_func=classify_genes_func)
+
+
+def read_sparse(file_path, default_slot="count", design=None, *, viral_genes=None, viral_genes_label="Viral", classify_genes_func=None):
+    """
+    Reads a GRAND-SLAM TSV file and returns a GrandPy object with sparse matrices.
+
+    Parameters
+    ----------
+    file_path : str
+        Path to the input .tsv file.
+    default_slot : str, default="count"
+        The slot to use as the default slot for plotting and analysis.
+    design : tuple[str], optional
+        Tuple of design variables to extract from sample names.
+    viral_genes : list[str], optional
+        List of gene symbols considered viral.
+    viral_genes_label : str, default="Viral"
+        Label to assign to those viral genes in the gene type column.
+    classify_genes_func : callable, optional
+        Function to classify genes into categories. If None, a default classifier is used.
+
+    Returns
+    -------
+    GrandPy
+        A GrandPy object populated with sparse matrices and gene/sample metadata.
+    """
+
+    return _read(file_path, sparse=True, default_slot=default_slot, design=design,
+                 viral_genes=viral_genes, viral_genes_label=viral_genes_label,
+                 classify_genes_func=classify_genes_func)
+
+
+def read_grand_auto(prefix: str, **kwargs):
+    """
+    Automatically detects and reads GRAND-SLAM data from a directory.
+
+    Parameters
+    ----------
+    prefix : str
+        Path to the directory containing GRAND-SLAM result files.
+
+    **kwargs :
+        Additional keyword arguments passed to `read_dense` or `read_sparse`.
+
+    Returns
+    -------
+    GrandPy
+        A GrandPy object with loaded data in dense or sparse format.
+
+    """
+
+    prefix_path = Path(prefix)
+
+    if not prefix_path.exists():
+        raise FileNotFoundError(f"{prefix} does not exist")
+
+    dense_file = prefix_path / "data.tsv.gz"
+    if dense_file.exists():
+        return read_dense(str(dense_file), **kwargs)
+    else:
+        return read_sparse(prefix, **kwargs)
+
+
+def _read(file_path, sparse, default_slot, design, viral_genes, viral_genes_label, classify_genes_func=None) -> GrandPy:
+    """
+    Reads GRAND-SLAM TSV-File and creates a GrandPy-Object.
+
+    Parameters
         ----------
-        file_path : str
-            Path to GRAND-SLAM TSV-File:
-        default_slot : str
-            The slot to be used as the default ("count", "ntr", etc.)
-        sparse : bool
-            If True, sparse matrices are being used.
-        design : tuple of str, optional
-            Column names to extract from sample names by splitting on "." (e.g., ("Condition", "Time", "Replicate")).
-            Used to construct the coldata DataFrame.
-        Returns
-        -------
-            GrandPy-Object.
-        """
+    file_path : str
+        Path to GRAND-SLAM TSV-File:
+    default_slot : str
+        The slot to be used as the default ("count", "ntr", etc.)
+    sparse : bool
+        If True, sparse matrices are being used.
+    design : tuple of str, optional
+        Column names to extract from sample names by splitting on "." (e.g., ("Condition", "Time", "Replicate")).
+        Used to construct the coldata DataFrame.
+    Returns
+    -------
+        GrandPy-Object.
+    """
 
     df = pd.read_csv(file_path, sep="\t")
+    prefix = Path(file_path).stem
 
     slot_suffixes = {
-        "count": " Readcount",
-        "ntr": " MAP",
-        "alpha": " alpha",
-        "beta": " beta"
+        "count": (" Readcount", " Read count"), # work in progress
+        "ntr": (" MAP", " NTR MAP", " Binom NTR MAP", " TbBinom NTR MAP", " TbBinomShape NTR MAP"),
+        "alpha": (" alpha", " Binom alpha", " TbBinom alpha", " TbBinomShape alpha"),
+        "beta": (" beta", " Binom beta", " TbBinom beta", " TbBinomShape beta")
     }
 
     slots, sample_names, slot_sample_names = parse_slots(df, slot_suffixes, sparse)
@@ -340,16 +456,8 @@ def read_grand(file_path,
 
 
     if classify_genes_func is None:
-        if viral_genes is not None:
-            custom = {viral_genes_label: lambda g: g["Symbol"].isin(viral_genes)}
-        else:
-            custom = None
-
-        classify_genes_func = lambda gene_info: classify_genes(
-            gene_info,
-            custom_classes=custom,
-            use_default=True
-            )
+        custom = {viral_genes_label: lambda g: g["Symbol"].isin(viral_genes) if viral_genes else None}
+        classify_genes_func = lambda gene_info: classify_genes(gene_info, custom_classes=custom, use_default=True)
 
     gene_info = build_gene_info(df, classify_genes_func)
     coldata = build_coldata(sample_names, design)
@@ -364,42 +472,18 @@ def read_grand(file_path,
     }
 
     return GrandPy(
-        prefix=file_path,
+        prefix=prefix,
         gene_info=gene_info,
         slots=slots,
         coldata=coldata,
         metadata=metadata
     )
 
-# wird bald gelöscht, wenn wir mit der Test-Einheit vorangekommen sind!
-# gp_dense = read_grand("data/sars_R.tsv", design =("Condition", "Time", "Replicate"))
-# print(gp_dense.slots["beta"])
 
-# test_data = {
-#     "Gene": ["ENSG000001", "ENSG000002", "ENSG000003", "ENSG000004"],
-#     "Symbol": ["GAPDH", "ACTB", "ERCC-00001", "MT-CO1"],
-#     "Length": [1000, 1200, 500, 800],
-#     "Sample1 Readcount": [100, 0, 0, 0],
-#     "Sample2 Readcount": [0, 200, 0, 0],
-#     "Sample1 MAP": [0.9, 0.0, 0.0, 0.0],
-#     "Sample2 MAP": [0.0, 0.95, 0.0, 0.0],
-#     "Sample1 alpha": [10, 0, 0, 0],
-#     "Sample2 alpha": [0, 20, 0, 0],
-#     "Sample1 beta": [1, 1, 0, 0],
-#     "Sample2 beta": [0, 2, 0, 0],
-# }
-#
-# df = pd.DataFrame(test_data)
-# df.to_csv("sars_sparse_test.tsv", sep="\t", index=False)
-# gp_sparse = read_grand("sars_sparse_test.tsv", sparse=True)
-# print(gp_sparse)
+# sars = _read("data/sars_R.tsv", False, "count", ("Condition", "Time", "Replicate"), None, None)
+# print(sars.slot_data["ntr"]) # funktioniert
 
-# Beispiel aufruf für die Funktion
-# sars = read_grand(
-#     "data/sars_R.tsv",
-#     viral_genes=["ORF3a", "E", "M", "N"],
-#     viral_genes_label="SARS-CoV-2",
-#     use_default_classification=False
-# )
-#
-# print(sars)
+# sparse = _read("test-data/test_sparse.pseudobulk.all.tsv/test_sparse.pseudobulk.all.tsv", True, "count", ("Condition", "Time", "Replicate"), None, None) # fehler
+
+# gp = _read("test-datasets/test_dense.targets/data.tsv/data.tsv", False, "count", ("Time", "Replicate"), None, None)
+# print(gp.slot_data["ntr"]) # wird nicht richtig gefüllt ... bin noch dran
