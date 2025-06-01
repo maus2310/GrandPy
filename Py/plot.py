@@ -4,6 +4,8 @@ import numpy as np
 from typing import Optional, Union
 from Py.grandPy import GrandPy, ModeSlot
 from scipy.stats import gaussian_kde
+import seaborn as sns
+from sklearn.preprocessing import scale
 
 
 def _get_plot_limits(vals, override_lim=None):
@@ -16,7 +18,7 @@ def _get_plot_limits(vals, override_lim=None):
 
 
 def _apply_outlier_filter(x_vals, y_vals, remove):
-    """Return filtered masks and updated axis limits based on actual min/max (like before)."""
+    """Return filtered masks and updated axis limits based on actual min/max."""
     mask = np.ones_like(x_vals, dtype=bool)
 
     if not remove:
@@ -35,7 +37,6 @@ def _apply_outlier_filter(x_vals, y_vals, remove):
     mask_y = (y_vals >= y_lower) & (y_vals <= y_upper)
     mask = mask_x & mask_y
 
-    # NEU: setze Limits anhand der tatsächlichen Werte nach Filterung
     x_auto_lim = (x_vals[mask_x].min(), x_vals[mask_x].max())
     y_auto_lim = (y_vals[mask_y].min(), y_vals[mask_y].max())
 
@@ -215,3 +216,68 @@ def plot_scatter(
         fig.savefig(f"{path_for_save}{x}_{y}_{mode_slot}.png", format="png", dpi=300)
     plt.show()
     plt.close(fig)
+
+
+# noch nix gut aber gibt eine heatmap aus, aber nicht exact die gleiche
+def plot_heatmap(
+    data: GrandPy,
+    mode_slot="count",
+    genes=None,
+    columns=None,
+    transform="Z",
+    cluster_genes=True,
+    cluster_columns=False,
+    title=None,
+    na_to=np.nan):
+
+    def _z_score_rows(matrix):
+        mean = np.nanmean(matrix, axis=1, keepdims=True)
+        std = np.nanstd(matrix, axis=1, keepdims=True)
+        std[std == 0] = 1
+        print(matrix - mean / std)
+        return (matrix - mean) / std
+
+    matrix = data._resolve_mode_slot(mode_slot)
+    matrix = matrix.toarray() if hasattr(matrix, "toarray") else matrix
+
+    if genes is not None:
+        gene_idx = data.get_index(genes)
+        matrix = matrix[gene_idx, :]
+    else:
+        gene_idx = range(matrix.shape[0])
+
+    if columns is not None:
+        col_idx = [data.columns.index(c) for c in columns]
+        matrix = matrix[:, col_idx]
+    else:
+        col_idx = range(matrix.shape[1])
+
+    # Transformation
+    if transform == "Z":
+        matrix = _z_score_rows(matrix)
+        label = "z score"
+    elif transform == "logFC":
+        ref = np.mean(matrix[:, :2], axis=1, keepdims=True)
+        matrix = np.log2((matrix + 1e-8) / (ref + 1e-8))
+        label = "log2 FC"
+    elif transform == "none":
+        label = ""
+
+    # NA ersetzen
+    if not np.isnan(na_to):
+        matrix = np.nan_to_num(matrix, nan=na_to)
+
+    sns.set(context="notebook")
+    g = sns.clustermap(
+        matrix,
+        cmap="RdBu",
+        row_cluster=cluster_genes,
+        col_cluster=cluster_columns,
+        xticklabels=False,
+        yticklabels=False,
+        cbar_kws={"label": label}
+    )
+
+    if title:
+        plt.title(title)
+    plt.show()
