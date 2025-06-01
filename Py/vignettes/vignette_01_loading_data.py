@@ -54,7 +54,7 @@ print(gp.gene_info["Type"].value_counts())
 # ------------------------------------------------------------
 
 print("Available data slots:")
-print(gp.slots)
+print(gp.slot_data)
 
 # Check shape of count matrix
 print("Shape of count matrix:")

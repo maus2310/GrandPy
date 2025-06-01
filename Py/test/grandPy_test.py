@@ -32,7 +32,7 @@ def slots_test():
 
     gp = read_grand("../data/sars.tsv")
     control_list = list['count', 'ntr', 'alpha', 'beta']
-    slots_test = gp.slots
+    slots_test = gp.slot_data
     for slots in slots_test:
         assert slots in control_list
 

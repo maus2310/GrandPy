@@ -1,5 +1,5 @@
 import warnings
-from typing import Any, Union, Sequence, Literal
+from typing import Any, Union, Sequence, Literal, Mapping
 import numpy as np
 import pandas as pd
 import anndata as ad
@@ -274,20 +274,20 @@ class GrandPy:
 
 
     @property
-    def slots(self) -> dict[str, Union[np.ndarray, sp.csr_matrix]]:
-        """
-        Get the names and data of all available slots.
-        """
-        return self._adata.layers.copy()
-
-    @property
-    def slot_names(self) -> list[str]:
+    def slots(self) -> list[str]:
         """
         Get the names of all available slots.
         """
         return list(self._adata.layers.keys())
 
-    def with_dropped_slots(self, slots_to_remove: Union[str, Sequence[str]]) -> "GrandPy":
+    @property
+    def slot_data(self) -> dict[str, Union[np.ndarray, sp.csr_matrix]]:
+        """
+        Get the data of all available slots.
+        """
+        return self._adata.layers.copy()
+
+    def with_dropped_slot(self, slots_to_remove: Union[str, Sequence[str]]) -> "GrandPy":
         """
         Returns a new GrandPy object with specified slot(s) removed.
 
@@ -303,13 +303,13 @@ class GrandPy:
         """
 
         to_remove = _ensure_list(slots_to_remove)
-        current_slots = self.slot_names
+        current_slots = self.slots
         remaining = [s for s in current_slots if s not in to_remove]
 
         if not remaining:
             raise ValueError("Cannot drop all slots - at least one must remain.")
 
-        new_slots = self.slots
+        new_slots = self.slot_data
         new_slots = {k: self._adata.layers[k] for k in remaining}
 
         if self.default_slot in to_remove:
@@ -375,7 +375,7 @@ class GrandPy:
 
         new_slot = _validate_and_convert_new_data(new_slot)
 
-        new_slots = self.slots
+        new_slots = self.slot_data
         new_slots[name] = new_slot
 
         if set_to_default:
@@ -442,7 +442,7 @@ class GrandPy:
         """
         return self._adata.obs.copy()
 
-    def with_gene_info(self, column: str, value: Union[dict, pd.Series, pd.DataFrame, Sequence[Any]]) -> "GrandPy":
+    def with_gene_info(self, column: str, value: Union[Mapping, pd.Series, pd.DataFrame, Sequence[Any]]) -> "GrandPy":
         """
         Returns a new object with modified gene_info. If the column name does not already exist, a new column will be added.
 
@@ -463,7 +463,7 @@ class GrandPy:
         """
         new_gene_info = self.gene_info
 
-        if isinstance(value, dict):
+        if isinstance(value, Mapping):
             new_gene_info.loc[value.keys(), column] = list(value.values())
             return self.replace(gene_info = new_gene_info)
 
@@ -476,6 +476,9 @@ class GrandPy:
 
         return self.replace(gene_info = new_gene_info)
 
+    def with_updated_symbols(self):
+        ...
+
 
     @property
     def coldata(self) -> pd.DataFrame:
@@ -484,7 +487,7 @@ class GrandPy:
         """
         return self._adata.var.copy()
 
-    def with_coldata(self, column: str, value: Union[dict, pd.Series, pd.DataFrame, Sequence[Any]]) -> "GrandPy":
+    def with_coldata(self, column: str, value: Union[Mapping, pd.Series, pd.DataFrame, Sequence[Any]]) -> "GrandPy":
         """
         Returns a new object with modified coldata. If the column name does not already exist, a new column will be added.
 
@@ -506,8 +509,8 @@ class GrandPy:
         new_coldata = self.coldata
 
         if column in new_coldata.columns:
-            if isinstance(value, dict):
-                # updates column in correspondence to the dictionary
+            if isinstance(value, Mapping):
+                # updates column in correspondence to the mapping
                 new_coldata.loc[value.keys(), column] = list(value.values())
                 return self.replace(coldata = new_coldata)
 
@@ -560,8 +563,25 @@ class GrandPy:
         return self.replace(anndata = new_adata)
 
 
-    # Unfertig !!!
+    # TODO concat() Verhalten überprüfen(dafür wäre es gut einen gänzlich anderen Datensatz zu haben)
     def concat(self, other: "GrandPy", axis: Literal["gene_info", 0, "coldata", 1] = 1) -> "GrandPy":
+        """
+        Concatenates the other object with the current instance along a given axis.
+
+        Parameters
+        ----------
+        other: GrandPy
+            The object to concatenate with the current instance.
+
+        axis: Literal["gene_info", 0, "coldata", 1]
+            The axis along which to concatenate.
+
+        Returns
+        -------
+        GrandPy
+            A new concatenated GrandPy object.
+
+        """
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", message="(Observation|Variable) names are not unique.*", category=UserWarning, module="anndata")
 
@@ -687,15 +707,73 @@ class GrandPy:
 
         # Tries to search by index
         try:
-            result = list(coldata.iloc[columns]["Name"])
+            result = coldata.iloc[columns]["Name"]
         except:
             # Tries to search by name or boolean mask
             try:
-                result = list(coldata.loc[columns, "Name"])
+                result = coldata.loc[columns, "Name"]
             except:
                 raise TypeError("The input must be either string, int or a boolean mask. They cannot be mixed")
 
-        return result
+        if reorder:
+            result = result.reindex(self._adata.var.index).dropna()
+
+        return list(result)
+
+    def with_renamed_columns(self, mapping: Mapping) -> "GrandPy":
+        """
+        Returns a new GrandPy object with columns in all slots and corresponding rows in coldata renamed.
+
+        Parameters
+        ----------
+        mapping: Mapping
+            Columns will be renamed according to this mapping.
+
+        Returns
+        -------
+        GrandPy
+            A new GrandPy object with renamed columns.
+
+        See Also
+        --------
+        with_swapped_columns()
+            Swaps columns in coldata and the corresponding in all slots.
+
+        get_columns()
+            Returns the names of columns, either by index, name, or a boolean mask.
+
+        """
+        coldata = self.coldata
+
+        missing = [key for key in mapping if key not in coldata.columns]
+        if missing:
+            warnings.warn(f"Following rows cannot be renamed, as they do not exist in coldata: {missing}")
+
+        new_coldata = coldata.rename(mapping)
+
+        return self.replace(coldata = new_coldata)
+
+    def with_swapped_columns(self, column1: Union[str, int, pd.Series], column2: Union[str, int]) -> "GrandPy":
+        """
+        Returns a new GrandPy object with columns in all slots and corresponding rows in coldata swapped.
+
+        Parameters
+        ----------
+        column1: Union[str, int]
+
+        column2: Union[str, int]
+
+        Returns
+        -------
+        GrandPy
+            A new GrandPy object with swapped columns.
+
+        See Also
+        --------
+
+        """
+        # apply wird hier in R verwendet
+        ...
 
 
     def get_index(self, genes: Union[str, int, Sequence[Union[str, int, bool]]] = None, *, regex: bool = False) -> list[int]:
@@ -806,7 +884,7 @@ class GrandPy:
         """
         if not allow_ntr and slot == "ntr":
             return False
-        return slot in self.slot_names
+        return slot in self.slots
 
     def _resolve_mode_slot(self, mode_slot: Union[str, ModeSlot], *, allow_ntr = True) -> Union[np.ndarray, sp.csr_matrix]:
         """
