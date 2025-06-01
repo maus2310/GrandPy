@@ -1,5 +1,5 @@
 import warnings
-from typing import Any, Union, Sequence
+from typing import Any, Union, Sequence, Literal
 import numpy as np
 import pandas as pd
 import anndata as ad
@@ -50,6 +50,28 @@ class GrandPy:
     Data is typically loaded using the `read_grand()` function, which parses preprocessed GrandR-compatible
     data formats into a usable GrandPy object.
 
+    The Object is designed to be immutable. Changes are made through `with_...` methods.
+
+    Simple getters are implemented as properties, more complex ones through `get_...` methods.
+
+    Subsetting is similar to pandas.
+
+    Examples
+    --------
+    Read a GrandPy Object from a file.
+
+    >>> import GrandPy as gp
+    >>> grand = gp.read_grand("./data/sars.tsv", design=("Condition", "Time", "Replicate"))
+    >>> grand
+    GrandPy:
+    Read from ./data/sars.tsv
+    1045 genes, 12 samples/cells
+    Available data slots: count, ntr, alpha, beta
+    Available analyses: None
+    Available plots: None
+    Default data slot: count
+
+
     Parameters
     ----------
     prefix: str
@@ -92,16 +114,15 @@ class GrandPy:
             obs = gene_info,
             var = coldata,
         )
-        self._is_sparse = True if isinstance(slots.get("count"), sp.csr_matrix) else False
+        self._is_sparse = True if isinstance(slots["count"], sp.csr_matrix) else False
 
         self._initialize_slots(slots)
         self._initialize_uns_data(prefix, metadata, analyses, plots)
         self._ensure_no4sU_column()
 
     def _initialize_slots(self, slots=None):
-        if slots is not None:
-            for key, matrix in slots.items():
-                self._adata.layers[key] = matrix
+        for key, matrix in slots.items():
+            self._adata.layers[key] = matrix
 
     def _initialize_uns_data(self, prefix, metadata, analyses, plots):
         self._adata.uns['prefix'] = prefix
@@ -129,33 +150,66 @@ class GrandPy:
     def __getitem__(self, items):
         new_adata = self._adata.copy()
         new_adata = new_adata[items]
-        return self._replace(new_adata)
+        return self.replace(anndata = new_adata)
 
 
-    def _replace(self, adata: ad.AnnData = None,
-                 *,
-                 prefix: str = None,
-                 gene_info: pd.DataFrame = None,
-                 coldata: pd.DataFrame = None,
-                 slots: dict[str, Union[np.ndarray, sp.csr_matrix]] = None,
-                 metadata: dict = None) -> "GrandPy":
+    def replace(self,
+                *,
+                prefix: str = None,
+                gene_info: pd.DataFrame = None,
+                coldata: pd.DataFrame = None,
+                slots: dict[str, Union[np.ndarray, sp.csr_matrix]] = None,
+                metadata: dict[str, Any] = None,
+                anndata: ad.AnnData = None) -> "GrandPy":
         """
-        Funktion to create a new instance of GrandPy from an already existing one.
+        This function is useful when you want to modify the GrandPy instance on your own.
+
+        Use with caution!
+
+        It is not recommended to use this function directly,
+        as it will just replace the given parameters without any further checks.
+
+        Parameters
+        ----------
+        prefix: str, optional
+            A new prefix.
+
+        gene_info: pd.DataFrame, optional
+            A new gene_info DataFrame.
+
+        coldata: pd.DataFrame, optional
+            A new coldata DataFrame.
+
+        slots: dict[str, Union[np.ndarray, sp.csr_matrix]], optional
+            A new dictionary of slots.
+
+        metadata: dict[str, any], optional
+            Replaces all metadata.
+
+        anndata: AnnData, optional
+            Particularly dangerous parameter. GrandPy uses anndata internally. This will replace the whole anndata instance.
+
+        Returns
+        -------
+        GrandPy
+            A new GrandPy object with the given parameters replaced.
+
+
         """
         def safe_copy(obj):
             return obj.copy() if obj is not None else None
 
-        if adata is None:
-            adata = self._adata
+        if anndata is None:
+            anndata = self._adata
 
         return self.__class__(
-            prefix = prefix if prefix is not None else adata.uns.get('prefix'),
-            gene_info = gene_info if gene_info is not None else safe_copy(adata.obs),
-            coldata = coldata if coldata is not None else safe_copy(adata.var),
-            slots = slots if slots is not None else {**adata.layers},
-            metadata = metadata if metadata is not None else (adata.uns.get("metadata",)),
-            analyses = safe_copy(adata.uns.get("analyses")),
-            plots = safe_copy(adata.uns.get("plots"))
+            prefix = prefix if prefix is not None else anndata.uns.get('prefix'),
+            gene_info = gene_info if gene_info is not None else safe_copy(anndata.obs),
+            coldata = coldata if coldata is not None else safe_copy(anndata.var),
+            slots = slots if slots is not None else {**anndata.layers},
+            metadata = metadata if metadata is not None else (anndata.uns.get("metadata", )),
+            analyses = safe_copy(anndata.uns.get("analyses")),
+            plots = safe_copy(anndata.uns.get("plots"))
         )
 
 
@@ -216,7 +270,7 @@ class GrandPy:
         new_metadata = self._adata.uns.get('metadata', {}).copy()
         new_metadata['default_slot'] = value
 
-        return self._replace(metadata=new_metadata)
+        return self.replace(metadata=new_metadata)
 
 
     @property
@@ -261,9 +315,9 @@ class GrandPy:
         if self.default_slot in to_remove:
             new_metadata = self._adata.uns.get('metadata', {}).copy()
             new_metadata['default_slot'] = remaining[0]
-            return self._replace(slots=new_slots, metadata=new_metadata)
+            return self.replace(slots=new_slots, metadata=new_metadata)
 
-        return self._replace(slots=new_slots)
+        return self.replace(slots=new_slots)
 
     def with_slot(self, name: str, new_slot: Union[np.ndarray, pd.DataFrame, sp.csr_matrix, list], *, set_to_default = False) -> "GrandPy":
         """
@@ -327,9 +381,9 @@ class GrandPy:
         if set_to_default:
             new_metadata = self._adata.uns.get('metadata', {}).copy()
             new_metadata['default_slot'] = name
-            return self._replace(slots = new_slots, metadata = new_metadata)
+            return self.replace(slots = new_slots, metadata = new_metadata)
 
-        return self._replace(slots = new_slots)
+        return self.replace(slots = new_slots)
 
 
     @property
@@ -370,7 +424,7 @@ class GrandPy:
 
             new_adata.obs['Condition'] = pd.Series(value, index=self.coldata.index)
 
-        return self._replace(new_adata)
+        return self.replace(anndata = new_adata)
 
 
     @property
@@ -411,7 +465,7 @@ class GrandPy:
 
         if isinstance(value, dict):
             new_gene_info.loc[value.keys(), column] = list(value.values())
-            return self._replace(gene_info = new_gene_info)
+            return self.replace(gene_info = new_gene_info)
 
         # Reorders DataFrames and Series to match gene_info.
         if isinstance(value, (pd.Series, pd.DataFrame)):
@@ -420,7 +474,7 @@ class GrandPy:
         # If the column exists, it will be replaced, otherwise a new one will be added.
         new_gene_info[column] = value
 
-        return self._replace(gene_info = new_gene_info)
+        return self.replace(gene_info = new_gene_info)
 
 
     @property
@@ -455,7 +509,7 @@ class GrandPy:
             if isinstance(value, dict):
                 # updates column in correspondence to the dictionary
                 new_coldata.loc[value.keys(), column] = list(value.values())
-                return self._replace(coldata = new_coldata)
+                return self.replace(coldata = new_coldata)
 
         # Reorders DataFrames and Series to match the order of coldata.
         if isinstance(value, (pd.Series, pd.DataFrame)):
@@ -464,7 +518,7 @@ class GrandPy:
         # If the column exists, it will be replaced, otherwise a new one will be added.
         new_coldata[column] = value
 
-        return self._replace(coldata = new_coldata)
+        return self.replace(coldata = new_coldata)
 
     # TODO apply() vervollständigen
     def apply(self, function, *, function_gene_info=None, function_coldata=None, **kwargs) -> "GrandPy":
@@ -503,7 +557,29 @@ class GrandPy:
         if self._adata.uns['analyses'] is not None:
             ...
 
-        return self._replace(new_adata)
+        return self.replace(anndata = new_adata)
+
+
+    # Unfertig !!!
+    def concat(self, other: "GrandPy", axis: Literal["gene_info", 0, "coldata", 1] = 1) -> "GrandPy":
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message="(Observation|Variable) names are not unique.*", category=UserWarning, module="anndata")
+
+            if axis == 0 or axis == "gene_info":
+                axis = "var"
+            elif axis == 1 or axis == "coldata":
+                axis = "obs"
+            else:
+                raise ValueError(f"axis must be either 0, 'gene_info' or 1, 'coldata' not {axis}.")
+
+            new_adata = ad.concat([self._adata, other._adata], axis=axis, merge="unique", uns_merge="unique")
+
+            if axis == "obs":
+                new_adata.obs_names_make_unique("_")
+            else:
+                new_adata.var_names_make_unique("_")
+
+        return self.replace(anndata = new_adata)
 
 
     @property
@@ -537,7 +613,11 @@ class GrandPy:
 
         See Also
         --------
-        get_index: Get the index of gene names or symbols.
+        get_columns()
+            get the sample/cell names.
+
+        get_index()
+            Get the index of gene names/symbols.
         """
         if use_gene_symbols:
             if gene is None:
@@ -572,15 +652,15 @@ class GrandPy:
         """
         return self.coldata["Name"].tolist()
 
-    def get_columns(self, samples_or_cells: Union[str, int, Sequence[Union[str, int, bool]]] = None, *, reorder: bool = False) -> list[str]:
+    def get_columns(self, columns: Union[str, int, Sequence[Union[str, int, bool]]] = None, *, reorder: bool = False) -> list[str]:
         """
         Get sample/cell names. Either by their index, their name, or a boolean mask.
 
-        If no samples_or_cells are specified, all are returned.
+        If no columns are specified, all sample/cell names are returned.
 
         Parameters
         ----------
-        samples_or_cells: Union[str, int, Sequence[str|int|bool]]
+        columns: Union[str, int, Sequence[str|int|bool]]
             Samples/cells to be retrieved.
 
         reorder: bool
@@ -595,22 +675,23 @@ class GrandPy:
 
         See Also
         --------
-        get_genes: get the gene symbols/names(columns of the data slots)
+        get_genes()
+            get the gene symbols/names.
         """
         coldata = self.coldata
 
-        if samples_or_cells is None:
+        if columns is None:
             return self.columns
 
-        samples_or_cells = _ensure_list(samples_or_cells)
+        columns = _ensure_list(columns)
 
         # Tries to search by index
         try:
-            result = list(coldata.iloc[samples_or_cells]["Name"])
+            result = list(coldata.iloc[columns]["Name"])
         except:
             # Tries to search by name or boolean mask
             try:
-                result = list(coldata.loc[samples_or_cells, "Name"])
+                result = list(coldata.loc[columns, "Name"])
             except:
                 raise TypeError("The input must be either string, int or a boolean mask. They cannot be mixed")
 
@@ -798,12 +879,12 @@ class GrandPy:
     def get_data(self,
                  mode_slots: Union[str, ModeSlot, Sequence[Union[str, ModeSlot]]] = None,
                  genes: Union[str, int, Sequence[Union[str, int]]] = None,
-                 samples_or_cells: Union[str, int, Sequence[Union[str, int]]] = None,
+                 columns: Union[str, int, Sequence[Union[str, int]]] = None,
                  *,
                  with_coldata: bool = True,
                  name_genes_by = "Symbol") -> pd.DataFrame:
         """
-        Get a DataFrame containing the data from data slots.
+        Get a DataFrame containing the data from data slots, optionally with the corresponding coldata.
 
         Parameters
         ----------
@@ -813,10 +894,10 @@ class GrandPy:
             A mode("new"|"old"|"total") can be specified in the following formats: ModeSlot('<mode>', '<slot>') or '<mode>_<slot>'
 
         genes: Union[str, int, Sequence[Union[str, int]]]
-            The genes to be retrieved. Can be gene symbols, names, or an index.
+            The genes to be retrieved. Can be gene symbols, names(Ensembl ids), or an index.
 
-        samples_or_cells: Union[str, int, Sequence[Union[str, int]]]
-            The cells/samples to be retrieved. Either by name or index.
+        columns: Union[str, int, Sequence[Union[str, int]]]
+            The samples/cells to be retrieved. Either by name or index.
 
         with_coldata: bool
             If True, the coldata DataFrame will be concatenated to the result.
@@ -832,6 +913,7 @@ class GrandPy:
         See Also
         --------
         get_table():
+            Similar to get_data(), but slots are transposed, so gene_info can be concatenated.
 
         get_analysis_table():
 
@@ -845,10 +927,10 @@ class GrandPy:
         # Transforming all parameters into lists
         mode_slots = _ensure_list(mode_slots)
         genes = _ensure_list(genes)
-        samples_or_cells = _ensure_list(samples_or_cells)
+        columns = _ensure_list(columns)
 
         # Retrieving the indices of the selected genes and columns
-        row_indices = [coldata.index.get_loc(column) for column in self.get_columns(samples_or_cells)] if samples_or_cells != [None] else range(len(coldata))
+        row_indices = [coldata.index.get_loc(column) for column in self.get_columns(columns)] if columns != [None] else range(len(coldata))
         column_indices = self.get_index(genes) if genes != [None] else self.get_index(None)
 
         # Retrieving the names of the selected genes and columns
@@ -876,11 +958,43 @@ class GrandPy:
     def get_table(self,
                   mode_slots: Union[str, ModeSlot, Sequence[Union[str, ModeSlot]]] = None,
                   genes: Union[str, int, Sequence[Union[str, int]]] = None,
-                  samples_or_cells: Union[str, int, Sequence[Union[str, int]]] = None,
+                  columns: Union[str, int, Sequence[Union[str, int]]] = None,
                   *,
                   with_gene_info: bool = False,
                   name_genes_by = "Symbol") -> pd.DataFrame:
         """
+        Get a DataFrame containing the data from data slots, optionally with the corresponding gene_info.
+
+        Parameters
+        ----------
+        mode_slots: Union[str, ModeSlot, Sequence[Union[str, ModeSlot]]]
+            The name of the data slots. If None, uses the default slot.
+
+            A mode("new"|"old"|"total") can be specified in the following formats: ModeSlot('<mode>', '<slot>') or '<mode>_<slot>'
+
+        genes: Union[str, int, Sequence[Union[str, int]]]
+            The genes to be retrieved. Can be gene symbols, names(Ensembl ids), or an index.
+
+        columns: Union[str, int, Sequence[Union[str, int]]]
+            The samples/cells to be retrieved. Either by name or index.
+
+        with_gene_info: bool
+            If True, the gene_info DataFrame will be concatenated to the result.
+
+        name_genes_by: str
+            A column in the gene_info DataFrame to be used as the name of the genes.
+
+        Returns
+        -------
+        pd.DataFrame
+            A DataFrame containing the specified data for the genes and columns.
+
+        See Also
+        --------
+        get_data():
+            Similar to get_table(), but slots are transposed, so coldata can be concatenated.
+
+        get_analysis_table():
 
         """
         coldata = self.coldata
@@ -891,10 +1005,10 @@ class GrandPy:
 
         mode_slots = _ensure_list(mode_slots)
         genes = _ensure_list(genes)
-        samples_or_cells = _ensure_list(samples_or_cells)
+        columns = _ensure_list(columns)
 
         row_indices = self.get_index(genes) if genes != [None] else self.get_index(None)
-        column_indices = [coldata.index.get_loc(column) for column in self.get_columns(samples_or_cells)] if samples_or_cells != [None] else range(len(coldata))
+        column_indices = [coldata.index.get_loc(column) for column in self.get_columns(columns)] if columns != [None] else range(len(coldata))
 
         row_names = gene_info.iloc[row_indices][name_genes_by].tolist()
         column_names = coldata.iloc[column_indices]["Name"].tolist()
@@ -914,7 +1028,6 @@ class GrandPy:
             result_df = pd.concat([gene_info.iloc[row_indices], result_df], axis=1)
 
         return result_df
-
 
 
 def _to_sparse(matrix: Union[pd.DataFrame, np.ndarray, sp.csr_matrix]) -> sp.csr_matrix:
@@ -964,13 +1077,20 @@ def _make_unique(series: pd.Series) -> pd.Series:
     counts = {}
     result = []
 
-    for val in series:
-        if val not in counts:
-            counts[val] = 0
-            result.append(val)
-        else:
-            counts[val] += 1
-            result.append(f"{val}_{counts[val]}")
+    if series.is_unique:
+        return series
+
+    else:
+        duplicates_list = series[series.duplicated()].unique()[:10]
+        warnings.warn(f"Duplicate gene symbols found: {', '.join(duplicates_list)}; they have been renamed to ensure uniqueness (e.g., MATR3 → MATR3_1).")
+
+        for val in series:
+            if val not in counts:
+                counts[val] = 0
+                result.append(val)
+            else:
+                counts[val] += 1
+                result.append(f"{val}_{counts[val]}")
     return pd.Series(result, index=series.index)
 
 

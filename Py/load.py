@@ -60,7 +60,8 @@ def parse_slots(df, suffixes, sparse):
 
 
 def build_gene_info(df, classify_func):
-    """Extracts gene metadata and assigns a gene type to each entry.
+    """
+    Extracts gene metadata and assigns a gene type to each entry.
 
     Parameters
     ----------
@@ -79,13 +80,9 @@ def build_gene_info(df, classify_func):
     validate_input(df, ["Gene", "Symbol", "Length"], context="gene_info")
     gene_info = df[["Gene", "Symbol", "Length"]].copy()
 
-    if not gene_info["Symbol"].is_unique:
-        duplicates_list = gene_info["Symbol"][gene_info["Symbol"].duplicated()].unique()
-        warnings.warn(f"Duplicate gene symbols found: {', '.join(duplicates_list)}; they have been renamed to ensure uniqueness (e.g., MATR3 → MATR3_1).")
-
     gene_info["Type"] = classify_func(gene_info)
-    gene_info["Symbol"] = _make_unique(gene_info["Symbol"])
-    gene_info.index = gene_info["Symbol"]
+    gene_info["Symbol"] = gene_info["Symbol"]
+    gene_info.index = _make_unique(gene_info["Symbol"])
     return gene_info[["Symbol", "Gene", "Length", "Type"]]
 
 
@@ -375,7 +372,7 @@ def read_grand(file_path,
     )
 
 # wird bald gelöscht, wenn wir mit der Test-Einheit vorangekommen sind!
-gp_dense = read_grand("data/sars_R.tsv", design =("Condition", "Time", "Replicate"))
+# gp_dense = read_grand("data/sars_R.tsv", design =("Condition", "Time", "Replicate"))
 # print(gp_dense.slots["beta"])
 
 # test_data = {
