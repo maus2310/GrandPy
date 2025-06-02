@@ -8,6 +8,46 @@ from pathlib import Path
 
 # hier muss noch einiges gemacht werden -> absolute Rohversion, sparse-Tests stehen noch aus, ich bin noch beim design dran
 
+def infer_suffixes_from_df(df, known_suffixes=None) -> dict:
+    """
+    Automatically tries to recognize slots (count, ntr, alpha, beta, ...) and their suffixes from column names.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+         Input data with column names such as “Mock.1h.1 alpha” or “WT.2 NTR MAP”
+
+    known_suffixes : dict[str, list[str]]
+        Optional: known suffix suggestions for known slots (e.g. taken from grandR)
+
+    Returns
+    -------
+    dict[str, str]
+        Slot names with recognized (single) suffix
+    """
+
+    if known_suffixes is None:
+        known_suffixes = {
+            "count": [" Readcount", " Read count"],
+            "ntr": [" MAP", " NTR MAP", " Binom NTR MAP", " TbBinom NTR MAP", " TbBinomShape NTR MAP"],
+            "alpha": [" alpha", " Binom alpha", " TbBinom alpha", " TbBinomShape alpha"],
+            "beta": [" beta", " Binom beta", " TbBinom beta", " TbBinomShape beta"],
+            "shape": [" shape"],
+            "ll": [" ll"],
+            "llr": [" llr"]
+        }
+
+    result = {}
+    for slot, suffix_list in known_suffixes.items():
+        for suffix in suffix_list:
+            matching = [col for col in df.columns if col.endswith(suffix)]
+            if matching:
+                result[slot] = suffix
+                break
+
+    return result
+
+
 def remove_suffixes(name, suffixes):
     """
     Remove specified suffix(es) from a string if present.
@@ -23,7 +63,8 @@ def remove_suffixes(name, suffixes):
     Returns
     -------
     str
-        String without the suffix if matched; otherwise, original string.
+        The string with the suffix removed if a match was found;
+        otherwise, returns the original string unchanged.
     """
 
     if isinstance(suffixes, str):
@@ -55,8 +96,11 @@ def parse_slots(df, suffixes, sparse):
 
     Returns
     -------
-    tuple[dict[str, np.ndarray or sp.csr_matrix], list[str]]
-        Dictionary of data slots and list of sample names (inferred from column names).
+    tuple
+        A tuple containing:
+        - dict[str, np.ndarray or sp.csr_matrix]: data matrices per slot,
+        - list[str]: inferred sample names common across slots,
+        - dict[str, list[str]]: slot-specific sample names
     """
 
     slots = {}
@@ -320,7 +364,110 @@ def classify_genes(gene_info: pd.DataFrame,
     return gene_type.astype("category")
 
 
-def read_dense(file_path, default_slot="count", design=None, *, viral_genes=None, viral_genes_label="Viral", classify_genes_func=None):
+def resolve_prefix_path(prefix, pseudobulk=None, targets=None):
+    """
+    Resolves the actual data file path based on GRAND-SLAM prefix and optional parameters.
+
+    Parameters
+    ----------
+    prefix : str or Path
+        Base path or prefix to GRAND-SLAM result files.
+
+    pseudobulk : str, optional
+        Pseudobulk identifier used in file path pattern.
+
+    targets : str, optional
+        Target identifier used in file path pattern.
+
+    Returns
+    -------
+    Path
+        Resolved Path to the 'data.tsv.gz' file.
+    """
+
+    base = Path(prefix)
+
+    candidates = []
+
+    if pseudobulk and targets:      # <prefix>.pseudobulk.<targets>.<pseudobulk>
+        candidates.append(base.parent / f"{base.name}.pseudobulk.{targets}.{pseudobulk}" / "data.tsv.gz")
+    if pseudobulk:                  # <prefix>.pseudobulk.targets.<pseudobulk>
+        candidates.append(base.parent / f"{base.name}.pseudobulk.targets.{pseudobulk}" / "data.tsv.gz")
+    if targets:                     # <prefix>.pseudobulk.<targets>.*
+        candidates += list((base.parent).glob(f"{base.name}.pseudobulk.{targets}.*" + "/data.tsv.gz"))
+
+    candidates.append(base / "data.tsv.gz")
+
+    for path in candidates:
+        if path.exists():
+            return path
+
+    if Path(prefix).is_file():
+        return Path(prefix)
+
+    raise FileNotFoundError(f"No valid data.tsv.gz found for prefix='{prefix}', pseudobulk='{pseudobulk}', targets='{targets}'.")
+
+
+def read_all_in_dir(directory, design=None, **kwargs):
+    """
+    Reads and merges all GRAND-SLAM results from subdirectories containing 'data.tsv.gz'.
+
+    Parameters
+    ----------
+    directory : str or Path
+        Path to the root directory containing GRAND-SLAM result subfolders.
+
+    design : tuple[str], optional
+        Tuple of design variables for sample metadata extraction.
+
+    **kwargs :
+        Additional keyword arguments passed to 'read_grand_auto'.
+
+    Returns
+    -------
+    GrandPy
+        Merged GrandPy object combining all datasets found.
+    """
+
+    files = list(Path(directory).rglob("data.tsv.gz"))
+    all_objects = [read_grand_auto(str(f.parent), design=design, **kwargs) for f in files]
+    merged = all_objects[0]
+    for obj in all_objects[1:]:
+        merged = merged.concat(obj, axis=1)
+    return merged
+
+
+def is_sparse_file(path) -> bool:
+    """
+    Heuristically determine whether the input GRAND-SLAM file represents sparse data.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        The loaded DataFrame from GRAND-SLAM (e.g. data.tsv.gz).
+
+    Returns
+    -------
+    bool
+        True if the data should be treated as sparse, False otherwise.
+    """
+
+    df = pd.read_csv(path, sep="\t")
+    numeric_df = df.select_dtypes(include=[np.number])
+
+    if numeric_df.empty:
+        return False
+
+    # Anteil an Nullen im gesamten numerischen Teil
+    total_elements = numeric_df.size
+    zero_elements = (numeric_df == 0).sum().sum()
+    zero_fraction = zero_elements / total_elements
+
+    # Threshold für Sparse-Heuristik (z.B. > 80% Nullen)
+    return zero_fraction > 0.8
+
+
+def read_dense(file_path, default_slot="count", design=None, *, viral_genes=None, viral_genes_label="Viral", classify_genes_func=None, **kwargs):
     """
     Reads a GRAND-SLAM TSV file as dense (NumPy) matrices and returns a GrandPy object.
 
@@ -344,13 +491,13 @@ def read_dense(file_path, default_slot="count", design=None, *, viral_genes=None
     GrandPy
         A GrandPy object populated with dense matrices and metadata.
     """
-
+    print("Using dense reader")
     return _read(file_path, sparse=False, default_slot=default_slot, design=design,
                  viral_genes=viral_genes, viral_genes_label=viral_genes_label,
                  classify_genes_func=classify_genes_func)
 
 
-def read_sparse(file_path, default_slot="count", design=None, *, viral_genes=None, viral_genes_label="Viral", classify_genes_func=None):
+def read_sparse(file_path, default_slot="count", design=None, viral_genes=None, viral_genes_label="Viral", classify_genes_func=None, **kwargs):
     """
     Reads a GRAND-SLAM TSV file and returns a GrandPy object with sparse matrices.
 
@@ -374,13 +521,13 @@ def read_sparse(file_path, default_slot="count", design=None, *, viral_genes=Non
     GrandPy
         A GrandPy object populated with sparse matrices and gene/sample metadata.
     """
-
+    print("Using sparse reader")
     return _read(file_path, sparse=True, default_slot=default_slot, design=design,
                  viral_genes=viral_genes, viral_genes_label=viral_genes_label,
                  classify_genes_func=classify_genes_func)
 
 
-def read_grand_auto(prefix: str, **kwargs):
+def read_grand_auto(prefix: str, pseudobulk=None, targets=None, **kwargs):
     """
     Automatically detects and reads GRAND-SLAM data from a directory.
 
@@ -399,19 +546,13 @@ def read_grand_auto(prefix: str, **kwargs):
 
     """
 
-    prefix_path = Path(prefix)
-
-    if not prefix_path.exists():
-        raise FileNotFoundError(f"{prefix} does not exist")
-
-    dense_file = prefix_path / "data.tsv.gz"
-    if dense_file.exists():
-        return read_dense(str(dense_file), **kwargs)
-    else:
-        return read_sparse(prefix, **kwargs)
+    file_path = resolve_prefix_path(prefix, pseudobulk, targets)
+    sparse = is_sparse_file(str(file_path))
+    kwargs.update(dict(pseudobulk=pseudobulk, targets=targets))
+    return read_sparse(str(file_path), **kwargs) if sparse else read_dense(str(file_path), **kwargs)
 
 
-def _read(file_path, sparse, default_slot, design, viral_genes, viral_genes_label, classify_genes_func=None) -> GrandPy:
+def _read(file_path, sparse, default_slot, design, viral_genes, viral_genes_label, classify_genes_func=None, pseudobulk=None, targets=None):
     """
     Reads GRAND-SLAM TSV-File and creates a GrandPy-Object.
 
@@ -434,12 +575,7 @@ def _read(file_path, sparse, default_slot, design, viral_genes, viral_genes_labe
     df = pd.read_csv(file_path, sep="\t")
     prefix = Path(file_path).stem
 
-    slot_suffixes = {
-        "count": (" Readcount", " Read count"), # work in progress
-        "ntr": (" MAP", " NTR MAP", " Binom NTR MAP", " TbBinom NTR MAP", " TbBinomShape NTR MAP"),
-        "alpha": (" alpha", " Binom alpha", " TbBinom alpha", " TbBinomShape alpha"),
-        "beta": (" beta", " Binom beta", " TbBinom beta", " TbBinomShape beta")
-    }
+    slot_suffixes = infer_suffixes_from_df(df)
 
     slots, sample_names, slot_sample_names = parse_slots(df, slot_suffixes, sparse)
 
@@ -454,22 +590,28 @@ def _read(file_path, sparse, default_slot, design, viral_genes, viral_genes_labe
     if "ntr" not in slots:
         warnings.warn("Slot 'ntr' is missing.", UserWarning)
 
-
     if classify_genes_func is None:
-        custom = {viral_genes_label: lambda g: g["Symbol"].isin(viral_genes) if viral_genes else None}
+        if viral_genes:
+            custom = {viral_genes_label: lambda g: g["Symbol"].isin(viral_genes)}
+        else:
+            custom = {}
         classify_genes_func = lambda gene_info: classify_genes(gene_info, custom_classes=custom, use_default=True)
 
     gene_info = build_gene_info(df, classify_genes_func)
     coldata = build_coldata(sample_names, design)
     slots = pad_slots(slots, sparse, coldata, slot_sample_names)
 
+
     # Metadata muss noch angepasst werden, die Version fehlt
     metadata = {
         "Description": "Loaded via read_grand()",
         "default_slot": default_slot,
         "Output": "sparse" if sparse else "dense",
-        "Version": 2 # Hardcoded
+        "Version": 2,
+        "pseudobulk": pseudobulk,
+        "targets": targets
     }
+
 
     return GrandPy(
         prefix=prefix,
@@ -480,10 +622,12 @@ def _read(file_path, sparse, default_slot, design, viral_genes, viral_genes_labe
     )
 
 
-# sars = _read("data/sars_R.tsv", False, "count", ("Condition", "Time", "Replicate"), None, None)
-# print(sars.slot_data["ntr"]) # funktioniert
+# sars = read_grand_auto("data/sars_R.tsv", None, None, design=("Condition", "Time", "Replicate"))
+# print(sars) # funktioniert
 
-# sparse = _read("test-data/test_sparse.pseudobulk.all.tsv/test_sparse.pseudobulk.all.tsv", True, "count", ("Condition", "Time", "Replicate"), None, None) # fehler
 
-# gp = _read("test-datasets/test_dense.targets/data.tsv/data.tsv", False, "count", ("Time", "Replicate"), None, None)
-# print(gp.slot_data["ntr"]) # wird nicht richtig gefüllt ... bin noch dran
+# hier bin ich noch dran ...
+# import os
+# print(os.listdir("test-datasets"))
+# print(os.listdir("test-datasets/test_sparse.pseudobulk.all.tsv"))
+# g = read_dense("test-datasets/test_sparse.pseudobulk.all.tsv/test_sparse.pseudobulk.all.tsv")
