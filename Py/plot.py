@@ -161,6 +161,11 @@ def plot_scatter(
     x_vals_all = matrix[:, x_idx]
     y_vals_all = matrix[:, y_idx]
 
+    if np.all(np.isnan(x_vals_all)):
+        raise ValueError(f"All Values for '{x}' in slot '{mode_slot}' are NaN. - Plot not possible!")
+    if np.all(np.isnan(y_vals_all)):
+        raise ValueError(f"All Values for '{x}' in slot '{mode_slot}' are NaN. - Plot not possible!")
+
     if lim:
         x_lim = x_lim or lim
         y_lim = y_lim or lim
