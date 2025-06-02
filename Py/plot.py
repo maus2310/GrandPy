@@ -121,7 +121,7 @@ def plot_scatter(
         show_outlier: bool
             If True, outliers will be plotted in light gray
         path_for_save: str
-            Saves the plot as a PNG to the specified directory (filename is auto-generated)
+            Saves the plot as a PNG to the specified directory (must end with \ or \\. e.g. "C:\\Users\\user\\Desktop\\")
         lim: tuple[float, float]
             Defines both xlim and ylim if they are not set explicitly
         x_lim: tuple[float, float]
@@ -181,15 +181,15 @@ def plot_scatter(
     idx = kde.argsort()
     x_vals, y_vals, kde = x_vals[idx], y_vals[idx], kde[idx]
 
-    fig, ax = plt.subplots(figsize=(10, 10))
+    fig, ax = plt.subplots(figsize=(6, 6))
 
     # Plot outliers
     if remove_outlier and show_outlier:
         ax.scatter(x_vals_all[~mask_keep], y_vals_all[~mask_keep],
-                   color="lightgray", s=size, alpha=0.5, label="Outliers")
+                   color="lightgray", s=size, alpha=0.8, label="Outliers")
 
     # Main scatter
-    scatter = ax.scatter(x_vals, y_vals, c=kde, s=size, cmap="viridis", alpha=0.8)
+    scatter = ax.scatter(x_vals, y_vals, c=kde, s=size, cmap="viridis", alpha=1)
     fig.colorbar(scatter, ax=ax, label="Density")
 
     # Axis labels and title
@@ -219,7 +219,7 @@ def plot_scatter(
 
     if path_for_save:
         fig.savefig(f"{path_for_save}{x}_{y}_{mode_slot}.png", format="png", dpi=300)
-    plt.show()
+    plt.show(block=True)
     plt.close(fig)
 
 
@@ -285,4 +285,4 @@ def plot_heatmap(
 
     if title:
         plt.title(title)
-    plt.show()
+    plt.show(block=True)
