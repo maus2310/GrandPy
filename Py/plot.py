@@ -1,4 +1,3 @@
-#from sklearn.decomposition import PCA
 import matplotlib.pyplot as plt
 import numpy as np
 from typing import Optional, Union
@@ -194,8 +193,13 @@ def plot_scatter(
 
     # Plot outliers
     if remove_outlier and show_outlier:
-        ax.scatter(x_vals_all[~mask_keep], y_vals_all[~mask_keep],
-                   color="lightgray", s=size, alpha=0.8, label="Outliers")
+        out_x = x_vals_all[~mask_keep]
+        out_y = y_vals_all[~mask_keep]
+
+        margin = 0.01
+        clipped_x = np.clip(out_x, x_lim[0] + margin, x_lim[1] - margin)
+        clipped_y = np.clip(out_y, y_lim[0] + margin, y_lim[1] - margin)
+        ax.scatter(clipped_x, clipped_y, color="grey", s=size+10, alpha=1, label="Outliers")
 
     # Main scatter
     scatter = ax.scatter(x_vals, y_vals, c=kde, s=size, cmap="viridis", alpha=1)
