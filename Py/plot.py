@@ -89,8 +89,8 @@ def _highlight_points(ax, data, x_vals, y_vals, highlight, size):
 
 def plot_scatter(
     data: GrandPy,
-    x: str,
-    y: str,
+    x: Optional[str] = None,
+    y: Optional[str] = None,
     mode_slot: str | ModeSlot = None,
     path_for_save: Optional[str] = None,
     remove_outlier: bool = True,
@@ -121,7 +121,7 @@ def plot_scatter(
     show_outlier: bool
         If True, outliers will be plotted in light gray
     path_for_save: str
-        Saves the plot as a PNG to the specified directory (must end with \ or \\. e.g. "C:\\Users\\user\\Desktop\\")
+        Saves the plot as a PNG to the specified directory (must end with \\ or \\\\. e.g. "C:\\\\Users\\\\user\\\\Desktop\\\\")
     lim: tuple[float, float]
         Defines both xlim and ylim if they are not set explicitly
     x_lim: tuple[float, float]
@@ -146,11 +146,17 @@ def plot_scatter(
         The function creates and optionally saves a matplotlib plot.
     """
 
-    # error messages
-    if x not in data.coldata["Name"].tolist():
+    #Default expressions
+    names = list(data.coldata["Name"])
+    x = x or names[0]
+    y = y or names[1]
+    if x not in names:
         raise ValueError(f"x is not a valid expression.")
-    if y not in data.coldata["Name"].tolist():
+    if y not in names:
         raise ValueError(f"y is not a valid expression.")
+    #Default slot
+    if mode_slot is None:
+        mode_slot = data.default_slot
 
 
     matrix = data._resolve_mode_slot(mode_slot)
@@ -177,6 +183,9 @@ def plot_scatter(
     y_lim = y_lim or auto_y_lim
 
     # KDE for density color
+    if np.allclose(x_vals, y_vals):
+        epsilon = np.random.normal(0, 1e-4, size=x_vals.shape)
+        y_vals = y_vals + epsilon
     kde = gaussian_kde(np.vstack([x_vals, y_vals]))(np.vstack([x_vals, y_vals]))
     idx = kde.argsort()
     x_vals, y_vals, kde = x_vals[idx], y_vals[idx], kde[idx]
