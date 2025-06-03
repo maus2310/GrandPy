@@ -1178,6 +1178,8 @@ class GrandPy:
 
         return result
 
+
+    # Beispielaufruf: x = sars.with_gene_plot("scatter", lambda data,gene: plot_scatter(data = data, x="Mock.1h.A", y=gene, mode_slot="count"))
     def with_gene_plot(self, name: str, function: Callable) -> "GrandPy":
         """
         Returns a new GrandPy object with a gene plot added.
