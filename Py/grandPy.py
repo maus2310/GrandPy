@@ -170,7 +170,7 @@ class GrandPy:
         USE WITH CAUTION!
 
         It is not recommended to use this function directly,
-        as it will just replace the given parameters without sufficient checks.
+        as it will replace the given parameters without sufficient checks.
 
         Parameters
         ----------
@@ -987,7 +987,76 @@ class GrandPy:
         return resulting_mode_slot
 
 
-    # TODO: get_data() um die fehlenden Parameter aus R erweitern. (ntr.na, by.rows)
+    # Vielleicht überflüssig?
+    # TODO get_matrix() um die fehlenden Parameter aus R erweitern(summarize)
+    def get_matrix(self,
+                   mode_slot: Union[str, ModeSlot] = None,
+                   genes: Union[str, int, Sequence[Union[str, int]]] = None,
+                   columns: Union[str, int, Sequence[Union[str, int]]] = None,
+                   *,
+                   name_genes_by: str = "Symbol") -> pd.DataFrame:
+        """
+        Get the data from a data slot.
+
+        Parameters
+        ----------
+        mode_slot: Union[str, ModeSlot]
+            The name of the data slot. If None, uses the default slot.
+
+            A mode("new"|"old"|"total") can be specified in the following formats: ModeSlot('<mode>', '<slot>') or '<mode>_<slot>'
+
+        genes: Union[str, int, Sequence[Union[str, int]]]
+            The genes to be retrieved. Either by gene symbols, names(Ensembl ids), or indices.
+
+        columns: Union[str, int, Sequence[Union[str, int]]]
+            The samples/cells to be retrieved. Either by names or indices.
+
+        name_genes_by: str
+            A column in the gene_info DataFrame to be used as the name of the genes. Usually either 'Symbol' or 'Gene'
+
+        Returns
+        -------
+        pd.DataFrame
+            A DataFrame containing the specified data for the genes and columns.
+
+        See Also
+        --------
+        get_data()
+            Similar to get_matrix(), but slots are transposed, so coldata can be concatenated.
+
+        get_table()
+            Similar to get_matrix(), but gene_info can be concatenated.
+
+        get_slot_data()
+            Returns a dictionary containing the raw data of all slots.
+        """
+        coldata = self.coldata
+        gene_info = self.gene_info
+
+        if mode_slot is None:
+            mode_slot = self.default_slot
+
+        genes = _ensure_list(genes)
+        columns = _ensure_list(columns)
+
+        row_indices = self.get_index(genes) if genes != [None] else self.get_index(None)
+        column_indices = [coldata.index.get_loc(column) for column in self.get_columns(columns)] if columns != [
+            None] else range(len(coldata))
+
+        row_names = gene_info.iloc[row_indices][name_genes_by].tolist()
+        column_names = coldata.iloc[column_indices]["Name"].tolist()
+
+        data = self._resolve_mode_slot(mode_slot)
+        data_subset = data[np.ix_(row_indices, column_indices)]
+
+        if self._is_sparse:
+            data_subset = data_subset.toarray()
+
+        result_df = pd.DataFrame(data_subset, index=row_names, columns=column_names)
+
+        return result_df
+
+    # TODO get_data() um die fehlenden Parameter aus R erweitern. (ntr.na, by.rows)
     def get_data(self,
                  mode_slots: Union[str, ModeSlot, Sequence[Union[str, ModeSlot]]] = None,
                  genes: Union[str, int, Sequence[Union[str, int]]] = None,
@@ -1006,10 +1075,10 @@ class GrandPy:
             A mode("new"|"old"|"total") can be specified in the following formats: ModeSlot('<mode>', '<slot>') or '<mode>_<slot>'
 
         genes: Union[str, int, Sequence[Union[str, int]]]
-            The genes to be retrieved. Can be gene symbols, names(Ensembl ids), or an index.
+            The genes to be retrieved. Either by gene symbols, names(Ensembl ids), or indices.
 
         columns: Union[str, int, Sequence[Union[str, int]]]
-            The samples/cells to be retrieved. Either by name or index.
+            The samples/cells to be retrieved. Either by names or indices.
 
         with_coldata: bool
             If True, the coldata DataFrame will be concatenated to the result.
@@ -1073,7 +1142,7 @@ class GrandPy:
 
         return result_df
 
-    # TODO: get_table() um die fehlenden Parameter aus R erweitern. mode_slot soll auch noch ein regex sein können(der mit analysis names verglichen wird).
+    # TODO get_table() um die fehlenden Parameter aus R erweitern(ntr.na, summarize, prefix, reorder.columns). mode_slot soll auch noch ein regex sein können(der mit analysis names verglichen wird).
     def get_table(self,
                   mode_slots: Union[str, ModeSlot, Sequence[Union[str, ModeSlot]]] = None,
                   genes: Union[str, int, Sequence[Union[str, int]]] = None,
@@ -1092,10 +1161,10 @@ class GrandPy:
             A mode("new"|"old"|"total") can be specified in the following formats: ModeSlot('<mode>', '<slot>') or '<mode>_<slot>'
 
         genes: Union[str, int, Sequence[Union[str, int]]]
-            The genes to be retrieved. Can be gene symbols, names(Ensembl ids), or an index.
+            The genes to be retrieved. Either by gene symbols, names(Ensembl ids), or indices.
 
         columns: Union[str, int, Sequence[Union[str, int]]]
-            The samples/cells to be retrieved. Either by name or index.
+            The samples/cells to be retrieved. Either by names or indices.
 
         with_gene_info: bool
             If True, the gene_info DataFrame will be concatenated to the result.
@@ -1178,9 +1247,7 @@ class GrandPy:
 
         return result
 
-
-    # Beispielaufruf: x = sars.with_gene_plot("scatter", lambda data,gene: plot_scatter(data = data, x="Mock.1h.A", y=gene, mode_slot="count"))
-    def with_gene_plot(self, name: str, function: Callable) -> "GrandPy":
+    def with_gene_plot(self, name: str, function: Callable[["GrandPy", str], Any]) -> "GrandPy":
         """
         Returns a new GrandPy object with a gene plot added.
 
@@ -1189,13 +1256,32 @@ class GrandPy:
         name: str
             A name for the plot.
 
-        function: Callable
-            The gene plotting function to be added.
+        function: Callable[["GrandPy", str], Any]
+            A funktion, that takes a GrandPy object and a gene name as input and returns a plot.
 
         Returns
         -------
         GrandPy
             A new GrandPy object with a gene plot added.
+
+        Examples
+        --------
+        Store the plot function in the object:
+
+        >>> sars = sars.with_gene_plot(
+            ...     "scatter",
+            ...     lambda data, gene: plot_scatter(
+            ...         data=data,
+            ...         x="Mock.1h.A",
+            ...         y=gene,
+            ...         mode_slot=ModeSlot("new", "count")
+            ...     )
+            ... )
+
+        Compute the plot when needed:
+
+        >>> sars.plot_gene("scatter", "SARS.1h.A")
+
 
         See Also
         --------
@@ -1210,6 +1296,7 @@ class GrandPy:
         """
         return self._add_plot(name, function, "gene")
 
+    # Beipiel im docstring unvollständig, da wir noch keine global plot funktion haben
     def with_global_plot(self, name: str, function: Callable, floating: bool = False) -> "GrandPy":
         """
         Returns a new GrandPy object with a global plot added.
@@ -1220,7 +1307,7 @@ class GrandPy:
             A name for the plot.
 
         function: Callable
-            The global plotting function to be added.
+            A funktion, that takes a GrandPy object as input and returns a plot.
 
         floating: bool
             If True, the plot will be added as a floating plot.
@@ -1230,6 +1317,18 @@ class GrandPy:
         -------
         GrandPy
             A new GrandPy object with a global plot added.
+
+        Examples
+        --------
+        Store the plot function in the object:
+
+        >>> sars = sars.with_global_plot(
+            ...     "_name_",
+            ...     lambda data:
+
+        Compute the plot when needed:
+
+        >>> sars.plot_global("_name_")
 
         See Also
         --------
@@ -1269,12 +1368,41 @@ class GrandPy:
     def plot_gene(self, name: str, gene: str):
         """
         Executes a stored plot function for a given gene.
+
+        Parameters
+        ----------
+        name: str
+            The name of the stored plot.
+
+        gene: str
+            The name of a gene.
+
+        See Also
+        --------
+        with_gene_plot()
+            Add a gene plot.
+
+        plot_global()
+            Executes a stored global plot function.
         """
         return self._adata.uns["plots"]["gene"][name](self, gene)
 
     def plot_global(self, name: str):
         """
         Executes a stored global plot function.
+
+        Parameters
+        ----------
+        name: str
+            The name of the stored plot.
+
+        See Also
+        --------
+        with_global_plot()
+            Add a global plot.
+
+        plot_gene()
+            Executes a stored plot function for a given gene.
         """
         return self._adata.uns["plots"]["global"][name](self)
 
