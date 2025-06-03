@@ -104,47 +104,47 @@ def plot_scatter(
     highlight: Optional[Union[list[str], dict[str, list[str]]]] = None
 ):
     """
-        ScatterPlot
+    ScatterPlot
 
-        Parameters
-        ----------
-        data: GrandPy
-            Object of GrandPy class
-        x: str
-            An expression to compute the x value or a character corresponding to a sample (or cell) name or a fully qualified analysis result name
-        y: str
-            An expression to compute the y value or a character corresponding to a sample (or cell) name or a fully qualified analysis result name
-        mode_slot: str | ModeSlot
-            Specifies which data slot to use (e.g., "count", "norm")
-        remove_outlier: bool
-            Whether to detect and remove outliers using IQR filtering
-        show_outlier: bool
-            If True, outliers will be plotted in light gray
-        path_for_save: str
-            Saves the plot as a PNG to the specified directory (must end with \ or \\. e.g. "C:\\Users\\user\\Desktop\\")
-        lim: tuple[float, float]
-            Defines both xlim and ylim if they are not set explicitly
-        x_lim: tuple[float, float]
-            Define the x-axis limits (lower and upper bounds)
-        y_lim: tuple[float, float]
-            Define the y-axis limits (lower and upper bounds)
-        size: float
-            Size of each point in the scatter plot
-        diag: bool | float | list[float]
-            If True, draws the identity line (y = x).
-            If float, draws one line: y = x + diag.
-            If list of floats, draws multiple lines: y = x + offset for each value.
-        cross: bool
-            If True, draws horizontal and vertical dashed lines at x = 0 and y = 0
-        highlight: list[str] | dict[str, list[str]]
-            A list of gene names or a dictionary mapping colors to gene lists.
-            Genes will be highlighted in the plot with size 3× the default.
+    Parameters
+    ----------
+    data: GrandPy
+        Object of GrandPy class
+    x: str
+        An expression to compute the x value or a character corresponding to a sample (or cell) name or a fully qualified analysis result name
+    y: str
+        An expression to compute the y value or a character corresponding to a sample (or cell) name or a fully qualified analysis result name
+    mode_slot: str | ModeSlot
+        Specifies which data slot to use (e.g., "count", "norm")
+    remove_outlier: bool
+        Whether to detect and remove outliers using IQR filtering
+    show_outlier: bool
+        If True, outliers will be plotted in light gray
+    path_for_save: str
+        Saves the plot as a PNG to the specified directory (must end with \ or \\. e.g. "C:\\Users\\user\\Desktop\\")
+    lim: tuple[float, float]
+        Defines both xlim and ylim if they are not set explicitly
+    x_lim: tuple[float, float]
+        Define the x-axis limits (lower and upper bounds)
+    y_lim: tuple[float, float]
+        Define the y-axis limits (lower and upper bounds)
+    size: float
+        Size of each point in the scatter plot
+    diag: bool | float | list[float]
+        If True, draws the identity line (y = x).
+        If float, draws one line: y = x + diag.
+        If list of floats, draws multiple lines: y = x + offset for each value.
+    cross: bool
+        If True, draws horizontal and vertical dashed lines at x = 0 and y = 0
+    highlight: list[str] | dict[str, list[str]]
+        A list of gene names or a dictionary mapping colors to gene lists.
+        Genes will be highlighted in the plot with size 3× the default.
 
-        Returns
-        -------
-        None
-            The function creates and optionally saves a matplotlib plot.
-        """
+    Returns
+    -------
+    None
+        The function creates and optionally saves a matplotlib plot.
+    """
 
     # error messages
     if x not in data.coldata["Name"].tolist():
