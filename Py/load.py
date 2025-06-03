@@ -6,7 +6,7 @@ from Py.grandPy import GrandPy, _to_sparse, Any, ModeSlot, _make_unique
 from pathlib import Path
 
 
-# hier muss noch einiges gemacht werden -> absolute Rohversion, sparse-Tests stehen noch aus, ich bin noch beim design dran
+# hier muss noch einiges gemacht werden, absolute Rohversion, sparse-Tests stehen noch aus, ich bin noch beim design dran
 
 def infer_suffixes_from_df(df, known_suffixes=None) -> dict:
     """
@@ -33,8 +33,8 @@ def infer_suffixes_from_df(df, known_suffixes=None) -> dict:
             "alpha": [" alpha", " Binom alpha", " TbBinom alpha", " TbBinomShape alpha"],
             "beta": [" beta", " Binom beta", " TbBinom beta", " TbBinomShape beta"],
             "shape": [" shape"],
-            "ll": [" ll"],
-            "llr": [" llr"]
+            # "ll": [" ll"],
+            # "llr": [" llr"]
         }
 
     result = {}
@@ -220,7 +220,7 @@ def pad_slots(slots, sparse, coldata, slot_sample_names) -> dict:
         Sample metadata; must include "Name" and optionally "no4sU".
 
     slot_sample_names : dict[str, list[str]]
-        Slot-specific sample names, parsed from column names (e.g. from 'Mock.1h.A alpha").
+        Slot-specific sample names, parsed from column names (e.g. from 'Mock.1h.A alpha').
 
     Returns
     -------
@@ -272,7 +272,7 @@ def pad_slots(slots, sparse, coldata, slot_sample_names) -> dict:
         if sparse:
             stacked = _to_sparse(stacked)
 
-        # Slot ersetzen durch gepaddete Matrix
+        # Slot ersetzen durch padded Matrix
         slots[slot_name] = stacked
 
     return slots
@@ -303,7 +303,7 @@ def validate_input(df, required_columns: list[str], context: str = "", warn_only
     """
     missing = [col for col in required_columns if col not in df.columns]
     if missing:
-        message = (f"Missing required column(s) in {context or 'input'}: {missing}")
+        message = f"Missing required column(s) in {context or 'input'}: {missing}"
         if warn_only:
             warnings.warn(message)
         else:
@@ -394,7 +394,7 @@ def resolve_prefix_path(prefix, pseudobulk=None, targets=None):
     if pseudobulk:                  # <prefix>.pseudobulk.targets.<pseudobulk>
         candidates.append(base.parent / f"{base.name}.pseudobulk.targets.{pseudobulk}" / "data.tsv.gz")
     if targets:                     # <prefix>.pseudobulk.<targets>.*
-        candidates += list((base.parent).glob(f"{base.name}.pseudobulk.{targets}.*" + "/data.tsv.gz"))
+        candidates += list(base.parent.glob(f"{base.name}.pseudobulk.{targets}.*" + "/data.tsv.gz"))
 
     candidates.append(base / "data.tsv.gz")
 
@@ -471,14 +471,19 @@ def read_dense(file_path, default_slot="count", design=None, *, viral_genes=None
     ----------
     file_path : str
         Path to the input .tsv file.
+
     default_slot : str, default="count"
         The slot to use as the default slot for plotting and analysis (e.g., "count", "ntr").
+
     design : tuple[str], optional
         Tuple of design variables to extract from sample names (e.g., ("Condition", "Time")).
+
     viral_genes : list[str], optional
         List of gene symbols considered viral, to be assigned a custom type.
+
     viral_genes_label : str, default="Viral"
         Type label to assign to the genes listed in `viral_genes`.
+
     classify_genes_func : callable, optional
         Custom function to classify gene types. Overrides `viral_genes`.
 
@@ -487,6 +492,7 @@ def read_dense(file_path, default_slot="count", design=None, *, viral_genes=None
     GrandPy
         A GrandPy object populated with dense matrices and metadata.
     """
+
     print("Using dense reader")
     return _read(file_path, sparse=False, default_slot=default_slot, design=design,
                  viral_genes=viral_genes, viral_genes_label=viral_genes_label,
@@ -501,14 +507,19 @@ def read_sparse(file_path, default_slot="count", design=None, viral_genes=None, 
     ----------
     file_path : str
         Path to the input .tsv file.
+
     default_slot : str, default="count"
         The slot to use as the default slot for plotting and analysis.
+
     design : tuple[str], optional
         Tuple of design variables to extract from sample names.
+
     viral_genes : list[str], optional
         List of gene symbols considered viral.
+
     viral_genes_label : str, default="Viral"
         Label to assign to those viral genes in the gene type column.
+
     classify_genes_func : callable, optional
         Function to classify genes into categories. If None, a default classifier is used.
 
@@ -517,6 +528,7 @@ def read_sparse(file_path, default_slot="count", design=None, viral_genes=None, 
     GrandPy
         A GrandPy object populated with sparse matrices and gene/sample metadata.
     """
+
     print("Using sparse reader")
     return _read(file_path, sparse=True, default_slot=default_slot, design=design,
                  viral_genes=viral_genes, viral_genes_label=viral_genes_label,
@@ -525,15 +537,27 @@ def read_sparse(file_path, default_slot="count", design=None, viral_genes=None, 
 
 def read_grand_auto(prefix: str, pseudobulk=None, targets=None, **kwargs):
     """
-    Automatically detects and reads GRAND-SLAM data from a directory.
+    Automatically detects whether a GRAND-SLAM dataset is in dense or sparse format and loads it accordingly into a GrandPy object.
 
     Parameters
     ----------
     prefix : str
-        Path to the directory containing GRAND-SLAM result files.
+         Base path to the GRAND-SLAM result directory or file. This can be either:
+        - a direct path to a 'data.tsv' or 'data.tsv.gz' file (dense), or
+        - a directory containing sparse matrix representations (e.g., 'count.mtx', 'ntr.mtx', ...).
+
+    pseudobulk : str, optional
+        Name of a pseudobulk group used in the directory naming convention.
+        Helps resolve the correct file path when multiple nested folders exist.
+
+
+    targets : str, optional
+        Target label used in the folder name for pseudobulked outputs.
+        Also used to resolve the appropriate file path.
+
 
     **kwargs :
-        Additional keyword arguments passed to `read_dense` or `read_sparse`.
+        Additional keyword arguments passed to 'read_dense' or 'read_sparse'.
 
     Returns
     -------
@@ -556,19 +580,23 @@ def _read(file_path, sparse, default_slot, design, viral_genes, viral_genes_labe
         ----------
     file_path : str
         Path to GRAND-SLAM TSV-File:
+
     default_slot : str
         The slot to be used as the default ("count", "ntr", etc.)
+
     sparse : bool
         If True, sparse matrices are being used.
+
     design : tuple of str, optional
         Column names to extract from sample names by splitting on "." (e.g., ("Condition", "Time", "Replicate")).
         Used to construct the coldata DataFrame.
+
     Returns
     -------
         GrandPy-Object.
     """
 
-    df = pd.read_csv(file_path, sep="\t")
+    df = pd.read_csv(file_path, sep="\t", compression="infer")
     prefix = Path(file_path).stem
 
     slot_suffixes = infer_suffixes_from_df(df)
@@ -603,7 +631,7 @@ def _read(file_path, sparse, default_slot, design, viral_genes, viral_genes_labe
         "Description": "Loaded via read_grand()",
         "default_slot": default_slot,
         "Output": "sparse" if sparse else "dense",
-        "Version": 2,
+        "Version": 2, # Hardcoded
         "pseudobulk": pseudobulk,
         "targets": targets
     }
@@ -621,8 +649,8 @@ def _read(file_path, sparse, default_slot, design, viral_genes, viral_genes_labe
 sars = read_grand_auto("data/sars_R.tsv", None, None, design=("Condition", "Time", "Replicate"))
 print(sars) # funktioniert
 
-g = read_grand_auto("test-datasets/test_dense.targets/data.tsv/data.tsv")
-print(g)
+# g = read_grand_auto("test-datasets/test_dense.targets/data.tsv/data.tsv")
+# print(g)
 
 # g = read_grand_auto("test-datasets/test_sc_sparse.targets")
 # print(g)
