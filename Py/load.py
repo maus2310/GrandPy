@@ -439,32 +439,28 @@ def resolve_prefix_path(prefix, pseudobulk=None, targets=None):
 
 def is_sparse_file(path) -> bool:
     """
-    Heuristically determine whether the input GRAND-SLAM file represents sparse data.
+    Determines whether the input represents a sparse GRAND-SLAM file by checking for the presence of a 'data.tsv' (or 'data.tsv.gz') file.
 
     Parameters
     ----------
-    df : pd.DataFrame
-        The loaded DataFrame from GRAND-SLAM (e.g. data.tsv.gz).
+    path : str or Path
+        Directory or file path to check
 
     Returns
     -------
     bool
-        True if the data should be treated as sparse, False otherwise.
+        True if the data is considered sparse (no data.tsv present),
+        False if data.tsv or data.tsv.gz exists (dense).
     """
 
-    df = pd.read_csv(path, sep="\t")
-    numeric_df = df.select_dtypes(include=[np.number])
+    path = Path(path)
 
-    if numeric_df.empty:
+    if path.is_file():
         return False
 
-    # Anteil an Nullen im gesamten numerischen Teil
-    total_elements = numeric_df.size
-    zero_elements = (numeric_df == 0).sum().sum()
-    zero_fraction = zero_elements / total_elements
+    dense_files = [path / "data.tsv", path / "data.tsv.gz"]
 
-    # Threshold für Sparse-Heuristik (z.B. > 80% Nullen)
-    return zero_fraction > 0.8
+    return not any(f.exists() for f in dense_files)
 
 
 def read_dense(file_path, default_slot="count", design=None, *, viral_genes=None, viral_genes_label="Viral", classify_genes_func=None, **kwargs):
@@ -620,6 +616,7 @@ def _read(file_path, sparse, default_slot, design, viral_genes, viral_genes_labe
         coldata=coldata,
         metadata=metadata
     )
+
 
 sars = read_grand_auto("data/sars_R.tsv", None, None, design=("Condition", "Time", "Replicate"))
 print(sars) # funktioniert
