@@ -408,33 +408,33 @@ def resolve_prefix_path(prefix, pseudobulk=None, targets=None):
     raise FileNotFoundError(f"No valid data.tsv.gz found for prefix='{prefix}', pseudobulk='{pseudobulk}', targets='{targets}'.")
 
 
-def read_all_in_dir(directory, design=None, **kwargs):
-    """
-    Reads and merges all GRAND-SLAM results from subdirectories containing 'data.tsv.gz'.
-
-    Parameters
-    ----------
-    directory : str or Path
-        Path to the root directory containing GRAND-SLAM result subfolders.
-
-    design : tuple[str], optional
-        Tuple of design variables for sample metadata extraction.
-
-    **kwargs :
-        Additional keyword arguments passed to 'read_grand_auto'.
-
-    Returns
-    -------
-    GrandPy
-        Merged GrandPy object combining all datasets found.
-    """
-
-    files = list(Path(directory).rglob("data.tsv.gz"))
-    all_objects = [read_grand_auto(str(f.parent), design=design, **kwargs) for f in files]
-    merged = all_objects[0]
-    for obj in all_objects[1:]:
-        merged = merged.concat(obj, axis=1)
-    return merged
+# def read_all_in_dir(directory, design=None, **kwargs): # mergen ist nicht ganz der richtige Ansatz hier
+#     """
+#     Reads and merges all GRAND-SLAM results from subdirectories containing 'data.tsv.gz'.
+#
+#     Parameters
+#     ----------
+#     directory : str or Path
+#         Path to the root directory containing GRAND-SLAM result subfolders.
+#
+#     design : tuple[str], optional
+#         Tuple of design variables for sample metadata extraction.
+#
+#     **kwargs :
+#         Additional keyword arguments passed to 'read_grand_auto'.
+#
+#     Returns
+#     -------
+#     GrandPy
+#         Merged GrandPy object combining all datasets found.
+#     """
+#
+#     files = list(Path(directory).rglob("data.tsv.gz"))
+#     all_objects = [read_grand_auto(str(f.parent), design=design, **kwargs) for f in files]
+#     merged = all_objects[0]
+#     for obj in all_objects[1:]:
+#         merged = merged.concat(obj, axis=1)
+#     return merged
 
 
 def is_sparse_file(path) -> bool:
@@ -621,13 +621,16 @@ def _read(file_path, sparse, default_slot, design, viral_genes, viral_genes_labe
         metadata=metadata
     )
 
+sars = read_grand_auto("data/sars_R.tsv", None, None, design=("Condition", "Time", "Replicate"))
+print(sars) # funktioniert
 
-# sars = read_grand_auto("data/sars_R.tsv", None, None, design=("Condition", "Time", "Replicate"))
-# print(sars) # funktioniert
+g = read_grand_auto("test-datasets/test_dense.targets/data.tsv/data.tsv")
+print(g)
 
+# g = read_grand_auto("test-datasets/test_sc_sparse.targets")
+# print(g)
 
 # hier bin ich noch dran ...
 # import os
 # print(os.listdir("test-datasets"))
 # print(os.listdir("test-datasets/test_sparse.pseudobulk.all.tsv"))
-# g = read_dense("test-datasets/test_sparse.pseudobulk.all.tsv/test_sparse.pseudobulk.all.tsv")
