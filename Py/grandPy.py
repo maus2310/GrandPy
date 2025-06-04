@@ -1,6 +1,5 @@
 import re
 import warnings
-from inspect import isfunction
 from typing import Any, Union, Sequence, Literal, Mapping, Callable
 import numpy as np
 import pandas as pd
@@ -45,6 +44,26 @@ class ModeSlot:
             raise ValueError(f"Invalid mode: {mode}. Can either be 'new', 'old' or 'total'.")
 
 
+class Plot:
+    def __init__(self, function: Callable, parameters: Mapping[str, Any], plot_type: Literal["global", "gene"] = "global"):
+        self.function = function
+        self.parameters = parameters
+        self.plot_type = plot_type
+
+    def __repr__(self):
+        return f"Plot(type={self.plot_type!r}, function={self.function}, parameters={self.parameters})"
+
+    def __call__(self, data: "GrandPy", gene: str = None):
+        if self.plot_type == "gene":
+            if gene is None:
+                raise ValueError("Gene must be provided for a gene plot.")
+            return self.function(data, gene, **self.parameters)
+        elif self.plot_type == "global":
+            return self.function(data, **self.parameters)
+        else:
+            raise ValueError(f"Invalid plot type: {self.plot_type}")
+
+
 class GrandPy:
     """
     Create a GrandPy object.
@@ -86,10 +105,10 @@ class GrandPy:
         Name and the corresponding data matrix.
     metadata: dict[str, Any]
         Metadata about the data and file.
-    analyses:
+    analyses: dict[str, Any]
 
-    plots:
-
+    plots: dict[str, Any]
+        Stored plot functions
     """
 
     def __init__(self,
@@ -98,7 +117,7 @@ class GrandPy:
                  coldata: pd.DataFrame = None,
                  slots: dict[str, Union[np.ndarray, sp.csr_matrix]] = None,
                  metadata: dict[str, Any] = None,
-                 analyses = None,
+                 analyses: dict[str, pd.DataFrame] = None,
                  plots=None):
 
         if gene_info is None:
@@ -162,6 +181,7 @@ class GrandPy:
                 coldata: pd.DataFrame = None,
                 slots: dict[str, Union[np.ndarray, sp.csr_matrix]] = None,
                 metadata: dict[str, Any] = None,
+                analyses: dict[str, Any] = None,
                 plots: dict[str, Any] = None,
                 anndata: ad.AnnData = None) -> "GrandPy":
         """
@@ -188,6 +208,9 @@ class GrandPy:
 
         metadata: dict[str, any], optional
             Replaces all metadata.
+
+        analyses: dict[str, Any], optional
+            Replaces all analyses.
 
         plots: dict[str, any], optional
             Replaces all plots, gene and global.
@@ -216,7 +239,7 @@ class GrandPy:
             coldata = coldata if coldata is not None else safe_copy(anndata.var),
             slots = slots if slots is not None else {**anndata.layers},
             metadata = metadata if metadata is not None else anndata.uns.get("metadata"),
-            analyses = safe_copy(anndata.uns.get("analyses")),
+            analyses = analyses if analyses is not None else anndata.uns.get("analyses"),
             plots = plots if plots is not None else anndata.uns.get("plots")
         )
 
@@ -319,7 +342,7 @@ class GrandPy:
         """
         return self._adata.layers.copy()
 
-    def with_dropped_slot(self, slots_to_remove: Union[str, Sequence[str]]) -> "GrandPy":
+    def with_dropped_slots(self, slots_to_remove: Union[str, Sequence[str]]) -> "GrandPy":
         """
         Returns a new GrandPy object with specified slot(s) removed.
 
@@ -379,16 +402,15 @@ class GrandPy:
             # If DataFrame → to NumPy
             if isinstance(matrix, pd.DataFrame):
                 matrix.index = _make_unique(pd.Series(matrix.index))
+                matrix = matrix.reindex(index = self._adata.obs.index, columns = self._adata.var.index)
+
                 # Row and column names of the new matrix must be equal to the existing ones.
-                try:
-                    for i in range(self._adata.n_obs):
-                        if matrix.index[i] != self._adata.obs["Symbol"].iloc[i]:
-                            raise ValueError(f"Row name mismatch for slot '{name}' at index {i}")
-                    for i in range(self._adata.n_vars):
-                        if matrix.columns[i] != self._adata.var["Name"].iloc[i]:
-                            raise ValueError(f"Column name mismatch for slot '{name}' at index {i}")
-                except ValueError as error:
-                    warnings.warn(f"The row and column names of the new matrix did not match the existing ones. Data will be saved regardless.\n{error}")
+                for i in range(self._adata.n_obs):
+                    if matrix.index[i] != self._adata.obs.index[i]:
+                        warnings.warn(f"Row name mismatch for slot '{name}' at index {i}")
+                for i in range(self._adata.n_vars):
+                    if matrix.columns[i] != self._adata.var["Name"].iloc[i]:
+                        warnings.warn(f"Column name mismatch for slot '{name}' at index {i}")
 
                 matrix = matrix.values
 
@@ -967,22 +989,24 @@ class GrandPy:
 
         # if mode_slot is a string, it gets parsed into a ModeSlot Object
         if isinstance(mode_slot, str):
+            if self._check_slot(mode_slot, allow_ntr = allow_ntr):
+                return self._adata.layers[mode_slot]
             mode_slot = parse_mode_slot(mode_slot)
 
         if not self._check_slot(mode_slot.slot, allow_ntr=allow_ntr):
             raise ValueError(f"Slot '{mode_slot.slot}' not found in data slots.")
 
-        slot = self._adata.layers[mode_slot.slot]
+        slot_total = self._adata.layers[mode_slot.slot]
         ntr = self._adata.layers["ntr"]
 
-        resulting_mode_slot = slot
+        resulting_mode_slot = slot_total
 
         # The resulting data is computed, depending on the mode
         if mode_slot.mode != "total":
             if self._is_sparse:
-                resulting_mode_slot = slot.multiply(ntr) if mode_slot.mode == "new" else slot.multiply(one_minus_csr_matrix(ntr))
+                resulting_mode_slot = slot_total.multiply(ntr) if mode_slot.mode == "new" else slot_total.multiply(one_minus_csr_matrix(ntr))
             else:
-                resulting_mode_slot = slot * ntr if mode_slot.mode == "new" else slot * (1 - ntr)
+                resulting_mode_slot = slot_total * ntr if mode_slot.mode == "new" else slot_total * (1 - ntr)
 
         return resulting_mode_slot
 
@@ -1226,6 +1250,14 @@ class GrandPy:
 
 
     @property
+    def analyses(self) -> dict[str, pd.DataFrame]:
+        return self._adata.uns["analyses"]
+
+    def with_analyses(self):
+        ...
+
+
+    @property
     def plots(self) -> dict[str, dict[str, Any]]:
         """
         Get a dictionary of available plot names.
@@ -1247,7 +1279,8 @@ class GrandPy:
 
         return result
 
-    def with_gene_plot(self, name: str, function: Callable[["GrandPy", str], Any]) -> "GrandPy":
+    # Beipiel im docstring unvollständig, da wir noch keine global plot funktion haben
+    def with_gene_plot(self, name: str, function: Plot) -> "GrandPy":
         """
         Returns a new GrandPy object with a gene plot added.
 
@@ -1256,7 +1289,7 @@ class GrandPy:
         name: str
             A name for the plot.
 
-        function: Callable[["GrandPy", str], Any]
+        function: Plot
             A funktion, that takes a GrandPy object and a gene name as input and returns a plot.
 
         Returns
@@ -1268,23 +1301,18 @@ class GrandPy:
         --------
         Store the plot function in the object:
 
-        >>> sars = sars.with_gene_plot(
-            ...     "scatter",
-            ...     lambda data, gene: plot_scatter(
-            ...         data=data,
-            ...         x="Mock.1h.A",
-            ...         y=gene,
-            ...         mode_slot=ModeSlot("new", "count")
-            ...     )
-            ... )
+        >>> sars.with_gene_plot()
 
         Compute the plot when needed:
 
-        >>> sars.plot_gene("scatter", "SARS.1h.A")
+        >>> sars.plot_gene()
 
 
         See Also
         --------
+        plots
+            Get the names of all stored plot functions.
+
         plot_gene()
             Executes a stored plot function for a given gene.
 
@@ -1294,10 +1322,9 @@ class GrandPy:
         with_dropped_plots()
             Remove plots from the object.
         """
-        return self._add_plot(name, function, "gene")
+        return self._add_plot(name, "gene", function)
 
-    # Beipiel im docstring unvollständig, da wir noch keine global plot funktion haben
-    def with_global_plot(self, name: str, function: Callable, floating: bool = False) -> "GrandPy":
+    def with_global_plot(self, name: str, function: Plot, floating: bool = False) -> "GrandPy":
         """
         Returns a new GrandPy object with a global plot added.
 
@@ -1306,7 +1333,7 @@ class GrandPy:
         name: str
             A name for the plot.
 
-        function: Callable
+        function: Plot
             A funktion, that takes a GrandPy object as input and returns a plot.
 
         floating: bool
@@ -1323,15 +1350,27 @@ class GrandPy:
         Store the plot function in the object:
 
         >>> sars = sars.with_global_plot(
-            ...     "_name_",
-            ...     lambda data:
+            ...     "scatter",
+            ...     Plot(
+            ...         function = plot_scatter,
+            ...         parameters = {
+            ...             "x": "Mock.1h.A",
+            ...             "y": "SARS.1h.A",
+            ...             "mode_slot": "new_count"
+            ...             },
+            ...         plot_type = "global"
+            ...     )
+            ... )
 
         Compute the plot when needed:
 
-        >>> sars.plot_global("_name_")
+        >>> sars.plot_global("scatter")
 
         See Also
         --------
+        plots
+            Get the names of all stored plot functions.
+
         plot_global()
             Executes a stored global plot function.
 
@@ -1342,24 +1381,37 @@ class GrandPy:
             Remove plots from the object.
         """
         if floating:
-            return self._add_plot(name, function, "floating")
+            return self._add_plot(name, "floating", function)
         else:
-            return self._add_plot(name, function, "global")
+            return self._add_plot(name, "global", function)
 
-    def _add_plot(self, name: str, function: Callable, plot_type: Literal["gene", "global", "floating"]) -> "GrandPy":
+    def _add_plot(self, name: str, plot_type: Literal["gene", "global", "floating"], function: Union[Plot, Callable]) -> "GrandPy":
         """
         Internal function for adding a plot
         """
+        def function_to_plot(fun: Callable) -> Plot:
+            from inspect import signature
+
+            sig = signature(fun)
+            params = dict(sig.parameters)
+
+            return Plot(fun, params, plot_type=plot_type)
+
         new_plots = self._adata.uns["plots"]
 
-        if not isfunction(function):
-            raise TypeError("The input must be a function.")
         if new_plots is None:
             new_plots = {}
         if new_plots.get(plot_type) is None:
             new_plots[plot_type] = {}
         if name in new_plots[plot_type].keys():
             warnings.warn(f"A {plot_type} plot with the name '{name}' already exists. It will be overwritten.")
+
+        if isinstance(function, Plot):
+            ...
+        elif callable(function):
+            function = function_to_plot(function)
+        else:
+            raise TypeError("Expected Plot or function")
 
         new_plots[plot_type][name] = function
 
@@ -1379,6 +1431,9 @@ class GrandPy:
 
         See Also
         --------
+        plots
+            Get the names of all stored plot functions.
+
         with_gene_plot()
             Add a gene plot.
 
@@ -1398,6 +1453,9 @@ class GrandPy:
 
         See Also
         --------
+        plots
+            Get the names of all stored plot functions.
+
         with_global_plot()
             Add a global plot.
 
@@ -1424,6 +1482,9 @@ class GrandPy:
 
         See Also
         --------
+        plots
+            Get the names of all stored plot functions.
+
         with_gene_plot()
             Add a gene plot.
 
