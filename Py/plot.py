@@ -1,10 +1,14 @@
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 from typing import Optional, Union
 from Py.grandPy import GrandPy, ModeSlot
 from scipy.stats import gaussian_kde
 import seaborn as sns
-from sklearn.preprocessing import scale
+from sklearn.preprocessing import scale, StandardScaler
+from sklearn.decomposition import PCA
+from types import SimpleNamespace
+from pydeseq2.dds import DeseqDataSet
 
 
 def _get_plot_limits(vals, override_lim=None):
@@ -299,3 +303,82 @@ def plot_heatmap(
     if title:
         plt.title(title)
     plt.show(block=True)
+
+
+def setup_default_aes(data: GrandPy, aest: dict | None = None) -> dict:
+    if aest is None:
+        aest = {}
+
+    coldata = data.coldata
+
+    if "Condition" in coldata.columns and not any(k in aest for k in ["color", "colour"]):
+        aest["color"] = "Condition"
+
+    if "Replicate" in coldata.columns and "shape" not in aest:
+        aest["shape"] = "Replicate"
+
+    return aest
+
+# gibt warum auch immer einen plot zwischen 0 und 1 aus. muss ich nochmal drüber schauen :)
+#
+def plot_pca(
+    data: GrandPy,
+    mode_slot: str | ModeSlot = None,
+    path_for_save: Optional[str] = None,
+    ntop: int = 500,
+    aest: Optional[dict] = None,
+    x: int = 1,
+    y: int = 2,
+    columns: Union[str, list, None] = None,
+    do_vst: bool = True
+    ):
+    if mode_slot is None:
+        mode_slot = data.default_slot
+
+    if columns is None:
+        selected_columns = data.columns
+    elif isinstance(columns, str):
+        selected_columns = list(data.coldata.query(columns).index)
+    else:
+        selected_columns = data.get_columns(columns)
+
+    mat = data.get_matrix(mode_slot=mode_slot, columns=selected_columns)
+
+    coldata = data.coldata.loc[selected_columns].copy()
+
+    mat = mat.loc[:, mat.notna().any(axis=0)]
+    coldata = coldata.loc[mat.columns]
+
+    if do_vst:
+        mat = np.log2(mat + 1)
+
+    variances = mat.var(axis=1)
+    top_genes = variances.sort_values(ascending=False).head(min(ntop, len(variances))).index
+    mat = mat.loc[top_genes]
+
+    scaled = StandardScaler().fit_transform(mat.T)
+    pca = PCA()
+    pcs = pca.fit_transform(scaled)
+    percent_var = pca.explained_variance_ratio_
+
+
+    df = pd.DataFrame(pcs, index=mat.columns, columns=[f"PC{i + 1}" for i in range(pcs.shape[1])])
+    df = pd.concat([df, coldata.reset_index(drop=True)], axis=1)
+
+    plt.figure(figsize=(6, 6))
+    xlab = f"PC{x}: {percent_var[x - 1] * 100:.1f}% variance"
+    ylab = f"PC{y}: {percent_var[y - 1] * 100:.1f}% variance"
+
+    aest = setup_default_aes(data, aest)
+    hue = aest.get("color")
+    style = aest.get("shape")
+
+    sns.scatterplot(data=df, x=f"PC{x}", y=f"PC{y}", hue=hue, style=style, size=10, s=80)
+    plt.xlabel(xlab)
+    plt.ylabel(ylab)
+    plt.title("PCA")
+
+    if path_for_save:
+        plt.savefig(f"{path_for_save}/PCA_{mode_slot}.png", dpi=300)
+
+    plt.show()
