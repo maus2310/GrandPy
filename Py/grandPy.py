@@ -118,7 +118,7 @@ class GrandPy:
                  slots: dict[str, Union[np.ndarray, sp.csr_matrix]] = None,
                  metadata: dict[str, Any] = None,
                  analyses: dict[str, pd.DataFrame] = None,
-                 plots=None):
+                 plots: dict[str, dict] = None):
 
         if gene_info is None:
             raise ValueError("GrandPy object must have gene_info.")
@@ -378,7 +378,9 @@ class GrandPy:
         """
         Returns a new GrandPy Object with the new slot added.
 
-        Can only check the order of genes and samples/cells if the given matrix is a pandas DataFrame.
+        Recommended: use this function with DataFrames for security.
+
+        It can only check the order of genes and samples/cells if the given matrix is a pandas DataFrame.
         Otherwise, the given matrix is expected to have rows and columns in the same order as existing slots.
 
         Parameters
@@ -496,6 +498,7 @@ class GrandPy:
         """
         return self._adata.obs.copy()
 
+    # Dataframes und Series funktionieren nicht korrekt
     def with_gene_info(self, column: str, value: Union[Mapping, pd.Series, pd.DataFrame, Sequence[Any]]) -> "GrandPy":
         """
         Returns a new object with modified gene_info. If the column name does not already exist, a new column will be added.
@@ -581,13 +584,16 @@ class GrandPy:
     # TODO apply() vervollständigen
     def apply(self, function, *, function_gene_info=None, function_coldata=None, **kwargs) -> "GrandPy":
         """
-        Returns a new GrandPy object with the given function applied to each data slot.\n
+        Returns a new GrandPy object with the given function applied to each data slot.
+
         Can also apply a function to the gene_info and coldata DataFrames.
+
+        It is not advised to use this method for swapping columns or rows, as slots, gene_info and coldata are not automatically updated when changing one of them.
 
         Parameters
         ----------
         function:
-            Function to apply to each data slat (receives each matrix individually).
+            Function to apply to each data slot.
         function_gene_info:
             Function to apply to the gene_info DataFrame.
         function_coldata:
@@ -606,9 +612,9 @@ class GrandPy:
             new_adata.layers[key] = function(self._adata.layers[key], **kwargs)
 
         if function_gene_info is not None:
-            new_adata.var = function_gene_info(self._adata.var, **kwargs)
+            new_adata.obs = function_gene_info(self._adata.obs, **kwargs)
         if function_coldata is not None:
-            new_adata.obs = function_coldata(self._adata.obs, **kwargs)
+            new_adata.var = function_coldata(self._adata.var, **kwargs)
 
         # Noch nicht vollständig
 
@@ -796,7 +802,6 @@ class GrandPy:
 
         get_columns()
             Returns the names of columns, either by index, name, or a boolean mask.
-
         """
         coldata = self.coldata
 
@@ -808,16 +813,17 @@ class GrandPy:
 
         return self.replace(coldata = new_coldata)
 
-    # fehlt noch
-    def with_swapped_columns(self, column1: Union[str, int, pd.Series], column2: Union[str, int]) -> "GrandPy":
+    def with_swapped_columns(self, column1: Union[str, int], column2: Union[str, int]) -> "GrandPy":
         """
-        Returns a new GrandPy object with columns in all slots and corresponding rows in coldata swapped.
+        Returns a new GrandPy object with the two specified columns in all slots and corresponding rows in coldata swapped.
 
         Parameters
         ----------
         column1: Union[str, int]
+            column to swap with.
 
         column2: Union[str, int]
+            column to swap with.
 
         Returns
         -------
@@ -826,10 +832,41 @@ class GrandPy:
 
         See Also
         --------
-
+        with_renamed_columns()
+            Rename the columns of all slots.
         """
-        # apply wird hier in R verwendet
-        ...
+        def swap(matrix, col1, col2):
+            """
+            Helper function that swaps columns for ndarray or csr_matrix and rows for a DataFrame.
+            """
+            if isinstance(matrix, pd.DataFrame):
+                rows = list(matrix.index)
+                rows[col1], rows[col2] = rows[col2], rows[col1]
+                return matrix.loc[rows]
+
+            elif isinstance(matrix, np.ndarray):
+                matrix = matrix.copy()
+                matrix[:, [col1, col2]] = matrix[:, [col2, col1]]
+
+            elif sp.isspmatrix_csr(matrix):
+                # Convert to CSC for efficient column slicing
+                csc = matrix.tocsc(copy=True)
+                # Swap the columns using slicing
+                idx = [csc[:, i] for i in range(csc.shape[1])]
+                idx[col1], idx[col2] = idx[col2], idx[col1]
+                matrix = sp.hstack(idx).tocsr()
+
+            else:
+                raise TypeError("A Matrix in the GrandPy Object has an unexpected type. Only pd.DataFrame, np.ndarray and scipy.sparse.csr_matrix are supported")
+
+            return matrix
+
+        if isinstance(column1, str):
+            column1 = self._adata.var.columns.get_loc(column1)
+        if isinstance(column2, str):
+            column2 = self._adata.var.columns.get_loc(column2)
+
+        return self.apply(swap, function_coldata=swap, col1=column1, col2=column2)
 
 
     def get_index(self, genes: Union[str, int, Sequence[Union[str, int, bool]]] = None, *, regex: bool = False) -> list[int]:
@@ -1011,8 +1048,7 @@ class GrandPy:
         return resulting_mode_slot
 
 
-    # Vielleicht überflüssig?
-    # TODO get_matrix() um die fehlenden Parameter aus R erweitern(summarize)
+    # Doch eher wie slot_data? Anndata Object ist denke ich die Mühe nicht wert.
     def get_matrix(self,
                    mode_slot: Union[str, ModeSlot] = None,
                    genes: Union[str, int, Sequence[Union[str, int]]] = None,
@@ -1248,13 +1284,208 @@ class GrandPy:
 
         return result_df
 
+    # TODO: get_analysis_table() schreiben
+    def get_analysis_table(self,
+                           analyses,
+                           genes: Union[str, int, Sequence[Union[str, int]]] = None,
+                           columns: Union[str, int, Sequence[Union[str, int]]] = None,
+                           *,
+                           regex: bool = True,
+                           with_gene_info: bool = False,
+                           name_genes_by = "Symbol") -> pd.DataFrame:
+        """
 
-    @property
-    def analyses(self) -> dict[str, pd.DataFrame]:
-        return self._adata.uns["analyses"]
+        Parameters
+        ----------
 
-    def with_analyses(self):
+        Returns
+        -------
+
+        See Also
+        --------
+
+        """
         ...
+
+    # In american englisch würde man eigentlich analyzes schreiben.
+    @property
+    def analyses(self) -> list[str]:
+        """
+        Get the names of all stored analyses.
+
+        Returns
+        -------
+        list[str]
+            A list of analysis names.
+
+        See Also
+        --------
+        get_analysis():
+            Get the names of analyses matching a pattern.
+
+        with_dropped_analyses():
+            Remove analyses with a regex pattern.
+
+        with_analyses():
+            Add analyses to the object. Usually not to be used directly.
+        """
+        return list(self._adata.uns["analyses"].keys())
+
+    def get_analyses(self, pattern: Union[str, int, Sequence[Union[str, int, bool]]] = None, regex: bool = True) -> list[str]:
+        """
+        Get the names of analyses. Either by a regex, names, indices, or a boolean mask.
+
+        Parameters
+        ----------
+        pattern: Union[str, int, Sequence[Union[str, int, bool]]]
+            Names of analyses to be retrieved. Can be a regex, names, indices, or a boolean mask.
+
+        regex: bool
+            If True, `name` will be interpreted as a regular expression or a list of regular expressions.
+
+        Returns
+        -------
+        list[str]
+            A list containing the names of all found analyses.
+
+        Raises
+        ------
+        ValueError
+            Raises an error if any pattern has no matches.
+
+        See Also
+        --------
+        analyses:
+            Get a list of all available analyses.
+
+        with_dropped_analyses():
+            Remove analyses with a regex pattern.
+
+        with_analyses():
+            Add analyses to the object. Usually not to be used directly.
+        """
+        available_analyses = self.analyses
+
+        if pattern is None:
+            return available_analyses
+
+        pattern = _ensure_list(pattern)
+
+        def check_analyses(pattern, available_analyses, regex) -> list[bool]:
+            """
+            Helper function to check if the given names or regex pattern match the available analyses.
+            """
+            if regex:
+                return [any(re.search(pat, analysis) for analysis in available_analyses) for pat in pattern]
+            else:
+                if all(isinstance(pat, (bool, int)) for pat in pattern):
+                    return [True] * len(available_analyses)
+                else:
+                    return [analysis in available_analyses for analysis in pattern]
+
+        checks = check_analyses(pattern, available_analyses, regex)
+        print(checks)
+        if not all(checks):
+            missing = [analysis for analysis, check in zip(pattern, checks) if not check]
+            raise ValueError(f"No analysis found for pattern: {', '.join(map(str, missing))}")
+
+        if all(isinstance(pat, (bool, int)) for pat in pattern):
+            checks = pattern
+
+        result = np.array(available_analyses)[checks].tolist()
+
+        result = list(dict.fromkeys(result))
+
+        return result
+
+    def with_analyses(self, name: str, table: pd.DataFrame, by: str = None) -> "GrandPy":
+        """
+        Returns a new GrandPy object with added analyses.
+
+        Not to be used directly in most cases, instead it is called by analysis methods.
+
+        If used directly, the Dataframe has to contain gene names (Ensemble ids) or symbols,
+        that are either already the index or the column name is given to the 'by' parameter.
+
+        Parameters
+        ----------
+        name: str
+            The name of the analysis.
+
+        table: pd.DataFrame
+            A DataFrame containing the analysis data. Has to contain gene names or symbols.
+
+        by: str
+            A column in the table to be used as index.
+
+        Returns
+        -------
+        A new GrandPy object with added analyses.
+
+        See Also
+        --------
+        analyses:
+            Get the names of all stored analyses.
+
+        get_analysis():
+            Get the names of analyses matching a pattern.
+
+        with_dropped_analyses():
+            Remove analyses with a regex pattern.
+        """
+        new_analyses = self._adata.uns["analyses"]
+
+        new_analyses = {} if new_analyses is None else new_analyses
+
+        if new_analyses.get(name, None) is not None:
+            warnings.warn(f"An analyses named {name} already exists! It will be overwritten.")
+
+        if by is not None:
+            table = table.set_index(by)
+            table.index.name = None
+
+        if re.search("^ENS", table.index[0]) is not None:
+            table = table.reindex(self._adata.obs["Gene"])
+        else:
+            table.index = _make_unique(pd.Series(table.index), warn=False)
+            table = table.reindex(self._adata.obs.index)
+
+        new_analyses[name] = table
+
+        return self.replace(analyses=new_analyses)
+
+    def with_dropped_analyses(self, pattern: str = None) -> "GrandPy":
+        """
+        Returns a new GrandPy object with analyses matching the pattern removed.
+
+        Parameters
+        ----------
+        pattern: str
+            A regex pattern to match analyses.
+
+        Returns
+        -------
+            A new GrandPy object with removed analyses.
+
+        See Also
+        --------
+        analyses:
+            Get the names of all stored analyses.
+
+        get_analysis():
+            Get the names of analyses matching a pattern.
+
+        with_analyses():
+            Add analyses to the object. Usually not to be used directly.
+        """
+        new_analyses = self._adata.uns["analyses"]
+
+        if pattern is None:
+            new_analyses = {}
+        else:
+            new_analyses = {key: value for key, value in new_analyses.items() if not re.search(pattern, key)}
+
+        return self.replace(analyses=new_analyses)
 
 
     @property
@@ -1540,7 +1771,7 @@ def _to_sparse(matrix: Union[pd.DataFrame, np.ndarray, sp.csr_matrix]) -> sp.csr
     return sparse_matrix
 
 
-def _make_unique(series: pd.Series) -> pd.Series:
+def _make_unique(series: pd.Series, warn = True) -> pd.Series:
     """
         Ensures all values in a Series are unique by appending suffixes to duplicates.
 
@@ -1561,8 +1792,9 @@ def _make_unique(series: pd.Series) -> pd.Series:
         return series
 
     else:
-        duplicates_list = series[series.duplicated()].unique()[:10]
-        warnings.warn(f"Duplicate gene symbols found: {', '.join(duplicates_list)}; they have been renamed to ensure uniqueness (e.g., MATR3 → MATR3_1).")
+        if warn:
+            duplicates_list = series[series.duplicated()].unique()[:10]
+            warnings.warn(f"Duplicate gene symbols found: {', '.join(duplicates_list)}; they have been renamed to ensure uniqueness (e.g., MATR3 → MATR3_1).")
 
         for val in series:
             if val not in counts:

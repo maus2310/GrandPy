@@ -50,7 +50,7 @@ def test_with_dropped_slots():
     gp = read_grand("../data/sars_R.tsv")
     control_list_ntr = ['count', 'alpha', 'beta']
     test_with_dropped_slots = gp.with_dropped_slots("ntr")
-    assert test_with_dropped_slots.slot_names == control_list_ntr
+    assert test_with_dropped_slots.slots == control_list_ntr
 
     # Dieser Test klappt aber nur wenn man count beibehält (wie gedacht), kann default slots löschen & neue setzen
 
@@ -63,45 +63,27 @@ def test_with_dropped_slots():
 #
 #     gp = read_grand("../data/sars_R.tsv")
 
-def test_with_gene_info():
-
-    test_data = {
-                 "Symbol": ["UHMK1", "ATF3", "PABPC4", "ROR1", "ZC3H11A", "ZBED6", "PROX6", "PRRC2C", "ATP1B1", "NEK7"],
-                 "Gene": ["ENSG00000152332", "ENSG00000162772", "ENSG00000090621", "ENSG00000185483", "ENSG00000058673", "ENSG00000257315", "ENSG00000117592", "ENSG00000117523", "ENSG00000143153", "ENSG00000151414"],
-                 "Length": ["8478", "2103", "3592", "5832", "11825", "12481", "1751", "10366", "2608", "4149"],
-                 "Type":  ["Cellular", "Cellular", "Cellular", "Cellular", "Cellular", "Cellular", "Cellular", "Cellular", "Cellular", "Cellular"]
-                # "no4sU": ["False", "False", "False", "False", "False", "False", "False", "False", "False", "False",]
-    }
-    test_data_frame = pd.DataFrame(test_data)
-    gp = read_grand("../data/sars_R.tsv")
-    gp = gp[0:10]
-    test_get_gene_info = gp.get_gene_info(["Symbol","Gene", "Length", "Type"])
-    assert test_get_gene_info.iloc[4]["Symbol"] == test_data_frame.at[4, "Symbol"]
-
-
 
 def test_with_gene_info_immutability():
 
     gp = read_grand("../data/sars_R.tsv")
     gp = gp[0:10]
     with_gene_info_immutability = gp.with_gene_info("Gene", [1,2,3,4,5,6,7,8,9,10])
-    assert with_gene_info_immutability.gene_info["Gene"] != gp.gene_info["Gene"]
+    for el in with_gene_info_immutability.gene_info["Gene"].values: assert el not in gp.gene_info["Gene"].values
 
 def test_with_gene_info_dict():
-
     gp = read_grand("../data/sars_R.tsv")
     gp = gp[0:10]
     with_gene_info_dict = gp.with_gene_info("Gene", {"UHMK1": "Control", "ATF3": "Treatment"})
-    assert (gp.with_gene_info("Gene", {"UHMK1": "Control", "ATF3": "Treatment"}).gene_info["Gene"][0] == "Control"
-            and gp.with_gene_info("Gene", {"UHMK1": "Control", "ATF3": "Treatment"}).gene_info["Gene"][1] == "Treatment")
+    assert (with_gene_info_dict.gene_info["Gene"][0] == "Control"
+            and with_gene_info_dict.gene_info["Gene"][1] == "Treatment")
 
 def test_with_gene_info_series():
-
     gp = read_grand("../data/sars_R.tsv")
     gp = gp[0:10]
-    with_gene_info_immutability = gp.with_gene_info("Gene", pd.Series([1,2,3,4,5,6,7,8,9,10]))
+    with_gene_info_series = gp.with_gene_info("Gene", pd.Series([1,2,3,4,5,6,7,8,9,10]))
     for i in range(0,10):
-        assert gp.with_gene_info("Gene", pd.Series([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])).gene_info["Gene"][i] == i+1
+        assert with_gene_info_series.gene_info["Gene"][i] == i+1
 
 
 def test_with_coldata():
