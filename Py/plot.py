@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import scanpy as sc
 from typing import Optional, Union
 from Py.grandPy import GrandPy, ModeSlot
 from scipy.stats import gaussian_kde
@@ -319,8 +320,10 @@ def setup_default_aes(data: GrandPy, aest: dict | None = None) -> dict:
 
     return aest
 
-# gibt warum auch immer einen plot zwischen 0 und 1 aus. muss ich nochmal drüber schauen :)
-#
+# für mode_slot = "counts" und do.vst=True alles gut
+# für mode_slot = "alpha" und do.vst=False sind die werte irgendwie an der y achse gespiegelt???
+# für mode_slot = "ntr" und do.vst=False alles komisch
+# für mode_slot = "beta" und do.vst=False alles einwandfrei
 def plot_pca(
     data: GrandPy,
     mode_slot: str | ModeSlot = None,
@@ -330,8 +333,8 @@ def plot_pca(
     x: int = 1,
     y: int = 2,
     columns: Union[str, list, None] = None,
-    do_vst: bool = True
-    ):
+    do_vst: bool = True):
+
     if mode_slot is None:
         mode_slot = data.default_slot
 
@@ -342,43 +345,59 @@ def plot_pca(
     else:
         selected_columns = data.get_columns(columns)
 
-    mat = data.get_matrix(mode_slot=mode_slot, columns=selected_columns)
-
+    mat = data.get_table(mode_slots=mode_slot, columns=selected_columns)
     coldata = data.coldata.loc[selected_columns].copy()
 
+    # Drop columns (samples) that contain only NaN values
     mat = mat.loc[:, mat.notna().any(axis=0)]
     coldata = coldata.loc[mat.columns]
 
-    if do_vst:
-        mat = np.log2(mat + 1)
+    SlotMat = mat.T.round().astype(int)
+    metadata_df = coldata.copy()
+    metadata_df["condition"] = metadata_df["Condition"]
 
-    variances = mat.var(axis=1)
-    top_genes = variances.sort_values(ascending=False).head(min(ntop, len(variances))).index
-    mat = mat.loc[top_genes]
+    if do_vst and str(mode_slot).lower() == "count":
+        dds = DeseqDataSet(counts=SlotMat, metadata=metadata_df, design_factors="condition")
+        dds.deseq2()
+        dds.vst_fit()
+        vst_array = dds.vst_transform()
+        vst_df = pd.DataFrame(vst_array, index=SlotMat.index, columns=SlotMat.columns)
 
-    scaled = StandardScaler().fit_transform(mat.T)
-    pca = PCA()
-    pcs = pca.fit_transform(scaled)
-    percent_var = pca.explained_variance_ratio_
+        variances = vst_df.var(axis=0)
+        top_genes = variances.sort_values(ascending=False).head(min(ntop, len(variances))).index
+        vst_df = vst_df[top_genes]
 
+        # PCA
+        pcs = PCA().fit_transform(vst_df)
+        percent_var = PCA().fit(vst_df).explained_variance_ratio_
+        pc_df = pd.DataFrame(pcs, index=vst_df.index, columns=[f"PC{i + 1}" for i in range(pcs.shape[1])])
+        df = pd.concat([pc_df, metadata_df], axis=1)
+    else:
+        mat_t = SlotMat
 
-    df = pd.DataFrame(pcs, index=mat.columns, columns=[f"PC{i + 1}" for i in range(pcs.shape[1])])
-    df = pd.concat([df, coldata.reset_index(drop=True)], axis=1)
+        variances = mat_t.var(axis=0)
+        top_genes = variances.sort_values(ascending=False).head(min(ntop, len(variances))).index
+        mat_t = mat_t[top_genes]
 
-    plt.figure(figsize=(6, 6))
-    xlab = f"PC{x}: {percent_var[x - 1] * 100:.1f}% variance"
-    ylab = f"PC{y}: {percent_var[y - 1] * 100:.1f}% variance"
+        pcs = PCA().fit_transform(mat_t)
+        percent_var = PCA().fit(mat_t).explained_variance_ratio_
+        pc_df = pd.DataFrame(pcs, index=mat_t.index, columns=[f"PC{i + 1}" for i in range(pcs.shape[1])])
+        df = pd.concat([pc_df, metadata_df], axis=1)
 
     aest = setup_default_aes(data, aest)
-    hue = aest.get("color")
     style = aest.get("shape")
+    hue = aest.get("color")
 
-    sns.scatterplot(data=df, x=f"PC{x}", y=f"PC{y}", hue=hue, style=style, size=10, s=80)
-    plt.xlabel(xlab)
-    plt.ylabel(ylab)
-    plt.title("PCA")
+
+    plt.figure(figsize=(8, 6))
+    sns.scatterplot(data=df, x=f"PC{x}", y=f"PC{y}", style=style, hue=hue, s=50)
+    plt.xlabel(f"PC{x}: {percent_var[x - 1] * 100:.1f}% variance")
+    plt.ylabel(f"PC{y}: {percent_var[y - 1] * 100:.1f}% variance")
+    plt.title(f"PCA_({mode_slot})")
+    plt.gca().set_aspect("equal", adjustable="box")
+    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0.)
+    plt.tight_layout()
 
     if path_for_save:
         plt.savefig(f"{path_for_save}/PCA_{mode_slot}.png", dpi=300)
-
     plt.show()
