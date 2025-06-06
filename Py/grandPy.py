@@ -1078,11 +1078,11 @@ class GrandPy:
 
         See Also
         --------
-        get_data()
+        get_table()
             Similar to get_matrix(), but with row and column names and coldata can be concatenated.
 
         get_data()
-            Similar to get_table(), but slots are transposed, so coldata can be concatenated.
+            Similar to get_data(), but slots are transposed, so gene_info can be concatenated.
         """
         if mode_slot is None:
             mode_slot = self.default_slot
@@ -1099,7 +1099,7 @@ class GrandPy:
             data_subset = data[row_indices, :][:, column_indices]
 
         else:
-            data_subset = data[np.ix_(column_indices, row_indices)]
+            data_subset = data[np.ix_(row_indices, column_indices)]
 
         return data_subset
 
@@ -1161,8 +1161,8 @@ class GrandPy:
         result_df = pd.DataFrame()
 
         for slot_name in mode_slots:
-            all_data = self._resolve_mode_slot(slot_name)
-            data_subset = all_data[np.ix_(column_indices, row_indices)].T
+            all_data = self._resolve_mode_slot(slot_name).T
+            data_subset = all_data[np.ix_(row_indices, column_indices)]
 
             if self._is_sparse:
                 data_subset = data_subset.toarray()
