@@ -106,9 +106,9 @@ class GrandPy:
     metadata: dict[str, Any]
         Metadata about the data and file.
     analyses: dict[str, Any]
-
+        Results from analyzing functions.
     plots: dict[str, Any]
-        Stored plot functions
+        Plot functions. (global or gene plots)
     """
 
     def __init__(self,
@@ -312,7 +312,7 @@ class GrandPy:
         return list(self._adata.layers.keys())
 
     @property
-    def slot_data(self) -> dict[str, Union[np.ndarray, sp.csr_matrix]]:
+    def _slot_data(self) -> dict[str, Union[np.ndarray, sp.csr_matrix]]:
         """
         Get the raw data of all available slots as they are stored internally.
 
@@ -364,7 +364,7 @@ class GrandPy:
         if not remaining:
             raise ValueError("Cannot drop all slots - at least one must remain.")
 
-        new_slots = self.slot_data
+        new_slots = self._slot_data
         new_slots = {k: self._adata.layers[k] for k in remaining}
 
         if self.default_slot in to_remove:
@@ -431,7 +431,7 @@ class GrandPy:
 
         new_slot = _validate_and_convert_new_data(new_slot)
 
-        new_slots = self.slot_data
+        new_slots = self._slot_data
         new_slots[name] = new_slot
 
         if set_to_default:
@@ -1052,11 +1052,11 @@ class GrandPy:
     def get_matrix(self,
                    mode_slot: Union[str, ModeSlot] = None,
                    genes: Union[str, int, Sequence[Union[str, int]]] = None,
-                   columns: Union[str, int, Sequence[Union[str, int]]] = None,
-                   *,
-                   name_genes_by: str = "Symbol") -> pd.DataFrame:
+                   columns: Union[str, int, Sequence[Union[str, int]]] = None,) -> Union[np.ndarray, sp.csr_matrix]:
         """
-        Get the data from a data slot.
+        Get the raw data from a data slot, without row or column names.
+
+        This function is mostly not needed, as get_table(), get_data() or apply() are usually better suited.
 
         Parameters
         ----------
@@ -1066,55 +1066,42 @@ class GrandPy:
             A mode("new"|"old"|"total") can be specified in the following formats: ModeSlot('<mode>', '<slot>') or '<mode>_<slot>'
 
         genes: Union[str, int, Sequence[Union[str, int]]]
-            The genes to be retrieved. Either by gene symbols, names(Ensembl ids), or indices.
+            The genes to be retrieved. Either by gene symbols, names(Ensembl ids), indices or a boolean mask.
 
         columns: Union[str, int, Sequence[Union[str, int]]]
-            The samples/cells to be retrieved. Either by names or indices.
-
-        name_genes_by: str
-            A column in the gene_info DataFrame to be used as the name of the genes. Usually either 'Symbol' or 'Gene'
+            The samples/cells to be retrieved. Either by names, indices or a boolean mask.
 
         Returns
         -------
-        pd.DataFrame
-            A DataFrame containing the specified data for the genes and columns.
+        Union[np.ndarray, sp.csr_matrix]
+            A raw data matrix, without column or row names.
 
         See Also
         --------
         get_data()
-            Similar to get_matrix(), but slots are transposed, so coldata can be concatenated.
+            Similar to get_matrix(), but with row and column names and coldata can be concatenated.
 
-        get_table()
-            Similar to get_matrix(), but gene_info can be concatenated.
-
-        get_slot_data()
-            Returns a dictionary containing the raw data of all slots.
+        get_data()
+            Similar to get_table(), but slots are transposed, so coldata can be concatenated.
         """
-        coldata = self.coldata
-        gene_info = self.gene_info
-
         if mode_slot is None:
             mode_slot = self.default_slot
 
-        genes = _ensure_list(genes)
-        columns = _ensure_list(columns)
-
-        row_indices = self.get_index(genes) if genes != [None] else self.get_index(None)
-        column_indices = [coldata.index.get_loc(column) for column in self.get_columns(columns)] if columns != [
-            None] else range(len(coldata))
-
-        row_names = gene_info.iloc[row_indices][name_genes_by].tolist()
-        column_names = coldata.iloc[column_indices]["Name"].tolist()
-
         data = self._resolve_mode_slot(mode_slot)
-        data_subset = data[np.ix_(row_indices, column_indices)]
+
+        if genes is None and columns is None:
+            return data
+
+        row_indices = self.get_index(genes)
+        column_indices = [self._adata.var.index.get_loc(column) for column in self.get_columns(columns)]
 
         if self._is_sparse:
-            data_subset = data_subset.toarray()
+            data_subset = data[row_indices, :][:, column_indices]
 
-        result_df = pd.DataFrame(data_subset, index=row_names, columns=column_names)
+        else:
+            data_subset = data[np.ix_(column_indices, row_indices)]
 
-        return result_df
+        return data_subset
 
     # TODO get_data() um die fehlenden Parameter aus R erweitern. (ntr.na, by.rows)
     def get_data(self,
@@ -1155,9 +1142,6 @@ class GrandPy:
         --------
         get_table():
             Similar to get_data(), but slots are transposed, so gene_info can be concatenated.
-
-        get_analysis_table():
-
         """
         coldata = self.coldata
         gene_info = self.gene_info
@@ -1165,18 +1149,14 @@ class GrandPy:
         if mode_slots is None:
             mode_slots = self.default_slot
 
-        # Transforming all parameters into lists
         mode_slots = _ensure_list(mode_slots)
-        genes = _ensure_list(genes)
-        columns = _ensure_list(columns)
 
-        # Retrieving the indices of the selected genes and columns
-        row_indices = [coldata.index.get_loc(column) for column in self.get_columns(columns)] if columns != [None] else range(len(coldata))
-        column_indices = self.get_index(genes) if genes != [None] else self.get_index(None)
+        row_indices = [coldata.index.get_loc(column) for column in self.get_columns(columns)]
+        column_indices = self.get_index(genes) if genes is not None else self.get_index(None)
 
-        # Retrieving the names of the selected genes and columns
+        # row_names is handled like this, so that the index remains unique ('Symbol' was not made unique, but index was)
         row_names = coldata.iloc[row_indices]["Name"].tolist()
-        column_names = gene_info.iloc[column_indices][name_genes_by].tolist()
+        column_names = gene_info.iloc[column_indices].index.tolist() if name_genes_by == "Symbol" else gene_info.iloc[column_indices][name_genes_by].tolist()
 
         result_df = pd.DataFrame()
 
@@ -1252,13 +1232,12 @@ class GrandPy:
             mode_slots = self.default_slot
 
         mode_slots = _ensure_list(mode_slots)
-        genes = _ensure_list(genes)
-        columns = _ensure_list(columns)
 
-        row_indices = self.get_index(genes) if genes != [None] else self.get_index(None)
-        column_indices = [coldata.index.get_loc(column) for column in self.get_columns(columns)] if columns != [None] else range(len(coldata))
+        row_indices = self.get_index(genes)
+        column_indices = [coldata.index.get_loc(column) for column in self.get_columns(columns)]
 
-        row_names = gene_info.iloc[row_indices][name_genes_by].tolist()
+        # row_names is handled like this, so that the index remains unique ('Symbol' was not made unique, but index was)
+        row_names = gene_info.iloc[row_indices].index.tolist() if name_genes_by == "Symbol" else gene_info.iloc[row_indices][name_genes_by].tolist()
         column_names = coldata.iloc[column_indices]["Name"].tolist()
 
         result_df = pd.DataFrame()
@@ -1286,12 +1265,12 @@ class GrandPy:
 
     # TODO: get_analysis_table() schreiben
     def get_analysis_table(self,
-                           analyses,
+                           analyses: Union[str, int, Sequence[Union[str, int, bool]]],
                            genes: Union[str, int, Sequence[Union[str, int]]] = None,
                            columns: Union[str, int, Sequence[Union[str, int]]] = None,
                            *,
                            regex: bool = True,
-                           with_gene_info: bool = False,
+                           with_gene_info: bool = True,
                            name_genes_by = "Symbol") -> pd.DataFrame:
         """
 
@@ -1305,7 +1284,15 @@ class GrandPy:
         --------
 
         """
-        ...
+        analyses = self.get_analyses(analyses, regex = regex)
+
+        row_names = self.get_genes(genes)
+
+
+        for name in analyses:
+            ...
+
+
 
     # In american englisch würde man eigentlich analyzes schreiben.
     @property
