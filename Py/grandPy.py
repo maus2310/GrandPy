@@ -26,7 +26,7 @@ class ModeSlot:
         An available slot.
 
     """
-    def __init__(self, mode: str, slot: str):
+    def __init__(self, mode: Literal["new", "n", "old", "o", "total", "t"], slot: str):
         self._set_mode(mode)
         self.slot = slot
 
@@ -45,6 +45,20 @@ class ModeSlot:
 
 
 class Plot:
+    """
+    Used to store a plot function.
+
+    Parameters
+    ----------
+    function: Callable
+        A plot function
+
+    parameters: Mapping[str, Any]
+        Parameter names mapped to their values.
+
+    plot_type: Literal["global", "gene"], optional
+        The type of plot. Either 'global' or 'gene'.
+    """
     def __init__(self, function: Callable, parameters: Mapping[str, Any], plot_type: Literal["global", "gene"] = "global"):
         self.function = function
         self.parameters = parameters
@@ -190,7 +204,7 @@ class GrandPy:
         USE WITH CAUTION!
 
         It is not recommended to use this function directly,
-        as it will replace the given parameters without sufficient checks.
+        as it will replace the given parameters without sufficient checks. This
 
         Parameters
         ----------
@@ -228,7 +242,7 @@ class GrandPy:
             slot_data: Gives access to the raw data of each slot.
         """
         def safe_copy(obj):
-            return obj.copy() if obj is not None else None
+            return obj.copy() if hasattr(obj, "copy") else obj
 
         if anndata is None:
             anndata = self._adata
@@ -237,10 +251,10 @@ class GrandPy:
             prefix = prefix if prefix is not None else anndata.uns.get('prefix'),
             gene_info = gene_info if gene_info is not None else safe_copy(anndata.obs),
             coldata = coldata if coldata is not None else safe_copy(anndata.var),
-            slots = slots if slots is not None else {**anndata.layers},
-            metadata = metadata if metadata is not None else anndata.uns.get("metadata"),
-            analyses = analyses if analyses is not None else anndata.uns.get("analyses"),
-            plots = plots if plots is not None else anndata.uns.get("plots")
+            slots = slots if slots is not None else {k: safe_copy(v) for k, v in anndata.layers.items()},
+            metadata = metadata if metadata is not None else safe_copy(anndata.uns.get("metadata")),
+            analyses = analyses if analyses is not None else safe_copy(anndata.uns.get("analyses")),
+            plots = plots if plots is not None else safe_copy(anndata.uns.get("plots"))
         )
 
 
@@ -316,8 +330,6 @@ class GrandPy:
         """
         Get the raw data of all available slots as they are stored internally.
 
-        USE WITH CAUTION!
-
         It is not recommended to use this function directly,
         as it will return Matrizes without row or column names. (in contrast to get_data() and get_table())
 
@@ -340,7 +352,10 @@ class GrandPy:
         get_table()
             Returns data for given slots, optionally with their gene_info.
         """
-        return self._adata.layers.copy()
+        def safe_copy(obj):
+            return obj.copy() if hasattr(obj, "copy") else obj
+
+        return {k: safe_copy(v) for k, v in self._adata.layers.items()}
 
     def with_dropped_slots(self, slots_to_remove: Union[str, Sequence[str]]) -> "GrandPy":
         """
@@ -365,7 +380,8 @@ class GrandPy:
             raise ValueError("Cannot drop all slots - at least one must remain.")
 
         new_slots = self._slot_data
-        new_slots = {k: self._adata.layers[k] for k in remaining}
+        new_slots = {k: new_slots[k] for k in remaining}
+
 
         if self.default_slot in to_remove:
             new_metadata = self._adata.uns.get('metadata', {}).copy()
@@ -449,7 +465,7 @@ class GrandPy:
         """
         return self.coldata['Condition'].tolist()
 
-    #noch nicht Fertig
+    # TODO with_condition() überarbeiten
     def with_condition(self, value: Union[str, list[str], pd.Series]) -> "GrandPy":
         """
 
@@ -1033,7 +1049,7 @@ class GrandPy:
         if not self._check_slot(mode_slot.slot, allow_ntr=allow_ntr):
             raise ValueError(f"Slot '{mode_slot.slot}' not found in data slots.")
 
-        slot_total = self._adata.layers[mode_slot.slot]
+        slot_total = self._adata.layers[mode_slot.slot].copy()
         ntr = self._adata.layers["ntr"]
 
         resulting_mode_slot = slot_total
