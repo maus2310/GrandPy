@@ -352,35 +352,50 @@ def plot_pca(
     mat = mat.loc[:, mat.notna().any(axis=0)]
     coldata = coldata.loc[mat.columns]
 
-    SlotMat = mat.T.round().astype(int)
+    if str(mode_slot).lower() == "count":
+        SlotMat = mat.T.round().astype(int)
+        #print("🔍 Matrix vor VST (SlotMat):")
+        #print(SlotMat.shape)
+        #print(SlotMat.head())
+    else:
+        SlotMat = mat.T
     metadata_df = coldata.copy()
     metadata_df["condition"] = metadata_df["Condition"]
 
     if do_vst and str(mode_slot).lower() == "count":
+        #print("vst")
         dds = DeseqDataSet(counts=SlotMat, metadata=metadata_df, design_factors="condition")
         dds.deseq2()
         dds.vst_fit()
         vst_array = dds.vst_transform()
         vst_df = pd.DataFrame(vst_array, index=SlotMat.index, columns=SlotMat.columns)
+        #print("🔍 Matrix nach VST, vor PCA (vst_df):")
+        #print(vst_df.shape)
+        #print(vst_df.head())
 
         variances = vst_df.var(axis=0)
         top_genes = variances.sort_values(ascending=False).head(min(ntop, len(variances))).index
         vst_df = vst_df[top_genes]
 
         # PCA
-        pcs = PCA().fit_transform(vst_df)
-        percent_var = PCA().fit(vst_df).explained_variance_ratio_
+        pca = PCA()
+        pcs = pca.fit_transform(vst_df)
+        percent_var = pca.fit(vst_df).explained_variance_ratio_
         pc_df = pd.DataFrame(pcs, index=vst_df.index, columns=[f"PC{i + 1}" for i in range(pcs.shape[1])])
         df = pd.concat([pc_df, metadata_df], axis=1)
+        #print("🔍 Matrix nach Pca, vor PCA (vst_df):")
+        #print(df.shape)
+        #print(df)
     else:
-        mat_t = SlotMat
+        #print("novst")
 
-        variances = mat_t.var(axis=0)
+        variances = SlotMat.var(axis=0)
         top_genes = variances.sort_values(ascending=False).head(min(ntop, len(variances))).index
-        mat_t = mat_t[top_genes]
+        mat_t = SlotMat[top_genes]
 
-        pcs = PCA().fit_transform(mat_t)
-        percent_var = PCA().fit(mat_t).explained_variance_ratio_
+        pca = PCA()
+        pcs = pca.fit_transform(mat_t)
+        percent_var = pca.fit(mat_t).explained_variance_ratio_
         pc_df = pd.DataFrame(pcs, index=mat_t.index, columns=[f"PC{i + 1}" for i in range(pcs.shape[1])])
         df = pd.concat([pc_df, metadata_df], axis=1)
 
