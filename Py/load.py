@@ -1,13 +1,14 @@
 import pandas as pd
 import numpy as np
 import warnings
-
-import scipy
 import scipy.sparse as sp
-from Py.grandPy import GrandPy, _to_sparse, Any, ModeSlot, _make_unique
+from typing import Any
 from pathlib import Path
 import gzip
 from scipy.io import mmread
+
+from Py.grandPy import GrandPy
+from Py.utils import _to_sparse, _make_unique
 
 # hier muss noch einiges gemacht werden, absolute Rohversion, sparse-Tests stehen noch aus, ich bin noch beim design dran
 

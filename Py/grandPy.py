@@ -8,42 +8,9 @@ import scipy.sparse as sp
 
 from Py.utils import _ensure_list, _make_unique
 from Py.slot_manager import SlotManager, ModeSlot
-from Py.plot_manager import PlotManager
+from Py.plot_manager import PlotManager, Plot
 from Py.analysis_manager import AnalysisManager
 
-
-class Plot:
-    """
-    Used to store a plot function.
-
-    Parameters
-    ----------
-    function: Callable
-        A plot function
-
-    parameters: Mapping[str, Any]
-        Parameter names mapped to their values.
-
-    plot_type: Literal["global", "gene"], optional
-        The type of plot. Either 'global' or 'gene'.
-    """
-    def __init__(self, function: Callable, parameters: Mapping[str, Any], plot_type: Literal["global", "gene"] = "global"):
-        self.function = function
-        self.parameters = parameters
-        self.plot_type = plot_type
-
-    def __repr__(self):
-        return f"Plot(type={self.plot_type!r}, function={self.function}, parameters={self.parameters})"
-
-    def __call__(self, data: "GrandPy", gene: str = None):
-        if self.plot_type == "gene":
-            if gene is None:
-                raise ValueError("Gene must be provided for a gene plot.")
-            return self.function(data, gene, **self.parameters)
-        elif self.plot_type == "global":
-            return self.function(data, **self.parameters)
-        else:
-            raise ValueError(f"Invalid plot type: {self.plot_type}")
 
 class GrandPy:
     """
