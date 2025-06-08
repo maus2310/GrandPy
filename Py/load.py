@@ -471,7 +471,7 @@ def is_sparse_file(path) -> bool:
             and (path / "features.tsv.gz").exists()
     ])
 
-def read_dense(file_path, default_slot="count", design=None, *, viral_genes=None, viral_genes_label="Viral", classify_genes_func=None, **kwargs):
+def read_dense(file_path, default_slot="count", design=None, *, classification_genes=None, classification_genes_label="Viral", classify_genes_func=None, **kwargs):
     """
     Reads a GRAND-SLAM TSV file as dense (NumPy) matrices and returns a GrandPy object.
 
@@ -486,14 +486,14 @@ def read_dense(file_path, default_slot="count", design=None, *, viral_genes=None
     design : tuple[str], optional
         Tuple of design variables to extract from sample names (e.g., ("Condition", "Time")).
 
-    viral_genes : list[str], optional
+    classification_genes : list[str], optional
         List of gene symbols considered viral, to be assigned a custom type.
 
-    viral_genes_label : str, default="Viral"
-        Type label to assign to the genes listed in `viral_genes`.
+    classification_genes_label : str, default="Viral"
+        Type label to assign to the genes listed in `classification_genes`.
 
     classify_genes_func : callable, optional
-        Custom function to classify gene types. Overrides `viral_genes`.
+        Custom function to classify gene types. Overrides `classification_genes`.
 
     Returns
     -------
@@ -502,11 +502,11 @@ def read_dense(file_path, default_slot="count", design=None, *, viral_genes=None
     """
 
     return _read(file_path, sparse=False, default_slot=default_slot, design=design,
-                 viral_genes=viral_genes, viral_genes_label=viral_genes_label,
+                 classification_genes=classification_genes, classification_genes_label=classification_genes_label,
                  classify_genes_func=classify_genes_func)
 
 
-def read_sparse(folder_path, default_slot="count", design=None, viral_genes=None, viral_genes_label="Viral", classify_genes_func=None, pseudobulk=None, targets=None, **kwargs):
+def read_sparse(folder_path, default_slot="count", design=None, classification_genes=None, classification_genes_label="Viral", classify_genes_func=None, pseudobulk=None, targets=None, **kwargs):
     """
     Reads a GRAND-SLAM sparse (Matrix Market) dataset from a directory.
 
@@ -521,7 +521,7 @@ def read_sparse(folder_path, default_slot="count", design=None, viral_genes=None
     """
 
     return _read(Path(folder_path), sparse=True, default_slot=default_slot, design=design,
-                 viral_genes=viral_genes, viral_genes_label=viral_genes_label,
+                 classification_genes=classification_genes, classification_genes_label=classification_genes_label,
                  classify_genes_func=classify_genes_func,
                  pseudobulk=pseudobulk, targets=targets)
 
@@ -563,7 +563,7 @@ def read_grand(prefix, pseudobulk=None, targets=None, **kwargs):
 
 
 def _read(file_path, sparse, default_slot, design,
-          viral_genes, viral_genes_label,
+          classification_genes, classification_genes_label,
           classify_genes_func=None, pseudobulk=None, targets=None):
     """
     Reads GRAND-SLAM TSV or Matrix Market file and creates a GrandPy object.
@@ -582,10 +582,10 @@ def _read(file_path, sparse, default_slot, design,
     design : tuple[str], optional
         Design variable names extracted from sample names.
 
-    viral_genes : list[str], optional
+    classification_genes : list[str], optional
         List of viral gene symbols.
 
-    viral_genes_label : str
+    classification_genes_label : str
         Label for viral genes.
 
     classify_genes_func : callable, optional
@@ -614,8 +614,8 @@ def _read(file_path, sparse, default_slot, design,
         gene_info = features[["Gene", "Symbol", "Length"]].copy()
 
         if classify_genes_func is None:
-            if viral_genes:
-                custom = {viral_genes_label: lambda g: g["Symbol"].isin(viral_genes)}
+            if classification_genes:
+                custom = {classification_genes_label: lambda g: g["Symbol"].isin(classification_genes)}
             else:
                 custom = {}
             classify_genes_func = lambda gene_info: classify_genes(gene_info, custom_classes=custom, use_default=True)
@@ -663,8 +663,8 @@ def _read(file_path, sparse, default_slot, design,
             warnings.warn("Slot 'ntr' is missing.", UserWarning)
 
         if classify_genes_func is None:
-            if viral_genes:
-                custom = {viral_genes_label: lambda g: g["Symbol"].isin(viral_genes)}
+            if classification_genes:
+                custom = {classification_genes_label: lambda g: g["Symbol"].isin(classification_genes)}
             else:
                 custom = {}
             classify_genes_func = lambda gene_info: classify_genes(gene_info, custom_classes=custom, use_default=True)
@@ -690,7 +690,7 @@ def _read(file_path, sparse, default_slot, design,
             metadata=metadata
         )
 
-# sars = read_grand("data/sars_R.tsv", viral_genes=None, viral_genes_label="Viral", design=("Condition", "Time", "Replicate"))
+# sars = read_grand("data/sars_R.tsv", classification_genes=None, classification_genes_label="Viral", design=("Condition", "Time", "Replicate"))
 # print(sars) # funktioniert
 
 # sparse_data = read_grand("test-datasets/test_sparse.targets", design=("Condition", "Time", "Replicate"))
