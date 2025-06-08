@@ -5,7 +5,6 @@ import scipy.sparse as sp
 from Py.grandPy import GrandPy, _to_sparse, Any, ModeSlot, _make_unique
 from pathlib import Path
 
-
 # hier muss noch einiges gemacht werden, absolute Rohversion, sparse-Tests stehen noch aus, ich bin noch beim design dran
 
 def infer_suffixes_from_df(df, known_suffixes=None) -> dict:
@@ -386,13 +385,13 @@ def resolve_prefix_path(prefix, pseudobulk=None, targets=None):
     """
 
     base = Path(prefix)
-
     candidates = []
 
     if pseudobulk and targets:      # <prefix>.pseudobulk.<targets>.<pseudobulk>
         candidates.append(base.parent / f"{base.name}.pseudobulk.{targets}.{pseudobulk}" / "data.tsv.gz")
     if pseudobulk:                  # <prefix>.pseudobulk.targets.<pseudobulk>
         candidates.append(base.parent / f"{base.name}.pseudobulk.targets.{pseudobulk}" / "data.tsv.gz")
+        candidates.append(base.parent / f"{base.name}.pseudobulk.{pseudobulk}" / "data.tsv.gz") # <prefix>.pseudobulk.<pseudobulk>
     if targets:                     # <prefix>.pseudobulk.<targets>.*
         candidates += list(base.parent.glob(f"{base.name}.pseudobulk.{targets}.*" + "/data.tsv.gz"))
 
@@ -402,8 +401,8 @@ def resolve_prefix_path(prefix, pseudobulk=None, targets=None):
         if path.exists():
             return path
 
-    if Path(prefix).is_file():
-        return Path(prefix)
+    if base.is_file():
+        return base
 
     raise FileNotFoundError(f"No valid data.tsv.gz found for prefix='{prefix}', pseudobulk='{pseudobulk}', targets='{targets}'.")
 
@@ -535,7 +534,7 @@ def read_sparse(file_path, default_slot="count", design=None, viral_genes=None, 
                  classify_genes_func=classify_genes_func)
 
 
-def read_grand_auto(prefix: str, pseudobulk=None, targets=None, **kwargs):
+def read_grand(prefix: str, pseudobulk=None, targets=None, **kwargs):
     """
     Automatically detects whether a GRAND-SLAM dataset is in dense or sparse format and loads it accordingly into a GrandPy object.
 
@@ -646,8 +645,10 @@ def _read(file_path, sparse, default_slot, design, viral_genes, viral_genes_labe
     )
 
 
-sars = read_grand_auto("data/sars_R.tsv", None, None, design=("Condition", "Time", "Replicate"))
-print(sars) # funktioniert
+sars = read_grand("data/sars_R.tsv", None, None, design=("Condition", "Time", "Replicate"))
+print(sars) # funktioniert#
+
+# print(resolve_prefix_path("test-datasets/test_targets", pseudobulk="all"))
 
 # g = read_grand_auto("test-datasets/test_dense.targets/data.tsv/data.tsv")
 # print(g)
