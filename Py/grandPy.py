@@ -223,6 +223,7 @@ class GrandPy:
         )
 
 
+    # Basic properties and methods.
     @property
     def title(self) -> str:
         """
@@ -235,7 +236,6 @@ class GrandPy:
         else:
             x = prefix.split('/')
             return x[-1]
-
 
     @property
     def shape(self) -> tuple[int]:
@@ -252,7 +252,6 @@ class GrandPy:
         row_names = self._adata.var_names.tolist()
         column_names = self._adata.obs_names.tolist()
         return row_names, column_names
-
 
     @property
     def default_slot(self) -> str:
@@ -283,10 +282,10 @@ class GrandPy:
         return self.replace(metadata=new_metadata)
 
 
+    # All slot methods.
     @property
     def _slot_manager(self) -> SlotManager:
         return SlotManager(self._adata, self._is_sparse)
-
 
     @property
     def slots(self) -> list[str]:
@@ -412,6 +411,353 @@ class GrandPy:
         return self.replace(anndata = new_adata)
 
 
+    # All analysis methods.
+    @property
+    def _analysis_manager(self):
+        return AnalysisManager(self._adata)
+
+    @property
+    def analyses(self) -> list[str]:
+        """
+        Get the names of all stored analyses.
+
+        Returns
+        -------
+        list[str]
+            A list of analysis names.
+
+        See Also
+        --------
+        get_analysis():
+            Get the names of analyses matching a pattern.
+
+        with_dropped_analyses():
+            Remove analyses with a regex pattern.
+
+        with_analyses():
+            Add analyses to the object. Usually not to be used directly.
+        """
+        return self._analysis_manager.analyses()
+
+    def get_analyses(self, pattern: Union[str, int, Sequence[Union[str, int, bool]]] = None, regex: bool = True) -> list[str]:
+        """
+        Get the names of analyses. Either by a regex, names, indices, or a boolean mask.
+
+        Parameters
+        ----------
+        pattern: Union[str, int, Sequence[Union[str, int, bool]]]
+            Names of analyses to be retrieved. Can be a regex, names, indices, or a boolean mask.
+
+        regex: bool
+            If True, `name` will be interpreted as a regular expression or a list of regular expressions.
+
+        Returns
+        -------
+        list[str]
+            A list containing the names of all found analyses.
+
+        Raises
+        ------
+        ValueError
+            Raises an error if any pattern has no matches.
+
+        See Also
+        --------
+        analyses:
+            Get a list of all available analyses.
+
+        with_dropped_analyses():
+            Remove analyses with a regex pattern.
+
+        with_analyses():
+            Add analyses to the object. Usually not to be used directly.
+        """
+        return self._analysis_manager.get_analyses(pattern, regex=regex)
+
+    def with_analysis(self, name: str, table: pd.DataFrame, by: str = None) -> "GrandPy":
+        """
+        Returns a new GrandPy object with added analyses.
+
+        Not to be used directly in most cases, instead it is called by analysis methods.
+
+        If used directly, the Dataframe has to contain gene names (Ensemble ids) or symbols,
+        that are either already the index or the column name is given to the 'by' parameter.
+
+        Parameters
+        ----------
+        name: str
+            The name of the analysis.
+
+        table: pd.DataFrame
+            A DataFrame containing the analysis data. Has to contain gene names or symbols.
+
+        by: str
+            A column in the table to be used as index.
+
+        Returns
+        -------
+        A new GrandPy object with added analyses.
+
+        See Also
+        --------
+        analyses:
+            Get the names of all stored analyses.
+
+        get_analysis():
+            Get the names of analyses matching a pattern.
+
+        with_dropped_analyses():
+            Remove analyses with a regex pattern.
+        """
+        new_analyses = self._analysis_manager.with_analysis(name, table, by=by)
+
+        return self.replace(analyses=new_analyses)
+
+    def with_dropped_analyses(self, pattern: str = None) -> "GrandPy":
+        """
+        Returns a new GrandPy object with analyses matching the pattern removed.
+
+        Parameters
+        ----------
+        pattern: str
+            A regex pattern to match analyses.
+
+        Returns
+        -------
+            A new GrandPy object with removed analyses.
+
+        See Also
+        --------
+        analyses:
+            Get the names of all stored analyses.
+
+        get_analysis():
+            Get the names of analyses matching a pattern.
+
+        with_analyses():
+            Add analyses to the object. Usually not to be used directly.
+        """
+        new_analyses = self._analysis_manager.drop_analyses(pattern)
+
+        return self.replace(analyses=new_analyses)
+
+
+    # All plot methods.
+    @property
+    def _plot_manager(self):
+        return PlotManager(self._adata)
+
+    @property
+    def plots(self) -> dict[str, dict[str, Any]]:
+        """
+        Get a dictionary of available plot names.
+
+        Returns
+        -------
+        dict[str, dict[str, Any]]
+            A dictionary mapping plot types('gene', 'global') to plot names.
+        """
+        return self._plot_manager.plots()
+
+    # Beipiel im docstring unvollständig, da wir noch keine global plot funktion haben
+    def with_gene_plot(self, name: str, function: Plot) -> "GrandPy":
+        """
+        Returns a new GrandPy object with a gene plot added.
+
+        Parameters
+        ----------
+        name: str
+            A name for the plot.
+
+        function: Plot
+            A funktion, that takes a GrandPy object and a gene name as input and returns a plot.
+
+        Returns
+        -------
+        GrandPy
+            A new GrandPy object with a gene plot added.
+
+        Examples
+        --------
+        Store the plot function in the object:
+
+        >>> sars.with_gene_plot()
+
+        Compute the plot when needed:
+
+        >>> sars.plot_gene()
+
+
+        See Also
+        --------
+        plots
+            Get the names of all stored plot functions.
+
+        plot_gene()
+            Executes a stored plot function for a given gene.
+
+        with_global_plot()
+            Add a global plot.
+
+        with_dropped_plots()
+            Remove plots from the object.
+        """
+        new_plots = self._plot_manager.add_plot(name, "gene", function)
+
+        return self.replace(plots=new_plots)
+
+    # floating fehlt noch
+    def with_global_plot(self, name: str, function: Plot, floating: bool = False) -> "GrandPy":
+        """
+        Returns a new GrandPy object with a global plot added.
+
+        Parameters
+        ----------
+        name: str
+            A name for the plot.
+
+        function: Plot
+            A funktion, that takes a GrandPy object as input and returns a plot.
+
+        floating: bool
+            If True, the plot will be added as a floating plot.
+            Otherwise, the plot will be added as a global plot.
+
+        Returns
+        -------
+        GrandPy
+            A new GrandPy object with a global plot added.
+
+        Examples
+        --------
+        Store the plot function in the object:
+
+        >>> sars = sars.with_global_plot(
+            ...     "scatter",
+            ...     Plot(
+            ...         function = plot_scatter,
+            ...         parameters = {
+            ...             "x": "Mock.1h.A",
+            ...             "y": "SARS.1h.A",
+            ...             "mode_slot": "new_count"
+            ...             },
+            ...         plot_type = "global"
+            ...     )
+            ... )
+
+        Compute the plot when needed:
+
+        >>> sars.plot_global("scatter")
+
+        See Also
+        --------
+        plots
+            Get the names of all stored plot functions.
+
+        plot_global()
+            Executes a stored global plot function.
+
+        with_gene_plot()
+            Add a gene plot.
+
+        with_dropped_plots()
+            Remove plots from the object.
+        """
+        if floating:
+            raise NameError("Floating plots are not yet implemented.")
+        else:
+            new_plots = self._plot_manager.add_plot(name, "global", function)
+
+        return self.replace(plots=new_plots)
+
+    def plot_gene(self, name: str, gene: str):
+        """
+        Executes a stored plot function for a given gene.
+
+        Parameters
+        ----------
+        name: str
+            The name of the stored plot.
+
+        gene: str
+            The name of a gene.
+
+        See Also
+        --------
+        plots
+            Get the names of all stored plot functions.
+
+        with_gene_plot()
+            Add a gene plot.
+
+        plot_global()
+            Executes a stored global plot function.
+        """
+        return self._adata.uns["plots"]["gene"][name](self, gene)
+
+    def plot_global(self, name: str):
+        """
+        Executes a stored global plot function.
+
+        Parameters
+        ----------
+        name: str
+            The name of the stored plot.
+
+        See Also
+        --------
+        plots
+            Get the names of all stored plot functions.
+
+        with_global_plot()
+            Add a global plot.
+
+        plot_gene()
+            Executes a stored plot function for a given gene.
+        """
+        return self._adata.uns["plots"]["global"][name](self)
+
+    def with_dropped_plot(self, pattern: str = None) -> "GrandPy":
+        """
+        Returns a new GrandPy object with plot names matching the pattern removed.
+
+        The pattern is interpreted as a regular expression.
+
+        Parameters
+        ----------
+        pattern: str
+            A regular expression matching plot names to be dropped.
+
+        Returns
+        -------
+        GrandPy
+            A new GrandPy object with plot names matching the pattern removed.
+
+        See Also
+        --------
+        plots
+            Get the names of all stored plot functions.
+
+        with_gene_plot()
+            Add a gene plot.
+
+        with_global_plot()
+            Add a global plot.
+        """
+        new_plots = self._plot_manager.drop_plot(pattern)
+
+        return self.replace(plots=new_plots)
+
+
+
+    # Remaining methods. Mostly methods relating to coldata, gene_info or metadata.
+    @property
+    def metadata(self) -> dict[str, Any]:
+        """
+        Get the metadata about the GrandPy object.
+        """
+        return self._adata.uns.get('metadata').copy()
+
     @property
     def condition(self) -> list[str]:
         """
@@ -454,14 +800,6 @@ class GrandPy:
             new_coldata['Condition'] = value
 
         return self.replace(coldata = new_coldata)
-
-
-    @property
-    def metadata(self) -> dict[str, Any]:
-        """
-        Get the metadata about the GrandPy object.
-        """
-        return self._adata.uns.get('metadata').copy()
 
 
     @property
@@ -546,87 +884,83 @@ class GrandPy:
 
         return self.replace(coldata = new_coldata)
 
-    # TODO apply() vervollständigen
-    def apply(self, function: Callable, *, function_gene_info: Callable = None, function_coldata: Callable = None, **kwargs) -> "GrandPy":
+
+    def get_index(self, genes: Union[str, int, Sequence[Union[str, int, bool]]] = None, *, regex: bool = False) -> list[int]:
         """
-        Returns a new GrandPy object with the given function applied to each data slot.
+        Get the index of: a gene, a list of genes, or in accordance to a boolean filter.
 
-        Can also apply a function to the gene_info and coldata DataFrames.
+        Either by gene name or symbol, or by a boolean mask.
 
-        It is not advised to use this method for swapping columns or rows, as slots, gene_info, and coldata are not automatically updated when changing one of them.
+        Integers are returned unchanged.
+
+        If names and indices are mixed, only one of them will be used. Chosen by the higher number of matches.
 
         Parameters
         ----------
-        function:
-            Function to apply to each data slot.
-        function_gene_info:
-            Function to apply to the gene_info DataFrame.
-        function_coldata:
-            Function to apply to the coldata DataFrame.
-        **kwargs:
-            Additional keyword arguments to pass to the function.
+        genes: Union[str, int, Sequence[Union[str, int, bool]]]
+            Specifies which indices to return.
+        regex: bool
+            If True, `gene` will be interpreted as a regular expression.
 
         Returns
         -------
-        GrandPy
-            New GrandPy object with transformed data.
-
+        list[int]
+            A list containing the specified indices.
         """
-        new_adata = self._adata.copy()
-        for key in self._adata.layers.keys():
-            new_adata.layers[key] = function(self._adata.layers[key], **kwargs)
+        gene_info = self.gene_info
+        index = list(range(len(gene_info.index)))
 
-        if function_gene_info is not None:
-            new_adata.obs = function_gene_info(self._adata.obs, **kwargs)
-        if function_coldata is not None:
-            new_adata.var = function_coldata(self._adata.var, **kwargs)
+        if genes is None:
+            return index
 
-        # Noch nicht vollständig
+        gene_column = gene_info.get("Gene")
+        symbol_column = gene_info.get("Symbol")
 
-        if self._adata.uns['analyses'] is not None:
-            ...
+        # Handles regex
+        if regex and isinstance(genes, str):
+            mask_symbol = gene_column.astype(str).str.contains(genes, regex=True) | \
+                   symbol_column.astype(str).str.contains(genes, regex=True)
+            return list(np.where(mask_symbol)[0])
 
-        return self.replace(anndata = new_adata)
+        genes = _ensure_list(genes)
 
+        if any(pd.isna(genes)):
+            warnings.warn("All None values were removed from the query.")
+            genes = [g for g in genes if pd.notna(g)]
 
-    # TODO concat() Verhalten überprüfen(dafür wäre es gut einen gänzlich anderen Datensatz zu haben)
-    def concat(self, other: "GrandPy", axis: Literal["gene_info", 0, "coldata", 1] = 1) -> "GrandPy":
-        """
-        Concatenates the other object with the current instance along a given axis.
+        # Handles boolean mask
+        if isinstance(genes, list) and all(isinstance(g, (bool, np.bool_)) for g in genes):
+            if len(genes) != len(index):
+                raise ValueError("Length of boolean filter must match number of genes.")
+            return list(np.where(genes)[0])
 
-        Parameters
-        ----------
-        other: GrandPy
-            The object to concatenate with the current instance.
-
-        axis: Literal["gene_info", 0, "coldata", 1]
-            The axis along which to concatenate.
-
-        Returns
-        -------
-        GrandPy
-            A new concatenated GrandPy object.
-
-        """
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", message="(Observation|Variable) names are not unique.*", category=UserWarning, module="anndata")
-
-            if axis == 0 or axis == "gene_info":
-                axis = "var"
-            elif axis == 1 or axis == "coldata":
-                axis = "obs"
+        # Handles integers
+        if isinstance(genes, list) and all(isinstance(g, (int, np.integer)) for g in genes):
+            if all(gene < len(gene_info.index) for gene in genes):
+                return genes
             else:
-                raise ValueError(f"axis must be either 0, 'gene_info' or 1, 'coldata' not {axis}.")
+                raise IndexError("The given index is out of range.")
 
-            new_adata = ad.concat([self._adata, other._adata], axis=axis, merge="unique", uns_merge="unique")
+        gene_list = pd.Series(genes, dtype=str)
 
-            if axis == "obs":
-                new_adata.obs_names_make_unique("_")
-            else:
-                new_adata.var_names_make_unique("_")
+        matches_in_gene = gene_list[gene_list.isin(gene_column)]
+        matches_in_symbol = gene_list[gene_list.isin(symbol_column)]
 
-        return self.replace(anndata = new_adata)
+        if len(matches_in_gene) >= len(matches_in_symbol):
+            return_column = gene_column
+        else:
+            return_column = symbol_column
 
+        mapping = pd.Series(index, index=return_column)
+        found = gene_list[gene_list.isin(return_column)]
+        missing = gene_list[~gene_list.isin(return_column)]
+
+        if not missing.empty:
+            preview = ", ".join(missing.head(5))
+            more = " ..." if len(missing) > 5 else ""
+            warnings.warn(f"Could not find given genes (n={len(missing)}, e.g. {preview}{more})")
+
+        return mapping.loc[found].tolist()
 
     @property
     def genes(self) -> list[str]:
@@ -826,82 +1160,87 @@ class GrandPy:
         return self.apply(swap, function_coldata=swap, col1=column1, col2=column2)
 
 
-    def get_index(self, genes: Union[str, int, Sequence[Union[str, int, bool]]] = None, *, regex: bool = False) -> list[int]:
+    # TODO apply() vervollständigen
+    def apply(self, function: Callable, *, function_gene_info: Callable = None, function_coldata: Callable = None,
+              **kwargs) -> "GrandPy":
         """
-        Get the index of: a gene, a list of genes, or in accordance to a boolean filter.
+        Returns a new GrandPy object with the given function applied to each data slot.
 
-        Either by gene name or symbol, or by a boolean mask.
+        Can also apply a function to the gene_info and coldata DataFrames.
 
-        Integers are returned unchanged.
-
-        If names and indices are mixed, only one of them will be used. Chosen by the higher number of matches.
+        It is not advised to use this method for swapping columns or rows, as slots, gene_info, and coldata are not automatically updated when changing one of them.
 
         Parameters
         ----------
-        genes: Union[str, int, Sequence[Union[str, int, bool]]]
-            Specifies which indices to return.
-        regex: bool
-            If True, `gene` will be interpreted as a regular expression.
+        function:
+            Function to apply to each data slot.
+        function_gene_info:
+            Function to apply to the gene_info DataFrame.
+        function_coldata:
+            Function to apply to the coldata DataFrame.
+        **kwargs:
+            Additional keyword arguments to pass to the function.
 
         Returns
         -------
-        list[int]
-            A list containing the specified indices.
+        GrandPy
+            New GrandPy object with transformed data.
+
         """
-        gene_info = self.gene_info
-        index = list(range(len(gene_info.index)))
+        new_adata = self._adata.copy()
+        for key in self._adata.layers.keys():
+            new_adata.layers[key] = function(self._adata.layers[key], **kwargs)
 
-        if genes is None:
-            return index
+        if function_gene_info is not None:
+            new_adata.obs = function_gene_info(self._adata.obs, **kwargs)
+        if function_coldata is not None:
+            new_adata.var = function_coldata(self._adata.var, **kwargs)
 
-        gene_column = gene_info.get("Gene")
-        symbol_column = gene_info.get("Symbol")
+        # Noch nicht vollständig
 
-        # Handles regex
-        if regex and isinstance(genes, str):
-            mask_symbol = gene_column.astype(str).str.contains(genes, regex=True) | \
-                   symbol_column.astype(str).str.contains(genes, regex=True)
-            return list(np.where(mask_symbol)[0])
+        if self._adata.uns['analyses'] is not None:
+            ...
 
-        genes = _ensure_list(genes)
+        return self.replace(anndata=new_adata)
 
-        if any(pd.isna(genes)):
-            warnings.warn("All None values were removed from the query.")
-            genes = [g for g in genes if pd.notna(g)]
+    # TODO concat() Verhalten überprüfen(dafür wäre es gut einen gänzlich anderen Datensatz zu haben)
+    def concat(self, other: "GrandPy", axis: Literal["gene_info", 0, "coldata", 1] = 1) -> "GrandPy":
+        """
+        Concatenates the other object with the current instance along a given axis.
 
-        # Handles boolean mask
-        if isinstance(genes, list) and all(isinstance(g, (bool, np.bool_)) for g in genes):
-            if len(genes) != len(index):
-                raise ValueError("Length of boolean filter must match number of genes.")
-            return list(np.where(genes)[0])
+        Parameters
+        ----------
+        other: GrandPy
+            The object to concatenate with the current instance.
 
-        # Handles integers
-        if isinstance(genes, list) and all(isinstance(g, (int, np.integer)) for g in genes):
-            if all(gene < len(gene_info.index) for gene in genes):
-                return genes
+        axis: Literal["gene_info", 0, "coldata", 1]
+            The axis along which to concatenate.
+
+        Returns
+        -------
+        GrandPy
+            A new concatenated GrandPy object.
+
+        """
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message="(Observation|Variable) names are not unique.*",
+                                    category=UserWarning, module="anndata")
+
+            if axis == 0 or axis == "gene_info":
+                axis = "var"
+            elif axis == 1 or axis == "coldata":
+                axis = "obs"
             else:
-                raise IndexError("The given index is out of range.")
+                raise ValueError(f"axis must be either 0, 'gene_info' or 1, 'coldata' not {axis}.")
 
-        gene_list = pd.Series(genes, dtype=str)
+            new_adata = ad.concat([self._adata, other._adata], axis=axis, merge="unique", uns_merge="unique")
 
-        matches_in_gene = gene_list[gene_list.isin(gene_column)]
-        matches_in_symbol = gene_list[gene_list.isin(symbol_column)]
+            if axis == "obs":
+                new_adata.obs_names_make_unique("_")
+            else:
+                new_adata.var_names_make_unique("_")
 
-        if len(matches_in_gene) >= len(matches_in_symbol):
-            return_column = gene_column
-        else:
-            return_column = symbol_column
-
-        mapping = pd.Series(index, index=return_column)
-        found = gene_list[gene_list.isin(return_column)]
-        missing = gene_list[~gene_list.isin(return_column)]
-
-        if not missing.empty:
-            preview = ", ".join(missing.head(5))
-            more = " ..." if len(missing) > 5 else ""
-            warnings.warn(f"Could not find given genes (n={len(missing)}, e.g. {preview}{more})")
-
-        return mapping.loc[found].tolist()
+        return self.replace(anndata=new_adata)
 
 
     # Doch eher wie slot_data? Anndata Object ist denke ich die Mühe nicht wert.
@@ -1151,342 +1490,5 @@ class GrandPy:
 
         for name in analyses:
             ...
-
-
-
-    @property
-    def _analysis_manager(self):
-        return AnalysisManager(self._adata)
-
-    @property
-    def analyses(self) -> list[str]:
-        """
-        Get the names of all stored analyses.
-
-        Returns
-        -------
-        list[str]
-            A list of analysis names.
-
-        See Also
-        --------
-        get_analysis():
-            Get the names of analyses matching a pattern.
-
-        with_dropped_analyses():
-            Remove analyses with a regex pattern.
-
-        with_analyses():
-            Add analyses to the object. Usually not to be used directly.
-        """
-        return self._analysis_manager.analyses()
-
-    def get_analyses(self, pattern: Union[str, int, Sequence[Union[str, int, bool]]] = None, regex: bool = True) -> list[str]:
-        """
-        Get the names of analyses. Either by a regex, names, indices, or a boolean mask.
-
-        Parameters
-        ----------
-        pattern: Union[str, int, Sequence[Union[str, int, bool]]]
-            Names of analyses to be retrieved. Can be a regex, names, indices, or a boolean mask.
-
-        regex: bool
-            If True, `name` will be interpreted as a regular expression or a list of regular expressions.
-
-        Returns
-        -------
-        list[str]
-            A list containing the names of all found analyses.
-
-        Raises
-        ------
-        ValueError
-            Raises an error if any pattern has no matches.
-
-        See Also
-        --------
-        analyses:
-            Get a list of all available analyses.
-
-        with_dropped_analyses():
-            Remove analyses with a regex pattern.
-
-        with_analyses():
-            Add analyses to the object. Usually not to be used directly.
-        """
-        return self._analysis_manager.get_analyses(pattern, regex=regex)
-
-    def with_analysis(self, name: str, table: pd.DataFrame, by: str = None) -> "GrandPy":
-        """
-        Returns a new GrandPy object with added analyses.
-
-        Not to be used directly in most cases, instead it is called by analysis methods.
-
-        If used directly, the Dataframe has to contain gene names (Ensemble ids) or symbols,
-        that are either already the index or the column name is given to the 'by' parameter.
-
-        Parameters
-        ----------
-        name: str
-            The name of the analysis.
-
-        table: pd.DataFrame
-            A DataFrame containing the analysis data. Has to contain gene names or symbols.
-
-        by: str
-            A column in the table to be used as index.
-
-        Returns
-        -------
-        A new GrandPy object with added analyses.
-
-        See Also
-        --------
-        analyses:
-            Get the names of all stored analyses.
-
-        get_analysis():
-            Get the names of analyses matching a pattern.
-
-        with_dropped_analyses():
-            Remove analyses with a regex pattern.
-        """
-        new_analyses = self._analysis_manager.with_analysis(name, table, by=by)
-
-        return self.replace(analyses=new_analyses)
-
-    def with_dropped_analyses(self, pattern: str = None) -> "GrandPy":
-        """
-        Returns a new GrandPy object with analyses matching the pattern removed.
-
-        Parameters
-        ----------
-        pattern: str
-            A regex pattern to match analyses.
-
-        Returns
-        -------
-            A new GrandPy object with removed analyses.
-
-        See Also
-        --------
-        analyses:
-            Get the names of all stored analyses.
-
-        get_analysis():
-            Get the names of analyses matching a pattern.
-
-        with_analyses():
-            Add analyses to the object. Usually not to be used directly.
-        """
-        new_analyses = self._analysis_manager.drop_analyses(pattern)
-
-        return self.replace(analyses=new_analyses)
-
-
-    @property
-    def _plot_manager(self):
-        return PlotManager(self._adata)
-
-    @property
-    def plots(self) -> dict[str, dict[str, Any]]:
-        """
-        Get a dictionary of available plot names.
-
-        Returns
-        -------
-        dict[str, dict[str, Any]]
-            A dictionary mapping plot types('gene', 'global') to plot names.
-        """
-        return self._plot_manager.plots()
-
-    # Beipiel im docstring unvollständig, da wir noch keine global plot funktion haben
-    def with_gene_plot(self, name: str, function: Plot) -> "GrandPy":
-        """
-        Returns a new GrandPy object with a gene plot added.
-
-        Parameters
-        ----------
-        name: str
-            A name for the plot.
-
-        function: Plot
-            A funktion, that takes a GrandPy object and a gene name as input and returns a plot.
-
-        Returns
-        -------
-        GrandPy
-            A new GrandPy object with a gene plot added.
-
-        Examples
-        --------
-        Store the plot function in the object:
-
-        >>> sars.with_gene_plot()
-
-        Compute the plot when needed:
-
-        >>> sars.plot_gene()
-
-
-        See Also
-        --------
-        plots
-            Get the names of all stored plot functions.
-
-        plot_gene()
-            Executes a stored plot function for a given gene.
-
-        with_global_plot()
-            Add a global plot.
-
-        with_dropped_plots()
-            Remove plots from the object.
-        """
-        new_plots = self._plot_manager.add_plot(name, "gene", function)
-
-        return self.replace(plots=new_plots)
-
-    # floating fehlt noch
-    def with_global_plot(self, name: str, function: Plot, floating: bool = False) -> "GrandPy":
-        """
-        Returns a new GrandPy object with a global plot added.
-
-        Parameters
-        ----------
-        name: str
-            A name for the plot.
-
-        function: Plot
-            A funktion, that takes a GrandPy object as input and returns a plot.
-
-        floating: bool
-            If True, the plot will be added as a floating plot.
-            Otherwise, the plot will be added as a global plot.
-
-        Returns
-        -------
-        GrandPy
-            A new GrandPy object with a global plot added.
-
-        Examples
-        --------
-        Store the plot function in the object:
-
-        >>> sars = sars.with_global_plot(
-            ...     "scatter",
-            ...     Plot(
-            ...         function = plot_scatter,
-            ...         parameters = {
-            ...             "x": "Mock.1h.A",
-            ...             "y": "SARS.1h.A",
-            ...             "mode_slot": "new_count"
-            ...             },
-            ...         plot_type = "global"
-            ...     )
-            ... )
-
-        Compute the plot when needed:
-
-        >>> sars.plot_global("scatter")
-
-        See Also
-        --------
-        plots
-            Get the names of all stored plot functions.
-
-        plot_global()
-            Executes a stored global plot function.
-
-        with_gene_plot()
-            Add a gene plot.
-
-        with_dropped_plots()
-            Remove plots from the object.
-        """
-        if floating:
-            raise NameError("Floating plots are not yet implemented.")
-        else:
-            new_plots = self._plot_manager.add_plot(name, "global", function)
-
-        return self.replace(plots=new_plots)
-
-    def plot_gene(self, name: str, gene: str):
-        """
-        Executes a stored plot function for a given gene.
-
-        Parameters
-        ----------
-        name: str
-            The name of the stored plot.
-
-        gene: str
-            The name of a gene.
-
-        See Also
-        --------
-        plots
-            Get the names of all stored plot functions.
-
-        with_gene_plot()
-            Add a gene plot.
-
-        plot_global()
-            Executes a stored global plot function.
-        """
-        return self._adata.uns["plots"]["gene"][name](self, gene)
-
-    def plot_global(self, name: str):
-        """
-        Executes a stored global plot function.
-
-        Parameters
-        ----------
-        name: str
-            The name of the stored plot.
-
-        See Also
-        --------
-        plots
-            Get the names of all stored plot functions.
-
-        with_global_plot()
-            Add a global plot.
-
-        plot_gene()
-            Executes a stored plot function for a given gene.
-        """
-        return self._adata.uns["plots"]["global"][name](self)
-
-    def with_dropped_plot(self, pattern: str = None) -> "GrandPy":
-        """
-        Returns a new GrandPy object with plot names matching the pattern removed.
-
-        The pattern is interpreted as a regular expression.
-
-        Parameters
-        ----------
-        pattern: str
-            A regular expression matching plot names to be dropped.
-
-        Returns
-        -------
-        GrandPy
-            A new GrandPy object with plot names matching the pattern removed.
-
-        See Also
-        --------
-        plots
-            Get the names of all stored plot functions.
-
-        with_gene_plot()
-            Add a gene plot.
-
-        with_global_plot()
-            Add a global plot.
-        """
-        new_plots = self._plot_manager.drop_plot(pattern)
-
-        return self.replace(plots=new_plots)
 
 
