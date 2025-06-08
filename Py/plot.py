@@ -383,9 +383,9 @@ def plot_pca(
         percent_var = pca.fit(vst_df).explained_variance_ratio_
         pc_df = pd.DataFrame(pcs, index=vst_df.index, columns=[f"PC{i + 1}" for i in range(pcs.shape[1])])
         df = pd.concat([pc_df, metadata_df], axis=1)
-        #print("🔍 Matrix nach Pca, vor PCA (vst_df):")
-        #print(df.shape)
-        #print(df)
+        print("🔍 Matrix nach Pca, vor PCA (vst_df):")
+        print(df.shape)
+        print(df)
     else:
         #print("novst")
 
@@ -416,3 +416,95 @@ def plot_pca(
     if path_for_save:
         plt.savefig(f"{path_for_save}/PCA_{mode_slot}.png", dpi=300)
     plt.show()
+
+
+
+def plot_gene_old_vs_new(
+    data: GrandPy,
+    gene: str,
+    slot: Optional[str] = None,
+    columns: Optional[Union[list, str]] = None,
+    log: bool = True,
+    show_CI: bool = False,
+    aest: Optional[dict] = None,
+    size: float = 50
+):
+
+    # Default slot
+    if slot is None:
+        slot = data.default_slot
+
+
+    # Resolve columns
+    if columns is None:
+        selected_columns = data.columns
+    elif isinstance(columns, str):
+        selected_columns = list(data.coldata.query(columns).index)
+    else:
+        selected_columns = data.get_columns(columns)
+
+    # Get data
+    df = data.get_data(mode_slots=[ModeSlot("new", slot), ModeSlot("old", slot)], genes=gene, columns=selected_columns)
+
+    # Setup aesthetics
+    aest = setup_default_aes(data, aest)
+    color = aest.get("color")
+    shape = aest.get("shape")
+
+    x = data.get_table(mode_slots=ModeSlot("old", slot), genes=gene, columns=selected_columns).iloc[0].to_numpy()
+    y = data.get_table(mode_slots=ModeSlot("new", slot), genes=gene, columns=selected_columns).iloc[0].to_numpy()
+
+    plot_df = pd.DataFrame({
+        "old": x,
+        "new": y
+    }, index=df.index)
+
+    if color and color in df.columns:
+        plot_df["color"] = df[color].values
+    if shape and shape in df.columns:
+        plot_df["shape"] = df[shape].values
+
+    plt.figure(figsize=(6, 6))
+    ax = plt.gca()
+
+    palette = sns.color_palette("Set2")
+
+
+
+    # Log scale if needed
+    if log:
+        ax.set_xscale("log")
+        ax.set_yscale("log")
+
+    ax.set_xlabel(f"Old RNA ({slot})")
+    ax.set_ylabel(f"New RNA ({slot})")
+    ax.set_title(f"Gene: {gene}")
+
+    if show_CI:
+        if "lower" not in data.slots or "upper" not in data.slots:
+            raise ValueError("CI slots ('lower' and 'upper') are missing. Run ComputeNtrCI first.")
+
+        ci_lower = data.get_table(mode_slots="lower", genes=gene, columns=selected_columns).iloc[0].to_numpy()
+        print(ci_lower)
+        ci_upper = data.get_table(mode_slots="upper", genes=gene, columns=selected_columns).iloc[0].to_numpy()
+        total = data.get_table(mode_slots="count", genes=gene, columns=selected_columns).iloc[0].to_numpy()
+        print(total)
+        # Error bars
+        print("Shapes:", ci_lower.shape, ci_upper.shape, total.shape, x.shape, y.shape)
+        ax.errorbar(x, y, yerr=[(1 - ci_upper) * total, (1 - ci_lower) * total], fmt='none', ecolor='gray', alpha=0.7)
+        ax.errorbar(x, y, xerr=[ci_lower * total, ci_upper * total], fmt='none', ecolor='gray', alpha=0.7)
+
+    sns.scatterplot(
+        data=plot_df,
+        x="old",
+        y="new",
+        hue="color" if "color" in plot_df else None,
+        style="shape" if "shape" in plot_df else None,
+        s=size,
+        ax=ax,
+        palette=palette
+    )
+    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+    plt.tight_layout()
+    plt.show()
+    plt.close()
