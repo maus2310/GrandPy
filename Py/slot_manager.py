@@ -74,7 +74,7 @@ class SlotManager:
                                            ) -> Union[np.ndarray, sp.csr_matrix]:
             # If DataFrame → to NumPy
             if isinstance(matrix, pd.DataFrame):
-                from grandPy import _make_unique
+                from Py.utils import _make_unique
 
                 matrix.index = _make_unique(pd.Series(matrix.index))
                 matrix = matrix.reindex(index=self._adata.obs.index, columns=self._adata.var.index)
@@ -117,7 +117,6 @@ class SlotManager:
 
     def with_dropped_slots(self, slots_to_remove: Sequence[str]) -> ad.AnnData:
         new_adata = self._adata.copy()
-        print(new_adata)
 
         current_slots = self.slots()
         remaining = [s for s in current_slots if s not in slots_to_remove]

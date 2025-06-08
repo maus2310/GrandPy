@@ -6,7 +6,10 @@ import pandas as pd
 import anndata as ad
 import scipy.sparse as sp
 
+from Py.utils import _ensure_list, _make_unique
 from Py.slot_manager import SlotManager, ModeSlot
+from Py.plot_manager import PlotManager
+from Py.analysis_manager import AnalysisManager
 
 
 class Plot:
@@ -41,7 +44,6 @@ class Plot:
             return self.function(data, **self.parameters)
         else:
             raise ValueError(f"Invalid plot type: {self.plot_type}")
-
 
 class GrandPy:
     """
@@ -322,6 +324,46 @@ class GrandPy:
         """
         return self._slot_manager.slot_data()
 
+    def _check_slot(self, slot: str, *, allow_ntr = True) -> bool:
+        """
+        Checks if a given slot exists in the data slots.
+
+        Parameters
+        ----------
+        slot: str
+            The slot to be checked.
+
+        allow_ntr:
+            If True, the slot "ntr" is allowed as input.
+
+        Returns
+        -------
+        bool:
+            True if the slot exists, False otherwise.
+        """
+        return self._slot_manager.check_slot(slot, allow_ntr=allow_ntr)
+
+    def _resolve_mode_slot(self, mode_slot: Union[str, ModeSlot], *, allow_ntr = True) -> Union[np.ndarray, sp.csr_matrix]:
+        """
+        Checks whether the given slot is valid and computes the resulting mode slot if a mode was specified.
+
+        Mode slots can be specified in the following formats: ModeSlot('<mode>', '<slot>'), '<mode>_<slot>', or '<slot>'.
+
+        Parameters
+        ----------
+        mode_slot: Union[str, ModeSlot]
+            A slot or a mode slot to be resolved.
+
+        allow_ntr: bool
+            If True, the slot "ntr" is allowed as input.
+
+        Returns
+        -------
+        Union[np.ndarray, sp.csr_matrix]
+            The resulting slot after the mode has been applied.
+        """
+        return self._slot_manager.resolve_mode_slot(mode_slot, allow_ntr=allow_ntr)
+
     def with_dropped_slots(self, slots_to_remove: Union[str, Sequence[str]]) -> "GrandPy":
         """
         Returns a new GrandPy object with specified slot(s) removed.
@@ -404,7 +446,7 @@ class GrandPy:
             new_coldata['Condition'] = new_coldata[value].astype(str).agg(" ".join, axis=1)
         else:
             if len(value) == 1:
-                pass
+                value = value * 12
             elif len(value) != len(new_coldata.index):
                 raise ValueError(
                     f"Number of values ({len(value)}) does not match number of samples/cells ({len(new_coldata.index)})")
@@ -505,13 +547,13 @@ class GrandPy:
         return self.replace(coldata = new_coldata)
 
     # TODO apply() vervollständigen
-    def apply(self, function, *, function_gene_info=None, function_coldata=None, **kwargs) -> "GrandPy":
+    def apply(self, function: Callable, *, function_gene_info: Callable = None, function_coldata: Callable = None, **kwargs) -> "GrandPy":
         """
         Returns a new GrandPy object with the given function applied to each data slot.
 
         Can also apply a function to the gene_info and coldata DataFrames.
 
-        It is not advised to use this method for swapping columns or rows, as slots, gene_info and coldata are not automatically updated when changing one of them.
+        It is not advised to use this method for swapping columns or rows, as slots, gene_info, and coldata are not automatically updated when changing one of them.
 
         Parameters
         ----------
@@ -862,47 +904,6 @@ class GrandPy:
         return mapping.loc[found].tolist()
 
 
-    def _check_slot(self, slot: str, *, allow_ntr = True) -> bool:
-        """
-        Checks if a given slot exists in the data slots.
-
-        Parameters
-        ----------
-        slot: str
-            The slot to be checked.
-
-        allow_ntr:
-            If True, the slot "ntr" is allowed as input.
-
-        Returns
-        -------
-        bool:
-            True if the slot exists, False otherwise.
-        """
-        return self._slot_manager.check_slot(slot, allow_ntr=allow_ntr)
-
-    def _resolve_mode_slot(self, mode_slot: Union[str, ModeSlot], *, allow_ntr = True) -> Union[np.ndarray, sp.csr_matrix]:
-        """
-        Checks whether the given slot is valid and computes the resulting mode slot if a mode was specified.
-
-        Mode slots can be specified in the following formats: ModeSlot('<mode>', '<slot>'), '<mode>_<slot>', or '<slot>'.
-
-        Parameters
-        ----------
-        mode_slot: Union[str, ModeSlot]
-            A slot or a mode slot to be resolved.
-
-        allow_ntr: bool
-            If True, the slot "ntr" is allowed as input.
-
-        Returns
-        -------
-        Union[np.ndarray, sp.csr_matrix]
-            The resulting slot after the mode has been applied.
-        """
-        return self._slot_manager.resolve_mode_slot(mode_slot, allow_ntr=allow_ntr)
-
-
     # Doch eher wie slot_data? Anndata Object ist denke ich die Mühe nicht wert.
     def get_matrix(self,
                    mode_slot: Union[str, ModeSlot] = None,
@@ -1153,7 +1154,10 @@ class GrandPy:
 
 
 
-    # In american englisch würde man eigentlich analyzes schreiben.
+    @property
+    def _analysis_manager(self):
+        return AnalysisManager(self._adata)
+
     @property
     def analyses(self) -> list[str]:
         """
@@ -1175,7 +1179,7 @@ class GrandPy:
         with_analyses():
             Add analyses to the object. Usually not to be used directly.
         """
-        return list(self._adata.uns["analyses"].keys())
+        return self._analysis_manager.analyses()
 
     def get_analyses(self, pattern: Union[str, int, Sequence[Union[str, int, bool]]] = None, regex: bool = True) -> list[str]:
         """
@@ -1210,41 +1214,9 @@ class GrandPy:
         with_analyses():
             Add analyses to the object. Usually not to be used directly.
         """
-        available_analyses = self.analyses
+        return self._analysis_manager.get_analyses(pattern, regex=regex)
 
-        if pattern is None:
-            return available_analyses
-
-        pattern = _ensure_list(pattern)
-
-        def check_analyses(pattern, available_analyses, regex) -> list[bool]:
-            """
-            Helper function to check if the given names or regex pattern match the available analyses.
-            """
-            if regex:
-                return [any(re.search(pat, analysis) for analysis in available_analyses) for pat in pattern]
-            else:
-                if all(isinstance(pat, (bool, int)) for pat in pattern):
-                    return [True] * len(available_analyses)
-                else:
-                    return [analysis in available_analyses for analysis in pattern]
-
-        checks = check_analyses(pattern, available_analyses, regex)
-        print(checks)
-        if not all(checks):
-            missing = [analysis for analysis, check in zip(pattern, checks) if not check]
-            raise ValueError(f"No analysis found for pattern: {', '.join(map(str, missing))}")
-
-        if all(isinstance(pat, (bool, int)) for pat in pattern):
-            checks = pattern
-
-        result = np.array(available_analyses)[checks].tolist()
-
-        result = list(dict.fromkeys(result))
-
-        return result
-
-    def with_analyses(self, name: str, table: pd.DataFrame, by: str = None) -> "GrandPy":
+    def with_analysis(self, name: str, table: pd.DataFrame, by: str = None) -> "GrandPy":
         """
         Returns a new GrandPy object with added analyses.
 
@@ -1279,24 +1251,7 @@ class GrandPy:
         with_dropped_analyses():
             Remove analyses with a regex pattern.
         """
-        new_analyses = self._adata.uns["analyses"]
-
-        new_analyses = {} if new_analyses is None else new_analyses
-
-        if new_analyses.get(name, None) is not None:
-            warnings.warn(f"An analyses named {name} already exists! It will be overwritten.")
-
-        if by is not None:
-            table = table.set_index(by)
-            table.index.name = None
-
-        if re.search("^ENS", table.index[0]) is not None:
-            table = table.reindex(self._adata.obs["Gene"])
-        else:
-            table.index = _make_unique(pd.Series(table.index), warn=False)
-            table = table.reindex(self._adata.obs.index)
-
-        new_analyses[name] = table
+        new_analyses = self._analysis_manager.with_analysis(name, table, by=by)
 
         return self.replace(analyses=new_analyses)
 
@@ -1324,15 +1279,14 @@ class GrandPy:
         with_analyses():
             Add analyses to the object. Usually not to be used directly.
         """
-        new_analyses = self._adata.uns["analyses"]
-
-        if pattern is None:
-            new_analyses = {}
-        else:
-            new_analyses = {key: value for key, value in new_analyses.items() if not re.search(pattern, key)}
+        new_analyses = self._analysis_manager.drop_analyses(pattern)
 
         return self.replace(analyses=new_analyses)
 
+
+    @property
+    def _plot_manager(self):
+        return PlotManager(self._adata)
 
     @property
     def plots(self) -> dict[str, dict[str, Any]]:
@@ -1344,17 +1298,7 @@ class GrandPy:
         dict[str, dict[str, Any]]
             A dictionary mapping plot types('gene', 'global') to plot names.
         """
-        data = self._adata.uns
-        result = {}
-
-        if data is not None and data.get("plots") is not None:
-            if data.get("plots", {}).get("gene") is not None:
-                result["gene"] = list(data["plots"]["gene"].keys())
-
-            if data.get("plots", {}).get("global") is not None:
-                result["global"] = list(data["plots"]["global"].keys())
-
-        return result
+        return self._plot_manager.plots()
 
     # Beipiel im docstring unvollständig, da wir noch keine global plot funktion haben
     def with_gene_plot(self, name: str, function: Plot) -> "GrandPy":
@@ -1399,8 +1343,11 @@ class GrandPy:
         with_dropped_plots()
             Remove plots from the object.
         """
-        return self._add_plot(name, "gene", function)
+        new_plots = self._plot_manager.add_plot(name, "gene", function)
 
+        return self.replace(plots=new_plots)
+
+    # floating fehlt noch
     def with_global_plot(self, name: str, function: Plot, floating: bool = False) -> "GrandPy":
         """
         Returns a new GrandPy object with a global plot added.
@@ -1458,39 +1405,9 @@ class GrandPy:
             Remove plots from the object.
         """
         if floating:
-            return self._add_plot(name, "floating", function)
+            raise NameError("Floating plots are not yet implemented.")
         else:
-            return self._add_plot(name, "global", function)
-
-    def _add_plot(self, name: str, plot_type: Literal["gene", "global", "floating"], function: Union[Plot, Callable]) -> "GrandPy":
-        """
-        Internal function for adding a plot
-        """
-        def function_to_plot(fun: Callable) -> Plot:
-            from inspect import signature
-
-            sig = signature(fun)
-            params = dict(sig.parameters)
-
-            return Plot(fun, params, plot_type=plot_type)
-
-        new_plots = self._adata.uns["plots"]
-
-        if new_plots is None:
-            new_plots = {}
-        if new_plots.get(plot_type) is None:
-            new_plots[plot_type] = {}
-        if name in new_plots[plot_type].keys():
-            warnings.warn(f"A {plot_type} plot with the name '{name}' already exists. It will be overwritten.")
-
-        if isinstance(function, Plot):
-            ...
-        elif callable(function):
-            function = function_to_plot(function)
-        else:
-            raise TypeError("Expected Plot or function")
-
-        new_plots[plot_type][name] = function
+            new_plots = self._plot_manager.add_plot(name, "global", function)
 
         return self.replace(plots=new_plots)
 
@@ -1541,7 +1458,7 @@ class GrandPy:
         """
         return self._adata.uns["plots"]["global"][name](self)
 
-    def with_dropped_plots(self, pattern: str = None) -> "GrandPy":
+    def with_dropped_plot(self, pattern: str = None) -> "GrandPy":
         """
         Returns a new GrandPy object with plot names matching the pattern removed.
 
@@ -1568,92 +1485,8 @@ class GrandPy:
         with_global_plot()
             Add a global plot.
         """
-        new_plots = self._adata.uns["plots"]
-
-        if pattern is None:
-            new_plots = None
-
-        else:
-            for key in ("gene", "global", "floating"):
-                if new_plots.get(key) is not None:
-                    plots_dict = new_plots[key]
-
-                    new_plots[key] = {
-                        name: value
-                        for name, value in plots_dict.items()
-                        if not re.search(pattern, name)
-                    }
+        new_plots = self._plot_manager.drop_plot(pattern)
 
         return self.replace(plots=new_plots)
 
-
-def _to_sparse(matrix: Union[pd.DataFrame, np.ndarray, sp.csr_matrix]) -> sp.csr_matrix:
-    """
-    Convert the given matrix to a csr_matrix.
-
-    Parameters
-    ----------
-    matrix: Union[pd.DataFrame, np.ndarray, sp.csr_matrix]]
-        The dense matrix to convert.
-
-    Returns
-    -------
-    scipy.sparse.csr_matrix
-        The sparse matrix in CSR format.
-    """
-    from scipy.sparse import csr_matrix
-
-    if isinstance(matrix, sp.csr_matrix):
-        return matrix
-    if isinstance(matrix, pd.DataFrame):
-        matrix = matrix.values
-
-    try:
-        sparse_matrix = csr_matrix(matrix)
-    except ValueError:
-        raise ValueError(
-            "Matrix could not be converted to a sparse matrix. Use numpy.ndarray or a pandas.DataFrame only containing numbers")
-
-    return sparse_matrix
-
-
-def _make_unique(series: pd.Series, warn = True) -> pd.Series:
-    """
-        Ensures all values in a Series are unique by appending suffixes to duplicates.
-
-        Parameters
-        ----------
-        series : pd.Series
-            Input Series containing potentially non-unique values (e.g., gene symbols).
-
-        Returns
-        -------
-        pd.Series
-            Series with unique values. Duplicates are renamed by appending '_1', '_2', etc.
-        """
-    counts = {}
-    result = []
-
-    if series.is_unique:
-        return series
-
-    else:
-        if warn:
-            duplicates_list = series[series.duplicated()].unique()[:10]
-            warnings.warn(f"Duplicate gene symbols found: {', '.join(duplicates_list)}; they have been renamed to ensure uniqueness (e.g., MATR3 → MATR3_1).")
-
-        for val in series:
-            if val not in counts:
-                counts[val] = 0
-                result.append(val)
-            else:
-                counts[val] += 1
-                result.append(f"{val}_{counts[val]}")
-    return pd.Series(result, index=series.index)
-
-
-def _ensure_list(x):
-    if isinstance(x, (str, int, bool)) or x is None:
-        return [x]
-    return list(x)
 
