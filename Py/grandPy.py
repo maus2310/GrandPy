@@ -1458,6 +1458,8 @@ class GrandPy:
         for name in analyses:
             ...
 
-    from .processing import compute_stuff
+
     def compute_ntr_ci(self, CI_size: float = 0.95, name_lower: str = "lower", name_upper: str = "upper"):
-        return _compute_ntr_ci(self)
+        from Py.processing import _compute_ntr_ci
+
+        return _compute_ntr_ci(self, CI_size, name_lower, name_upper)
