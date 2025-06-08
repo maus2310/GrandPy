@@ -81,7 +81,7 @@ def test_with_gene_info_dict():
 def test_with_gene_info_series():
     gp = read_grand("../data/sars_R.tsv")
     gp = gp[0:10]
-    with_gene_info_series = gp.with_gene_info("Gene", pd.Series([1,2,3,4,5,6,7,8,9,10]))
+    with_gene_info_series = gp.with_gene_info("Gene", pd.Series([1,2,3,4,5,6,7,8,9,10], index = gp.gene_info.index[0:10]))
     for i in range(0,10):
         assert with_gene_info_series.gene_info["Gene"][i] == i+1
 
