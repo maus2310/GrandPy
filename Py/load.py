@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import warnings
 import scipy.sparse as sp
+import re
 from typing import Any
 from pathlib import Path
 import gzip
@@ -10,7 +11,6 @@ from scipy.io import mmread
 from Py.grandPy import GrandPy
 from Py.utils import _to_sparse, _make_unique
 
-# hier muss noch einiges gemacht werden, absolute Rohversion, sparse-Tests stehen noch aus, ich bin noch beim design dran
 
 def infer_suffixes_from_df(df, known_suffixes=None) -> dict:
     """
@@ -398,22 +398,24 @@ def resolve_prefix_path(prefix, pseudobulk=None, targets=None):
         candidates.append(base.parent / f"{base.name}.pseudobulk.targets.{pseudobulk}" / "data.tsv.gz")
         candidates.append(base.parent / f"{base.name}.pseudobulk.{pseudobulk}" / "data.tsv.gz") # <prefix>.pseudobulk.<pseudobulk>
     if targets:                     # <prefix>.pseudobulk.<targets>.*
-        candidates += list(base.parent.glob(f"{base.name}.pseudobulk.{targets}.*" + "/data.tsv.gz"))
+        candidates += sorted(base.parent.glob(f"{base.name}.pseudobulk.{targets}.*" + "/data.tsv.gz"))
 
-    candidates.append(base / "data.tsv.gz")
+    if (base / "data.tsv.gz").exists():
+        candidates.append(base / "data.tsv.gz")
 
-    # print("Suche nach diesen Kandidaten:")
-    # for c in candidates:
-    #     print("  ->", c)
+    if base.is_file() and re.search(r"\.tsv($|.+)", base.name):
+            return base # candidates.append(base)
 
-    for path in candidates:
-        if path.exists():
-            return path
+    valid_paths = [p for p in candidates if p.exists()]
 
-    if base.is_file():
-        return base
+    if valid_paths:
+        return valid_paths[0]
 
-    raise FileNotFoundError(f"No valid data.tsv.gz found for prefix='{prefix}', pseudobulk='{pseudobulk}', targets='{targets}'.")
+    raise FileNotFoundError(
+        f"No valid 'data.tsv.gz' found. \n"
+        f"Checked prefix='{prefix}' with pseudobulk='{pseudobulk}', targets='{targets}'.\n"
+        f"Tried paths:\n" + "\n".join(str(p) for p in candidates)
+    )
 
 
 # def read_all_in_dir(directory, design=None, **kwargs): # mergen ist nicht ganz der richtige Ansatz hier
@@ -508,7 +510,7 @@ def read_dense(file_path, default_slot="count", design=None, *, classification_g
 
 def read_sparse(folder_path, default_slot="count", design=None, classification_genes=None, classification_genes_label="Viral", classify_genes_func=None, pseudobulk=None, targets=None, **kwargs):
     """
-    Reads a GRAND-SLAM sparse (Matrix Market) dataset from a directory.
+    Reads a GRAND-SLAM sparse dataset from a directory.
 
     Parameters
     ----------
@@ -553,13 +555,13 @@ def read_grand(prefix, pseudobulk=None, targets=None, **kwargs):
 
     sparse = is_sparse_file(path)
     if sparse:
-        print("Detected sparse format → using sparse reader")
+        print("Detected sparse format -> using sparse reader")
         return read_sparse(path, pseudobulk=pseudobulk, targets=targets, **kwargs)
 
-    resolved = resolve_prefix_path(path, pseudobulk, targets)
-
-    print("Detected dense format → using dense reader")
-    return read_dense(resolved, pseudobulk=pseudobulk, targets=targets, **kwargs)
+    else:
+        file_path = resolve_prefix_path(prefix, pseudobulk=pseudobulk, targets=targets)
+        print("Detected dense format -> using dense reader")
+        return read_dense(file_path, **kwargs)
 
 
 def _read(file_path, sparse, default_slot, design,
@@ -599,7 +601,6 @@ def _read(file_path, sparse, default_slot, design,
 
     if sparse:
         base = path
-        print("Reading Matrix Market format")
 
         with gzip.open(base / "matrix.mtx.gz", "rt") as file:
             count_matrix = mmread(file).tocsr()
@@ -694,4 +695,4 @@ def _read(file_path, sparse, default_slot, design,
 # print(sars) # funktioniert
 
 # sparse_data = read_grand("test-datasets/test_sparse.targets", design=("Condition", "Time", "Replicate"))
-# print(sparse_data.coldata)
+# print(sparse_data.coldata) # Leider sind noch die Columns nicht ganz korrekt
