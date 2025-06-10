@@ -49,10 +49,10 @@ class SlotManager:
         self._adata = adata
         self._is_sparse = is_sparse
 
-    def slots(self):
+    def slots(self) -> list[str]:
         return list(self._adata.layers.keys())
 
-    def slot_data(self):
+    def slot_data(self) -> dict[str, Union[np.ndarray, sp.csr_matrix]]:
         def safe_copy(obj):
             return obj.copy() if hasattr(obj, "copy") else obj
 
@@ -188,3 +188,13 @@ class SlotManager:
                 resulting_mode_slot = slot_total * ntr if mode_slot.mode == "new" else slot_total * (1 - ntr)
 
         return resulting_mode_slot
+
+    def with_ntr_slot(self, as_ntr: str, save_ntr_as: str = None) -> dict[str, Union[np.ndarray, sp.csr_matrix]]:
+        new_slots = self.slot_data()
+
+        if save_ntr_as is not None:
+            new_slots[save_ntr_as] = new_slots["ntr"]
+
+        new_slots["ntr"] = new_slots[as_ntr]
+
+        return new_slots

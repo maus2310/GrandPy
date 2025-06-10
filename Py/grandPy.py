@@ -1,4 +1,3 @@
-import re
 import warnings
 from typing import Any, Union, Sequence, Literal, Mapping, Callable
 import numpy as np
@@ -30,8 +29,8 @@ class GrandPy:
     Read a GrandPy Object from a file.
 
     >>> import GrandPy as gp
-    >>> grand = gp.read_grand("./data/sars.tsv", design=("Condition", "Time", "Replicate"))
-    >>> grand
+    >>> sars = gp.read_grand("./data/sars.tsv", design=("Condition", "Time", "Replicate"))
+    >>> print(sars)
     GrandPy:
     Read from ./data/sars.tsv
     1045 genes, 12 samples/cells
@@ -276,17 +275,6 @@ class GrandPy:
         -------
         dict[str, Union[np.ndarray, sp.csr_matrix]]
             The data of all available slots.
-
-        See Also
-        --------
-        replace()
-            Returns a new GrandPy Object, with given paramters replaced.
-
-        get_data()
-            Returns data for given slots, optionally with their coldata.
-
-        get_table()
-            Returns data for given slots, optionally with their gene_info.
         """
         return self._slot_manager.slot_data()
 
@@ -373,9 +361,52 @@ class GrandPy:
         GrandPy
             A new GrandPy object with the new slot added.
         """
-        new_adata = self._slot_manager.with_slot(name, new_slot)
+        new_adata = self._slot_manager.with_slot(name, new_slot, set_to_default=set_to_default)
 
         return self.replace(anndata = new_adata)
+
+    def with_ntr_slot(self, as_ntr: str, save_ntr_as: str = None) -> "GrandPy":
+        """
+        Set a different slot as the new 'ntr' slot.
+        The slot 'ntr' will be used for mode_slots and other functions relating to ntr.
+
+        Examples
+        --------
+        Save the slot 'upper_ntr' as the new 'ntr' slot for the GrandPy object 'sars'.
+
+        >>> sars = sars.with_ntr_slot('upper_ntr')
+        >>> print(sars.slots)
+        ['count', 'ntr', 'alpha', 'beta', 'upper_ntr', 'lower_ntr']
+
+        Notice the former 'ntr' was overwritten.
+        It can be saved under a new name with the 'save_ntr_as' paramter.
+
+        >>> sars = sars.with_ntr_slot('upper_ntr', save_ntr_as='normal_ntr')
+        >>> print(sars.slots)
+        ['count', 'ntr', 'alpha', 'beta', 'upper_ntr', 'lower_ntr', 'normal_ntr']
+
+
+        Parameters
+        ----------
+        as_ntr: str
+            The name of the slot to be set as the new 'ntr' slot.
+
+        save_ntr_as: str, optional
+            The name you want the old ntr slot to be saved as. If None, the old ntr slot will be deleted.
+
+        Returns
+        -------
+        GrandPy
+            A new GrandPy object with a new 'ntr' slot.
+
+        Raises
+        ------
+        ValueError
+            When the given name for ntr is not valid.
+        """
+        new_slots = self._slot_manager.with_ntr_slot(as_ntr, save_ntr_as=save_ntr_as)
+
+        return self.replace(slots=new_slots)
 
 
     # All analysis methods.
