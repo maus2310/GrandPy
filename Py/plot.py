@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+import matplotlib.ticker
 import numpy as np
 import pandas as pd
 import scanpy as sc
@@ -353,22 +354,22 @@ def plot_pca(
     coldata = coldata.loc[mat.columns]
 
     if str(mode_slot).lower() == "count":
-        SlotMat = mat.T.round().astype(int)
+        slotmat = mat.T.round().astype(int)
         #print("🔍 Matrix vor VST (SlotMat):")
         #print(SlotMat.shape)
         #print(SlotMat.head())
     else:
-        SlotMat = mat.T
+        slotmat = mat.T
     metadata_df = coldata.copy()
     metadata_df["condition"] = metadata_df["Condition"]
 
     if do_vst and str(mode_slot).lower() == "count":
         #print("vst")
-        dds = DeseqDataSet(counts=SlotMat, metadata=metadata_df, design_factors="condition")
+        dds = DeseqDataSet(counts=slotmat, metadata=metadata_df, design_factors="condition")
         dds.deseq2()
         dds.vst_fit()
         vst_array = dds.vst_transform()
-        vst_df = pd.DataFrame(vst_array, index=SlotMat.index, columns=SlotMat.columns)
+        vst_df = pd.DataFrame(vst_array, index=slotmat.index, columns=slotmat.columns)
         #print("🔍 Matrix nach VST, vor PCA (vst_df):")
         #print(vst_df.shape)
         #print(vst_df.head())
@@ -389,9 +390,9 @@ def plot_pca(
     else:
         #print("novst")
 
-        variances = SlotMat.var(axis=0)
+        variances = slotmat.var(axis=0)
         top_genes = variances.sort_values(ascending=False).head(min(ntop, len(variances))).index
-        mat_t = SlotMat[top_genes]
+        mat_t = slotmat[top_genes]
 
         pca = PCA()
         pcs = pca.fit_transform(mat_t)
@@ -418,14 +419,14 @@ def plot_pca(
     plt.show()
 
 
-
+# TODO Nuller/Nan werte werden noch nicht geplottet
 def plot_gene_old_vs_new(
     data: GrandPy,
     gene: str,
     slot: Optional[str] = None,
     columns: Optional[Union[list, str]] = None,
     log: bool = True,
-    show_CI: bool = False,
+    show_ci: bool = False,
     aest: Optional[dict] = None,
     size: float = 50
 ):
@@ -453,6 +454,9 @@ def plot_gene_old_vs_new(
 
     x = data.get_table(mode_slots=ModeSlot("old", slot), genes=gene, columns=selected_columns).iloc[0].to_numpy()
     y = data.get_table(mode_slots=ModeSlot("new", slot), genes=gene, columns=selected_columns).iloc[0].to_numpy()
+    print(x)
+    print(y)
+
 
     plot_df = pd.DataFrame({
         "old": x,
@@ -467,32 +471,37 @@ def plot_gene_old_vs_new(
     plt.figure(figsize=(6, 6))
     ax = plt.gca()
 
-    palette = sns.color_palette("Set2")
+    palette = sns.color_palette("Set2", n_colors=2)
 
 
 
     # Log scale if needed
-    if log:
+    if not log:
+        ax.set_xscale("linear")
+        ax.set_yscale("linear")
+    else:
         ax.set_xscale("log")
         ax.set_yscale("log")
+        ax.xaxis.set_major_formatter(matplotlib.ticker.ScalarFormatter())
+        ax.yaxis.set_major_formatter(matplotlib.ticker.ScalarFormatter())
 
     ax.set_xlabel(f"Old RNA ({slot})")
     ax.set_ylabel(f"New RNA ({slot})")
     ax.set_title(f"Gene: {gene}")
 
-    if show_CI:
+    if show_ci:
         if "lower" not in data.slots or "upper" not in data.slots:
             raise ValueError("CI slots ('lower' and 'upper') are missing. Run ComputeNtrCI first.")
 
         ci_lower = data.get_table(mode_slots="lower", genes=gene, columns=selected_columns).iloc[0].to_numpy()
         print(ci_lower)
         ci_upper = data.get_table(mode_slots="upper", genes=gene, columns=selected_columns).iloc[0].to_numpy()
-        total = data.get_table(mode_slots="count", genes=gene, columns=selected_columns).iloc[0].to_numpy()
-        print(total)
+        total = # TODO total mit mean berechnen
+        print("total", total)
         # Error bars
         print("Shapes:", ci_lower.shape, ci_upper.shape, total.shape, x.shape, y.shape)
-        ax.errorbar(x, y, yerr=[(1 - ci_upper) * total, (1 - ci_lower) * total], fmt='none', ecolor='gray', alpha=0.7)
-        ax.errorbar(x, y, xerr=[ci_lower * total, ci_upper * total], fmt='none', ecolor='gray', alpha=0.7)
+        ax.errorbar(x, y, yerr=[(1 - ci_lower) * total, (1 - ci_upper) * total], fmt='none', ecolor='gray', alpha=0.7)
+        ax.errorbar(x, y, xerr=[ci_upper * total, ci_lower * total], fmt='none', ecolor='gray', alpha=0.7)
 
     sns.scatterplot(
         data=plot_df,

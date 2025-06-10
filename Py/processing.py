@@ -22,24 +22,24 @@ def compute_ntr_posterior_quantile(data, quantile: float, name: str):
     q = beta.ppf(quantile, alpha, beta_)
     return data.with_slot(name, q)
 
-def compute_ntr_posterior_lower(data, CI_size: float = 0.95, name: str = "lower"):
+def compute_ntr_posterior_lower(data, ci_size: float = 0.95, name: str = "lower"):
     """
     Compute lower bound of the NTR credible interval.
     """
-    quantile = (1 - CI_size) / 2
+    quantile = (1 - ci_size) / 2
     return compute_ntr_posterior_quantile(data, quantile, name)
 
-def compute_ntr_posterior_upper(data, CI_size: float = 0.95, name: str = "upper"):
+def compute_ntr_posterior_upper(data, ci_size: float = 0.95, name: str = "upper"):
     """
     Compute upper bound of the NTR credible interval.
     """
-    quantile = 1 - (1 - CI_size) / 2
+    quantile = 1 - (1 - ci_size) / 2
     return compute_ntr_posterior_quantile(data, quantile, name)
 
-def _compute_ntr_ci(data, CI_size: float = 0.95, name_lower: str = "lower", name_upper: str = "upper"):
+def _compute_ntr_ci(data, ci_size: float = 0.95, name_lower: str = "lower", name_upper: str = "upper"):
     """
     Compute both lower and upper bounds of the credible interval.
     """
-    data = compute_ntr_posterior_lower(data, CI_size, name_lower)
-    data = compute_ntr_posterior_upper(data, CI_size, name_upper)
+    data = compute_ntr_posterior_lower(data, ci_size, name_lower)
+    data = compute_ntr_posterior_upper(data, ci_size, name_upper)
     return data
