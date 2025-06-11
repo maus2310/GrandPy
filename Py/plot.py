@@ -419,7 +419,8 @@ def plot_pca(
     plt.show()
 
 
-# TODO Nuller/Nan werte werden noch nicht geplottet
+# TODO Warum falscher wert in x (Modeslot: old_count) an der ersten Stelle ?? Bei ATF3 Gen bei no4sU sollte einmal 12 einmal 109 stehen anstatt nan ???
+# Beispielaufruf: plot_gene_old_vs_new("ATF3", show_ci=True)
 def plot_gene_old_vs_new(
     data: GrandPy,
     gene: str,
@@ -431,12 +432,10 @@ def plot_gene_old_vs_new(
     size: float = 50
 ):
 
-    # Default slot
     if slot is None:
         slot = data.default_slot
 
 
-    # Resolve columns
     if columns is None:
         selected_columns = data.columns
     elif isinstance(columns, str):
@@ -444,42 +443,30 @@ def plot_gene_old_vs_new(
     else:
         selected_columns = data.get_columns(columns)
 
-    # Get data
     df = data.get_data(mode_slots=[ModeSlot("new", slot), ModeSlot("old", slot)], genes=gene, columns=selected_columns)
-
-    # Setup aesthetics
-    aest = setup_default_aes(data, aest)
-    color = aest.get("color")
-    shape = aest.get("shape")
+    coldata = data.coldata.loc[selected_columns].copy()
 
     x = data.get_table(mode_slots=ModeSlot("old", slot), genes=gene, columns=selected_columns).iloc[0].to_numpy()
     y = data.get_table(mode_slots=ModeSlot("new", slot), genes=gene, columns=selected_columns).iloc[0].to_numpy()
-    print(x)
-    print(y)
-
 
     plot_df = pd.DataFrame({
         "old": x,
         "new": y
-    }, index=df.index)
+    }, index=coldata.index)
+    print("Old", x)
 
-    if color and color in df.columns:
-        plot_df["color"] = df[color].values
-    if shape and shape in df.columns:
-        plot_df["shape"] = df[shape].values
+    plot_df = pd.concat([plot_df, coldata], axis=1)
+    aest = setup_default_aes(data, aest)
+    style = aest.get("shape")
+    hue = aest.get("color")
+    if hue not in plot_df.columns:
+        hue = None
+    if style not in plot_df.columns:
+        style = None
 
-    plt.figure(figsize=(6, 6))
-    ax = plt.gca()
+    fig, ax = plt.subplots(figsize=(6, 6))
 
-    palette = sns.color_palette("Set2", n_colors=2)
-
-
-
-    # Log scale if needed
-    if not log:
-        ax.set_xscale("linear")
-        ax.set_yscale("linear")
-    else:
+    if log:
         ax.set_xscale("log")
         ax.set_yscale("log")
         ax.xaxis.set_major_formatter(matplotlib.ticker.ScalarFormatter())
@@ -494,24 +481,50 @@ def plot_gene_old_vs_new(
             raise ValueError("CI slots ('lower' and 'upper') are missing. Run ComputeNtrCI first.")
 
         ci_lower = data.get_table(mode_slots="lower", genes=gene, columns=selected_columns).iloc[0].to_numpy()
-        print(ci_lower)
         ci_upper = data.get_table(mode_slots="upper", genes=gene, columns=selected_columns).iloc[0].to_numpy()
-        total = # TODO total mit mean berechnen
-        print("total", total)
-        # Error bars
-        print("Shapes:", ci_lower.shape, ci_upper.shape, total.shape, x.shape, y.shape)
-        ax.errorbar(x, y, yerr=[(1 - ci_lower) * total, (1 - ci_upper) * total], fmt='none', ecolor='gray', alpha=0.7)
-        ax.errorbar(x, y, xerr=[ci_upper * total, ci_lower * total], fmt='none', ecolor='gray', alpha=0.7)
+        print("Lower", ci_lower)
+        print("Upper", ci_upper)
+        total = data.get_table(mode_slots=slot, genes=gene, columns=selected_columns).iloc[0].to_numpy()
+
+        plot_ci = pd.DataFrame({
+            "old": x,
+            "new": y,
+            "ci_lower": ci_lower,
+            "ci_upper": ci_upper,
+            "total": total
+        })
+
+        valid_mask = (
+                (plot_ci["old"] > 0) &
+                (plot_ci["new"] > 0) &
+                (plot_ci["ci_lower"] >= 0) &
+                (plot_ci["ci_upper"] >= 0) &
+                (plot_ci["ci_lower"] <= plot_ci["ci_upper"])
+        )
+        plot_ci = plot_ci[valid_mask]
+
+        x = plot_ci["old"].to_numpy()
+        y = plot_ci["new"].to_numpy()
+
+        ymin = plot_ci["ci_lower"] * plot_ci["total"]
+        ymax = plot_ci["ci_upper"] * plot_ci["total"]
+        yerr = [y - ymin, ymax - y]
+
+        xmin = (1 - plot_ci["ci_upper"]) * plot_ci["total"]
+        xmax = (1 - plot_ci["ci_lower"]) * plot_ci["total"]
+        xerr = [x - xmin, xmax - x]
+
+        ax.errorbar(x, y, xerr=xerr, yerr=yerr, fmt='none', ecolor='grey')
 
     sns.scatterplot(
         data=plot_df,
         x="old",
         y="new",
-        hue="color" if "color" in plot_df else None,
-        style="shape" if "shape" in plot_df else None,
+        hue=hue,
+        style=style,
         s=size,
         ax=ax,
-        palette=palette
+        palette=sns.color_palette("Set2", n_colors=2)
     )
     plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
     plt.tight_layout()
