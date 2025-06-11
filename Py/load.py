@@ -1,14 +1,8 @@
-import pandas as pd
-import numpy as np
-import warnings
-import scipy.sparse as sp
-import re
-from typing import Any
 from pathlib import Path
 import gzip
 from scipy.io import mmread
 
-from Py.grandPy import GrandPy
+from Py.grandPy import *
 from Py.utils import _to_sparse, _make_unique
 
 
@@ -154,8 +148,8 @@ def build_gene_info(df, classify_func):
     gene_info = df[["Gene", "Symbol", "Length"]].copy()
 
     gene_info["Type"] = classify_func(gene_info)
-    gene_info["Symbol"] = gene_info["Symbol"]
-    gene_info.index = _make_unique(gene_info["Symbol"])
+    gene_info["Symbol"] = _make_unique(gene_info["Symbol"], warn = True)
+    gene_info.index = gene_info["Symbol"]
     return gene_info[["Symbol", "Gene", "Length", "Type"]]
 
 

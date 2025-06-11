@@ -1,3 +1,4 @@
+import re
 import warnings
 from typing import Any, Union, Sequence, Literal, Mapping, Callable
 import numpy as np
@@ -95,8 +96,8 @@ class GrandPy:
     def _initialize_uns_data(self, prefix, metadata, analyses, plots):
         self._adata.uns['prefix'] = prefix
         self._adata.uns['metadata'] = metadata
-        self._adata.uns['analyses'] = analyses
-        self._adata.uns['plots'] = plots
+        self._adata.uns['analyses'] = analyses if analyses is not None else {}
+        self._adata.uns['plots'] = plots if plots is not None else {}
 
     def _ensure_no4sU_column(self):
         if 'no4sU' not in self._adata.var.columns:
@@ -110,7 +111,7 @@ class GrandPy:
             f"Read from {self._adata.uns.get('prefix', 'Unknown')}\n"
             f"{self._adata.n_obs} genes, {self._adata.n_vars} samples/cells\n"
             f"Available data slots: {self.slots}\n"
-            f"Available analyses: {', '.join(self._adata.uns.get('analyses') or {}) or 'None'}\n"
+            f"Available analyses: {self.analyses}\n"
             f"Available plots: {self.plots}\n"
             f"Default data slot: {self.default_slot}\n"
         )
@@ -372,18 +373,18 @@ class GrandPy:
 
         Examples
         --------
-        Save the slot 'upper_ntr' as the new 'ntr' slot for the GrandPy object 'sars'.
+        Save the slot 'upper' (upper ntr) as the new 'ntr' slot for the GrandPy object 'sars'.
 
-        >>> sars = sars.with_ntr_slot('upper_ntr')
+        >>> sars = sars.with_ntr_slot('upper')
         >>> print(sars.slots)
-        ['count', 'ntr', 'alpha', 'beta', 'upper_ntr', 'lower_ntr']
+        ['count', 'ntr', 'alpha', 'beta', 'upper', 'lower']
 
         Notice the former 'ntr' was overwritten.
         It can be saved under a new name with the 'save_ntr_as' paramter.
 
-        >>> sars = sars.with_ntr_slot('upper_ntr', save_ntr_as='normal_ntr')
+        >>> sars = sars.with_ntr_slot('upper', save_ntr_as='normal_ntr')
         >>> print(sars.slots)
-        ['count', 'ntr', 'alpha', 'beta', 'upper_ntr', 'lower_ntr', 'normal_ntr']
+        ['count', 'ntr', 'alpha', 'beta', 'upper', 'lower', 'normal_ntr']
 
 
         Parameters
@@ -756,49 +757,6 @@ class GrandPy:
         """
         return self._adata.uns.get('metadata').copy()
 
-    @property
-    def condition(self) -> list[str]:
-        """
-        Get the condition of all samples/cells in the coldata.
-        """
-        return self.coldata['Condition'].tolist()
-
-    def with_condition(self, value: Union[str, Sequence[str], pd.Series, Mapping]) -> "GrandPy":
-        """
-        Set new values for all samples/cells in the coldata.
-
-        Parameters
-        ----------
-        value: Union[str, Sequence[str], pd.Series, Mapping]
-            The conditions to be set for the samples/cells. Can also construct the name from other columns in coldata, if their names are given.
-
-        Returns
-        -------
-        GrandPy
-            A new GrandPy object with the specified condition.
-        """
-        new_coldata = self._adata.var.copy()
-
-        if isinstance(value, Mapping):
-            for k, v in value.items():
-                new_coldata.loc[k, "Condition"] = v
-            return self.replace(coldata = new_coldata)
-
-        value = _ensure_list(value)
-
-        if all(v in new_coldata.columns for v in value):
-            new_coldata['Condition'] = new_coldata[value].astype(str).agg(" ".join, axis=1)
-        else:
-            if len(value) == 1:
-                value = value * 12
-            elif len(value) != len(new_coldata.index):
-                raise ValueError(
-                    f"Number of values ({len(value)}) does not match number of samples/cells ({len(new_coldata.index)})")
-
-            new_coldata['Condition'] = value
-
-        return self.replace(coldata = new_coldata)
-
 
     @property
     def gene_info(self) -> pd.DataFrame:
@@ -839,49 +797,6 @@ class GrandPy:
         new_gene_info[column] = value
 
         return self.replace(gene_info = new_gene_info)
-
-    # fehlt noch
-    def with_updated_symbols(self):
-        ...
-
-
-    @property
-    def coldata(self) -> pd.DataFrame:
-        """
-        Get the coldata DataFrame.
-        """
-        return self._adata.var.copy()
-
-    def with_coldata(self, column: str, value: Union[Mapping, pd.Series, Sequence[Any]]) -> "GrandPy":
-        """
-        Returns a new object with modified coldata. If the column name does not already exist, a new column will be added.
-
-        Otherwise, the column will be replaced by the given value or updated if a dictionary was given.
-
-        Parameters
-        ----------
-        column : str
-            The name of the column to be modified.
-
-        value : Union[Mapping, pd.Series, Sequence[Any]]
-            The values to assign to the column can be any iterable. Can also be a dictionary when trying to update a column.
-
-        Returns
-        -------
-        GrandPy
-            A new GrandPy object with updated coldata.
-        """
-        new_coldata = self.coldata
-
-        if column in new_coldata.columns:
-            if isinstance(value, Mapping):
-                new_coldata.loc[value.keys(), column] = list(value.values())
-                return self.replace(coldata = new_coldata)
-
-        new_coldata[column] = value
-
-        return self.replace(coldata = new_coldata)
-
 
     def get_index(self, genes: Union[str, int, Sequence[Union[str, int, bool]]] = None, *, regex: bool = False) -> list[int]:
         """
@@ -960,6 +875,36 @@ class GrandPy:
 
         return mapping.loc[found].tolist()
 
+    # TODO with_updated_symbols vervollständigen. Aktuell wird noch nicht unique gemacht und
+    #  auch nur die Spalte 'Symbol' wird geändert. None Behandlung ebenfalls fraglich
+    def with_updated_symbols(self, species: str = "human") -> "GrandPy":
+        import mygene
+
+        new_gene_info = self.gene_info.copy()
+        genes = new_gene_info["Gene"].tolist()
+
+        mg = mygene.MyGeneInfo()
+
+        # Query: get the symbols in batches (a single large request is not possible with mygene)
+        try:
+            result = mg.querymany(
+                genes,
+                scopes="ensembl.gene",  # Oder "symbol", je nach Inhalt
+                fields="symbol",
+                species=species,
+                as_dataframe=True,
+            )
+        except Exception as e:
+            raise RuntimeError(f"MyGeneInfo request failed: {e}")
+
+        # Turn the query output into a gene_info dataframe.
+        result = result.reset_index()
+        result = result[["query","symbol"]]
+        symbol_map = dict(zip(result["query"], result["symbol"]))
+        new_gene_info["Symbol"] = new_gene_info["Gene"].map(symbol_map)
+
+        return self.replace(gene_info=new_gene_info)
+
     @property
     def genes(self) -> list[str]:
         """
@@ -1013,6 +958,89 @@ class GrandPy:
             indices = self.get_index(gene, regex=regex)
             return self.gene_info.iloc[indices]["Gene"].tolist()
 
+    def get_significant_genes(self):
+        ...
+
+
+    @property
+    def coldata(self) -> pd.DataFrame:
+        """
+        Get the coldata DataFrame.
+        """
+        return self._adata.var.copy()
+
+    def with_coldata(self, column: str, value: Union[Mapping, pd.Series, Sequence[Any]]) -> "GrandPy":
+        """
+        Returns a new object with modified coldata. If the column name does not already exist, a new column will be added.
+
+        Otherwise, the column will be replaced by the given value or updated if a dictionary was given.
+
+        Parameters
+        ----------
+        column : str
+            The name of the column to be modified.
+
+        value : Union[Mapping, pd.Series, Sequence[Any]]
+            The values to assign to the column can be any iterable. Can also be a dictionary when trying to update a column.
+
+        Returns
+        -------
+        GrandPy
+            A new GrandPy object with updated coldata.
+        """
+        new_coldata = self.coldata
+
+        if column in new_coldata.columns:
+            if isinstance(value, Mapping):
+                new_coldata.loc[value.keys(), column] = list(value.values())
+                return self.replace(coldata = new_coldata)
+
+        new_coldata[column] = value
+
+        return self.replace(coldata = new_coldata)
+
+    @property
+    def condition(self) -> list[str]:
+        """
+        Get the condition of all samples/cells in the coldata.
+        """
+        return self.coldata['Condition'].tolist()
+
+    def with_condition(self, value: Union[str, Sequence[str], pd.Series, Mapping]) -> "GrandPy":
+        """
+        Set new values for all samples/cells in the coldata.
+
+        Parameters
+        ----------
+        value: Union[str, Sequence[str], pd.Series, Mapping]
+            The conditions to be set for the samples/cells. Can also construct the name from other columns in coldata, if their names are given.
+
+        Returns
+        -------
+        GrandPy
+            A new GrandPy object with the specified condition.
+        """
+        new_coldata = self._adata.var.copy()
+
+        if isinstance(value, Mapping):
+            for k, v in value.items():
+                new_coldata.loc[k, "Condition"] = v
+            return self.replace(coldata = new_coldata)
+
+        value = _ensure_list(value)
+
+        if all(v in new_coldata.columns for v in value):
+            new_coldata['Condition'] = new_coldata[value].astype(str).agg(" ".join, axis=1)
+        else:
+            if len(value) == 1:
+                value = value * 12
+            elif len(value) != len(new_coldata.index):
+                raise ValueError(
+                    f"Number of values ({len(value)}) does not match number of samples/cells ({len(new_coldata.index)})")
+
+            new_coldata['Condition'] = value
+
+        return self.replace(coldata = new_coldata)
 
     @property
     def columns(self) -> list[str]:
@@ -1157,8 +1185,7 @@ class GrandPy:
 
         return self.apply(swap, function_coldata=swap, col1=column1, col2=column2)
 
-
-    # TODO apply() vervollständigen
+    # Immer noch nicht vollständig.
     def apply(self, function: Callable, *, function_gene_info: Callable = None, function_coldata: Callable = None,
               **kwargs) -> "GrandPy":
         """
@@ -1166,7 +1193,10 @@ class GrandPy:
 
         Can also apply a function to the gene_info and coldata DataFrames.
 
-        It is not advised to use this method for swapping columns or rows, as slots, gene_info, and coldata are not automatically updated when changing one of them.
+        To change the order of the matrizes in the object, use subsetting instead.
+
+        It is not advised to use this method for changing the order of columns or rows,
+        as slots, gene_info, and coldata are not automatically updated when changing one of them.
 
         Parameters
         ----------
@@ -1191,13 +1221,15 @@ class GrandPy:
 
         if function_gene_info is not None:
             new_adata.obs = function_gene_info(self._adata.obs, **kwargs)
+
         if function_coldata is not None:
             new_adata.var = function_coldata(self._adata.var, **kwargs)
 
-        # Noch nicht vollständig
-
-        if self._adata.uns['analyses'] is not None:
-            ...
+        # immer noch nicht perfekt(with_analysis hat den Parameter 'by', das heißt index muss nicht immer 'Symbol')
+        if new_adata.uns['analyses'] is not None:
+            new_adata.uns['analyses'] = {
+                key: value.reindex(index=new_adata.obs.index).dropna() for key, value in new_adata.uns['analyses'].items()
+            }
 
         return self.replace(anndata=new_adata)
 
@@ -1414,9 +1446,6 @@ class GrandPy:
         --------
         get_data():
             Similar to get_table(), but slots are transposed, so coldata can be concatenated.
-
-        get_analysis_table():
-
         """
         coldata = self.coldata
         gene_info = self.gene_info
@@ -1433,8 +1462,7 @@ class GrandPy:
         row_indices = self.get_index(genes)
         column_indices = [coldata.index.get_loc(column) for column in self.get_columns(columns)]
 
-        # row_names is handled like this, so that the index remains unique ('Symbol' was not made unique, but index was)
-        row_names = gene_info.iloc[row_indices].index.tolist() if name_genes_by == "Symbol" else gene_info.iloc[row_indices][name_genes_by].tolist()
+        row_names = gene_info.iloc[row_indices][name_genes_by].tolist()
         column_names = coldata.iloc[column_indices]["Name"].tolist()
 
         result_df = pd.DataFrame()
@@ -1460,34 +1488,86 @@ class GrandPy:
 
         return result_df
 
-    # TODO: get_analysis_table() schreiben
     def get_analysis_table(self,
-                           analyses: Union[str, int, Sequence[Union[str, int, bool]]],
+                           analyses: Union[str, int, Sequence[Union[str, int, bool]]] = None,
                            genes: Union[str, int, Sequence[Union[str, int]]] = None,
-                           columns: Union[str, int, Sequence[Union[str, int]]] = None,
+                           columns: str = None,
                            *,
                            regex: bool = True,
                            with_gene_info: bool = True,
-                           name_genes_by = "Symbol") -> pd.DataFrame:
+                           name_genes_by: str = "Symbol") -> pd.DataFrame:
         """
+        Get a DataFrame containing analysis tables, optionally with the corresponding gene_info.
 
         Parameters
         ----------
+        analyses: Union[str, int, Sequence[Union[str, int, bool]]]
+            The analyses to be retrieved. Either by name, index, or a boolean mask.
+
+        genes: Union[str, int, Sequence[Union[str, int]]]
+            The genes for which to retrieve the analysis tables. Either by gene symbols, names(Ensembl ids), or indices.
+
+        columns: str
+            A regular expression to match the name of the columns in the analysis tables.
+
+        regex: bool
+            If True, 'analyses' will be interpreted as a regular expression.
+
+        with_gene_info: bool
+            If True, the gene_info DataFrame will be concatenated to the result.
+
+        name_genes_by: str
+            The name of the column in the gene_info DataFrame to be used as the name of the genes.
 
         Returns
         -------
+        pd.DataFrame
+            A DataFrame containing the specified analyses for the genes and columns.
 
         See Also
         --------
+        analyses
+            Get the names of all stored analyses.
 
+        get_analyses()
+            Get the names of analyses. Either by a regex, names, indices, or a boolean mask.
+
+        with_analysis()
+            Add a new analysis to the object.
+
+        with_dropped_analysis()
+            Drop analyses from the object with a regex.
         """
         analyses = self.get_analyses(analyses, regex = regex)
 
-        row_names = self.get_genes(genes)
+        row_indices = self.get_index(genes)
+        row_names = self._adata.obs.iloc[row_indices][name_genes_by].tolist()
 
+        result_df = pd.DataFrame()
 
         for name in analyses:
-            ...
+            analysis_data = self._adata.uns["analyses"][name]
+            analysis_data_subset = np.array(analysis_data)[row_indices]
+
+            analysis_column_names = [name + "_" + column for column in analysis_data.columns]
+
+            processed_data = pd.DataFrame(analysis_data_subset, index=row_names, columns=analysis_column_names)
+
+            # Only take columns that match to 'columns' if it is specified.
+            if columns is not None:
+                matching_cols = [col for col in processed_data.columns if re.search(columns, col)]
+                result_df = pd.concat([result_df, processed_data[matching_cols]], axis=1)
+            else:
+                result_df = pd.concat([result_df, processed_data], axis=1)
+
+        if with_gene_info:
+            result_df = pd.concat([self._adata.obs.iloc[row_indices], result_df], axis=1)
+
+        return result_df
+
+
+    def find_references(self):
+        ...
 
 
     def compute_ntr_ci(self, ci_size: float = 0.95, name_lower: str = "lower", name_upper: str = "upper"):

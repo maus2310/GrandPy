@@ -43,15 +43,17 @@ class PlotManager:
         self._adata = adata
 
     def plots(self) -> dict[str, dict[str, Plot]]:
-        data = self._adata.uns
+        plots = self._adata.uns["plots"]
+
         result = {}
 
-        if data is not None and data.get("plots") is not None:
-            if data.get("plots", {}).get("gene") is not None:
-                result["gene"] = list(data["plots"]["gene"].keys())
+        if plots is not None:
+            result = {}
+            if plots.get("gene") is not None:
+                result["gene"] = list(plots["plots"]["gene"].keys())
 
-            if data.get("plots", {}).get("global") is not None:
-                result["global"] = list(data["plots"]["global"].keys())
+            if plots.get("global") is not None:
+                result["global"] = list(plots["plots"]["global"].keys())
 
         return result
 
