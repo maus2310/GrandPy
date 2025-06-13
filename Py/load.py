@@ -153,14 +153,34 @@ def build_gene_info(df, classify_func):
     return gene_info[["Symbol", "Gene", "Length", "Type"]]
 
 
-def build_coldata(sample_names, design):
+def parse_time_string(s):
+    """
+    Converts Strings (e.g. '90min', '1h', '-') to float-hours.
+    """
+    if pd.isna(s) or s in ["-", "no4sU", "nos4U"]:
+        return None
+    if isinstance(s, (int, float)):
+        return float(s)
+
+    s = str(s).strip().lower()
+    if s.endswith("min"):
+        return float(s.replace("min", "")) / 60
+    elif s.endswith("h"):
+        return float(s.replace("h", ""))
+    elif re.fullmatch(r"\d+", s):
+        return float(s) / 60
+    else:
+        return None
+
+
+def build_coldata(names, design=None):
     """
     Builds sample metadata (coldata) from sample names and an optional experimental design.
 
     Parameters
     ----------
-    sample_names : list[str]
-        List of sample identifiers extracted from column names.
+    names : list[str]
+        List of sample identifiers extracted from column names (e.g. ['Mock.90min.A', ...].
 
     design : tuples[str] or None
         Tuple of design variables to extract from sample names via splitting on '.'.
@@ -171,31 +191,30 @@ def build_coldata(sample_names, design):
         DataFrame with one row per sample, containing design info and a 'no4sU' flag (if applicable).
     """
 
-    sample_index = pd.Index(sample_names, name="Name")
+    if callable(design):
+        return design(names)
 
-    split_names = [name.split(".") for name in sample_names]
-    max_len = max(len(s) for s in split_names)
+    split_names = [name.split(".") for name in names]
+    max_fields = max(len(parts) for parts in split_names)
 
     if design is None:
-        design = tuple(f"Design_{i+1}" for i in range(max_len))
+        design = tuple(f"Design_{i+1}" for i in range(max_fields))
+    elif len(design) < max_fields:
+        design += tuple(f"Extra_{i+1}" for i in range(max_fields - len(design)))
 
-    elif len(design) != max_len:
-        design = design[:max_len] if len(design) > max_len else design + tuple(f"Design_{i+1}" for i in range(len(design), max_len))
-    aligned_splits = [s + [None] * (max_len- len(s)) for s in split_names]
+    design = design[:max_fields]
 
-    if len(design) > max_len:
-        design = design[:max_len]
-
-    coldata = pd.DataFrame(aligned_splits, columns = design, index=sample_index)
+    aligned_rows = [parts + [None] * (max_fields - len(parts)) for parts in split_names]
+    coldata = pd.DataFrame(aligned_rows, columns=design, index=pd.Index(names, name="Name"))
     coldata["Name"] = coldata.index
-    coldata = coldata[["Name"] + [c for c in coldata.columns if c != "Name"]]
 
     if "Time" in coldata.columns:
         coldata["no4sU"] = coldata["Time"].isin(["no4sU", "nos4U", "-"])
+        coldata["Time_hr"] = coldata["Time"].map(parse_time_string)
     else:
         coldata["no4sU"] = False
 
-    return coldata
+    return coldata[["Name"] + [c for c in coldata.columns if c != "Name"]]
 
 
 def pad_slots(slots, sparse, coldata, slot_sample_names) -> dict:
@@ -392,13 +411,16 @@ def resolve_prefix_path(prefix, pseudobulk=None, targets=None):
         candidates.append(base.parent / f"{base.name}.pseudobulk.targets.{pseudobulk}" / "data.tsv.gz")
         candidates.append(base.parent / f"{base.name}.pseudobulk.{pseudobulk}" / "data.tsv.gz") # <prefix>.pseudobulk.<pseudobulk>
     if targets:                     # <prefix>.pseudobulk.<targets>.*
-        candidates += sorted(base.parent.glob(f"{base.name}.pseudobulk.{targets}.*" + "/data.tsv.gz"))
+        pattern = re.compile(f"^{re.escape(base.name)}\\.pseudobulk\\.{re.escape(targets)}\\..+$")
+        subdirs = [p for p in base.parennt.iterdir() if p.is_dir() and pattern.match(p.name)]
+        for sub in subdirs:
+            candidates.append(sub / "data.tsv.gz")
 
     if (base / "data.tsv.gz").exists():
         candidates.append(base / "data.tsv.gz")
 
-    if base.is_file() and re.search(r"\.tsv($|.+)", base.name):
-            return base # candidates.append(base)
+    if base.is_file() and base.name.endswith((".tsv", ".tsv.gz")):
+        candidates.append(base)
 
     valid_paths = [p for p in candidates if p.exists()]
 
@@ -410,35 +432,6 @@ def resolve_prefix_path(prefix, pseudobulk=None, targets=None):
         f"Checked prefix='{prefix}' with pseudobulk='{pseudobulk}', targets='{targets}'.\n"
         f"Tried paths:\n" + "\n".join(str(p) for p in candidates)
     )
-
-
-# def read_all_in_dir(directory, design=None, **kwargs): # mergen ist nicht ganz der richtige Ansatz hier
-#     """
-#     Reads and merges all GRAND-SLAM results from subdirectories containing 'data.tsv.gz'.
-#
-#     Parameters
-#     ----------
-#     directory : str or Path
-#         Path to the root directory containing GRAND-SLAM result subfolders.
-#
-#     design : tuple[str], optional
-#         Tuple of design variables for sample metadata extraction.
-#
-#     **kwargs :
-#         Additional keyword arguments passed to 'read_grand_auto'.
-#
-#     Returns
-#     -------
-#     GrandPy
-#         Merged GrandPy object combining all datasets found.
-#     """
-#
-#     files = list(Path(directory).rglob("data.tsv.gz"))
-#     all_objects = [read_grand_auto(str(f.parent), design=design, **kwargs) for f in files]
-#     merged = all_objects[0]
-#     for obj in all_objects[1:]:
-#         merged = merged.concat(obj, axis=1)
-#     return merged
 
 
 def is_sparse_file(path) -> bool:
@@ -686,7 +679,7 @@ def _read(file_path, sparse, default_slot, design,
         )
 
 # sars = read_grand("data/sars_R.tsv", classification_genes=None, classification_genes_label="Viral", design=("Condition", "Time", "Replicate"))
-# print(sars) # funktioniert
+# print(sars.coldata) # funktioniert
 
-# sparse_data = read_grand("test-datasets/test_sparse.targets", design=("Condition", "Time", "Replicate"))
+# sparse_data = read_grand("test-datasets/test_sparse.targets", design=("Time", "Replicate"))
 # print(sparse_data.coldata) # Leider sind noch die Columns nicht ganz korrekt
