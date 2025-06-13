@@ -1,3 +1,4 @@
+from collections import Counter
 from pathlib import Path
 import gzip
 from scipy.io import mmread
@@ -31,8 +32,8 @@ def infer_suffixes_from_df(df, known_suffixes=None) -> dict:
             "alpha": [" alpha", " Binom alpha", " TbBinom alpha", " TbBinomShape alpha"],
             "beta": [" beta", " Binom beta", " TbBinom beta", " TbBinomShape beta"],
             "shape": [" shape"],
-            # "ll": [" ll"],
-            # "llr": [" llr"]
+            "ll": [" ll"],
+            "llr": [" llr"]
         }
 
     result = {}
@@ -77,7 +78,7 @@ def remove_suffixes(name, suffixes):
         return name  # no suffix matched
 
 
-def parse_slots(df, suffixes, sparse):
+def parse_slots(df, suffixes, sparse, *, strict=True):
     """
     Extracts expression matrices from the input DataFrame based on known slot suffixes.
 
@@ -91,6 +92,10 @@ def parse_slots(df, suffixes, sparse):
 
     sparse : bool
         Whether to return the matrices in sparse format.
+
+    strict : bool, default=True
+        If True, raises an error if duplicate sample names are found across sots.
+        If False, only warn.
 
     Returns
     -------
@@ -122,6 +127,16 @@ def parse_slots(df, suffixes, sparse):
 
         if sample_names is None:
             sample_names = sample_names_this_slot
+
+    all_sample_names = [s for sample_list in slot_sample_names.values() for s in sample_list]
+    duplicates = [name for name, count in Counter(all_sample_names).items() if count > 1]
+
+    if duplicates:
+        message = f"Duplicate sample names across slots detected: {duplicates}"
+        if strict:
+            raise ValueError(message)
+        else:
+            warnings.warn(message)
 
     return slots, sample_names, slot_sample_names
 
@@ -639,7 +654,7 @@ def _read(file_path, sparse, default_slot, design,
         prefix = Path(file_path).stem
 
         slot_suffixes = infer_suffixes_from_df(df)
-        slots, sample_names, slot_sample_names = parse_slots(df, slot_suffixes, sparse)
+        slots, sample_names, slot_sample_names = parse_slots(df, slot_suffixes, sparse, strict=False)
 
         if default_slot not in slots:
             raise ValueError(
@@ -682,4 +697,7 @@ def _read(file_path, sparse, default_slot, design,
 # print(sars.coldata) # funktioniert
 
 # sparse_data = read_grand("test-datasets/test_sparse.targets", design=("Time", "Replicate"))
-# print(sparse_data.coldata) # Leider sind noch die Columns nicht ganz korrekt
+# print(sparse_data.coldata) # funktioniert
+
+# df = pd.read_csv("test-datasets/targets_only_test_data/targets_only_test_data/test_targets.pseudobulk.all.tsv/test_targets.pseudobulk.all.tsv", sep="\t")
+# print(df.head())
