@@ -1,6 +1,6 @@
 import re
 import warnings
-from typing import Any, Union, Sequence, Literal, Mapping, Callable
+from typing import Any, Union, Sequence, Literal, Mapping, Callable, Optional
 import numpy as np
 import pandas as pd
 import anndata as ad
@@ -59,14 +59,16 @@ class GrandPy:
         Plot functions. (global or gene plots)
     """
 
-    def __init__(self,
-                 prefix: str = None,
-                 gene_info: pd.DataFrame = None,
-                 coldata: pd.DataFrame = None,
-                 slots: dict[str, Union[np.ndarray, sp.csr_matrix]] = None,
-                 metadata: dict[str, Any] = None,
-                 analyses: dict[str, pd.DataFrame] = None,
-                 plots: dict[str, dict] = None):
+    def __init__(
+            self,
+            prefix: str = None,
+            gene_info: pd.DataFrame = None,
+            coldata: pd.DataFrame = None,
+            slots: dict[str, Union[np.ndarray, sp.csr_matrix]] = None,
+            metadata: dict[str, Any] = None,
+            analyses: dict[str, pd.DataFrame] = None,
+            plots: dict[str, dict] = None
+    ):
 
         if gene_info is None:
             raise ValueError("GrandPy object must have gene_info.")
@@ -122,16 +124,18 @@ class GrandPy:
         return self.replace(anndata = new_adata)
 
 
-    def replace(self,
-                *,
-                prefix: str = None,
-                gene_info: pd.DataFrame = None,
-                coldata: pd.DataFrame = None,
-                slots: dict[str, Union[np.ndarray, sp.csr_matrix]] = None,
-                metadata: dict[str, Any] = None,
-                analyses: dict[str, Any] = None,
-                plots: dict[str, Any] = None,
-                anndata: ad.AnnData = None) -> "GrandPy":
+    def replace(
+            self,
+            *,
+            prefix: str = None,
+            gene_info: pd.DataFrame = None,
+            coldata: pd.DataFrame = None,
+            slots: dict[str, Union[np.ndarray, sp.csr_matrix]] = None,
+            metadata: dict[str, Any] = None,
+            analyses: dict[str, Any] = None,
+            plots: dict[str, Any] = None,
+            anndata: ad.AnnData = None
+    ) -> "GrandPy":
         """
         This function is useful when you want to modify the GrandPy instance on your own.
 
@@ -558,7 +562,7 @@ class GrandPy:
         """
         return self._plot_manager.plots()
 
-    # Beipiel im docstring unvollständig, da wir noch keine global plot funktion haben
+    # Beipiel im docstring unvollständig, da wir noch keine gene plot funktion haben
     def with_gene_plot(self, name: str, function: Plot) -> "GrandPy":
         """
         Returns a new GrandPy object with a gene plot added.
@@ -1185,7 +1189,7 @@ class GrandPy:
 
         return self.apply(swap, function_coldata=swap, col1=column1, col2=column2)
 
-    # Immer noch nicht vollständig.
+
     def apply(self, function: Callable, *, function_gene_info: Callable = None, function_coldata: Callable = None,
               **kwargs) -> "GrandPy":
         """
@@ -1233,7 +1237,7 @@ class GrandPy:
 
         return self.replace(anndata=new_adata)
 
-    # TODO concat() Verhalten überprüfen(dafür wäre es gut einen gänzlich anderen Datensatz zu haben)
+    # TODO concat() überarbeiten
     def concat(self, other: "GrandPy", axis: Literal["gene_info", 0, "coldata", 1] = 1) -> "GrandPy":
         """
         Concatenates the other object with the current instance along a given axis.
@@ -1274,10 +1278,12 @@ class GrandPy:
 
 
     # Doch eher wie slot_data? Anndata Object ist denke ich die Mühe nicht wert.
-    def get_matrix(self,
-                   mode_slot: Union[str, ModeSlot] = None,
-                   genes: Union[str, int, Sequence[Union[str, int]]] = None,
-                   columns: Union[str, int, Sequence[Union[str, int]]] = None,) -> Union[np.ndarray, sp.csr_matrix]:
+    def get_matrix(
+            self,
+            mode_slot: Union[str, ModeSlot] = None,
+            genes: Union[str, int, Sequence[Union[str, int]]] = None,
+            columns: Union[str, int, Sequence[Union[str, int]]] = None
+    ) -> Union[np.ndarray, sp.csr_matrix]:
         """
         Get the raw data from a data slot, without row or column names.
 
@@ -1329,13 +1335,15 @@ class GrandPy:
         return data_subset
 
     # TODO get_data() um die fehlenden Parameter aus R erweitern. (ntr.na, by.rows)
-    def get_data(self,
-                 mode_slots: Union[str, ModeSlot, Sequence[Union[str, ModeSlot]]] = None,
-                 genes: Union[str, int, Sequence[Union[str, int]]] = None,
-                 columns: Union[str, int, Sequence[Union[str, int]]] = None,
-                 *,
-                 with_coldata: bool = True,
-                 name_genes_by = "Symbol") -> pd.DataFrame:
+    def get_data(
+            self,
+            mode_slots: Union[str, ModeSlot, Sequence[Union[str, ModeSlot]]] = None,
+            genes: Union[str, int, Sequence[Union[str, int]]] = None,
+            columns: Union[str, int, Sequence[Union[str, int]]] = None,
+            *,
+            with_coldata: bool = True,
+            name_genes_by = "Symbol"
+    ) -> pd.DataFrame:
         """
         Get a DataFrame containing the data from data slots, optionally with the corresponding coldata.
 
@@ -1408,13 +1416,15 @@ class GrandPy:
         return result_df
 
     # TODO get_table() um die fehlenden Parameter aus R erweitern(ntr.na, summarize, prefix, reorder.columns). mode_slot soll auch noch ein regex sein können(der mit analysis names verglichen wird).
-    def get_table(self,
-                  mode_slots: Union[str, ModeSlot, Sequence[Union[str, ModeSlot]]] = None,
-                  genes: Union[str, int, Sequence[Union[str, int]]] = None,
-                  columns: Union[str, int, Sequence[Union[str, int]]] = None,
-                  *,
-                  with_gene_info: bool = False,
-                  name_genes_by = "Symbol") -> pd.DataFrame:
+    def get_table(
+            self,
+            mode_slots: Union[str, ModeSlot, Sequence[Union[str, ModeSlot]]] = None,
+            genes: Union[str, int, Sequence[Union[str, int]]] = None,
+            columns: Union[str, int, Sequence[Union[str, int]]] = None,
+            *,
+            with_gene_info: bool = False,
+            name_genes_by = "Symbol"
+    ) -> pd.DataFrame:
         """
         Get a DataFrame containing the data from data slots, optionally with the corresponding gene_info.
 
@@ -1488,14 +1498,16 @@ class GrandPy:
 
         return result_df
 
-    def get_analysis_table(self,
-                           analyses: Union[str, int, Sequence[Union[str, int, bool]]] = None,
-                           genes: Union[str, int, Sequence[Union[str, int]]] = None,
-                           columns: str = None,
-                           *,
-                           regex: bool = True,
-                           with_gene_info: bool = True,
-                           name_genes_by: str = "Symbol") -> pd.DataFrame:
+    def get_analysis_table(
+            self,
+            analyses: Union[str, int, Sequence[Union[str, int, bool]]] = None,
+            genes: Union[str, int, Sequence[Union[str, int]]] = None,
+            columns: str = None,
+            *,
+            regex: bool = True,
+            with_gene_info: bool = True,
+            name_genes_by: str = "Symbol"
+    ) -> pd.DataFrame:
         """
         Get a DataFrame containing analysis tables, optionally with the corresponding gene_info.
 
@@ -1565,9 +1577,224 @@ class GrandPy:
 
         return result_df
 
+    # TODO Beispiele für find_references schreiben
+    def find_references(
+            self,
+            reference: Optional[Union[str, Callable[[pd.Series], bool]]] = None,
+            reference_function: Optional[Callable[[pd.Series], list[str]]] = None,
+            *,
+            group: Optional[Union[str, list[str]]] = None,
+            columns: Optional[Union[str, list[str]]] = None,
+            as_list: bool = False
+    ) -> Union[pd.DataFrame, dict[str, list[str]]]:
+        """
+        Find reference samples within groups using a condition or custom function.
 
-    def find_references(self):
-        ...
+        Parameters
+        ----------
+        reference : str or Callable[[pd.Series], bool], optional
+            A condition to define reference samples. Can be:
+            - a string (interpreted via `pandas.query`)
+            - a function taking a row and returning True for reference samples, False otherwise.
+
+        reference_function : Callable[[pd.Series], list[str]], optional
+            A function that returns a list of references for each sample (row-wise).
+            If specified, `reference` is ignored.
+
+        group : str or list[str], optional
+            One or more column names in `coldata` used to group samples before applying the condition.
+
+        columns : str or list[str], optional
+            Limit the input to specific columns from `coldata` for evaluation.
+
+        as_list : bool, default False
+            If True, return a dictionary mapping each sample to its references.
+            If False, return a square boolean DataFrame indicating references.
+
+        Returns
+        -------
+        Union[pd.DataFrame, dict[str, list[str]]]
+            Either a reference matrix or a mapping from sample → list of references.
+
+        Raises
+        ------
+        ValueError
+            When neither `reference` nor `reference_function` is provided.
+
+        ValueError
+            When `reference` is a string and the query on the DataFrame fails.
+
+        TypeError
+            When `reference` is neither a string nor a callable.
+        """
+
+        def map_refs_by_group(df, selected_refs):
+            """
+            Helper to assign found references to their groups.
+            """
+            group_series = df["__group__"]
+            group_to_refs = {}
+            for grp in group_series.unique():
+                refs = [r for r in selected_refs if group_series[r] == grp]
+                group_to_refs[grp] = refs
+            return group_to_refs
+
+        def apply_reference_function(df_subset, group_series):
+            """
+            Applies a reference_function to each row within group.
+            """
+            ref_matrix = pd.DataFrame(False, index=df_subset.index, columns=df_subset.index)
+
+            for grp, gdf in df_subset.groupby(group_series):
+                for idx, row in gdf.iterrows():
+                    try:
+                        references = _ensure_list(reference_function(row))
+                        ref_matrix.loc[references, idx] = True
+                    except Exception as e:
+                        raise ValueError(f"Error in reference_function for sample '{idx}': {e}")
+            return ref_matrix
+
+        def format_ref_output(group_series, group_to_refs, as_list):
+            """
+            Converts grouped references to matrix or dictionary.
+            """
+            samples = group_series.index
+            if as_list:
+                return {sample: group_to_refs.get(group_series[sample], []) for sample in samples}
+
+            matrix = pd.DataFrame(False, index=samples, columns=samples)
+            for sample in samples:
+                refs = group_to_refs.get(group_series[sample], [])
+                matrix.loc[refs, sample] = True
+            return matrix
+
+        df = self.coldata.copy()
+        columns = _ensure_list(columns) if columns is not None else list(df.columns)
+        group_cols = _ensure_list(group) if group is not None else []
+
+        # Add group label column
+        df["__group__"] = (
+            df[group_cols].astype(str).agg("_".join, axis=1) if group_cols else "GROUP"
+        )
+
+        df_subset = df[columns].copy()
+
+        if reference_function:
+            return apply_reference_function(df_subset, df["__group__"])
+
+        if reference is None:
+            raise ValueError("Either `reference` or `reference_function` must be provided.")
+
+        if isinstance(reference, str):
+            try:
+                mask_df = df_subset.eval(reference, engine="python") # Alternativ: selected_refs = df_subset.query(reference).index
+                if isinstance(mask_df, pd.Series) and mask_df.dtype == bool:
+                    selected_refs = df_subset.index[mask_df].tolist()
+                else:
+                    raise ValueError("Query did not return a boolean mask.")
+            except Exception as e:
+                raise ValueError(f"Invalid reference query string: {e}")
+            group_to_refs = map_refs_by_group(df, selected_refs)
+        elif callable(reference):
+            group_to_refs = {
+                grp: gdf.index[gdf.apply(reference, axis=1)].tolist()
+                for grp, gdf in df.groupby("__group__")
+            }
+        else:
+            raise TypeError("`reference` must be a string or a callable.")
+
+        return format_ref_output(df["__group__"], group_to_refs, as_list)
+
+
+    def deseq2_bic_statsmodels(
+            data,
+            name: str = "BIC",
+            mode: str = "total",
+            formulas: dict = None,
+            no4su: bool = False,
+            columns: Optional[Union[Sequence[str], Sequence[bool]]] = None,
+            verbose: bool = False,
+    ) -> "GrandPy":
+        """
+        GrandPy-compatible DESeq2BIC implementation using statsmodels.
+
+        Parameters
+        ----------
+        name : str
+            Name of the analysis.
+        mode : str
+            Data slot to use (e.g., 'total').
+        formulas : dict
+            Dictionary of {model_name: formula_string}, e.g. {"full": "counts ~ Condition", "null": "counts ~ 1"}.
+        no4su : bool
+            Whether to exclude 4sU-treated samples.
+        columns : list[str|bool], optional
+            Manually selected sample filter.
+        verbose : bool
+            Print progress if True.
+
+        Returns
+        -------
+        GrandPy
+            New object with the ΔBIC table added under `name`.
+        """
+        from statsmodels.formula.api import glm
+        from statsmodels.genmod.families import NegativeBinomial
+
+
+        if formulas is None:
+            formulas = {"full": "counts ~ Condition", "null": "counts ~ 1"}
+
+        # --- Filter samples ---
+        coldata = data.coldata.copy()
+
+        if columns is None:
+            if no4su and "no4sU" in coldata.columns:
+                mask = ~coldata["no4sU"]
+                columns = coldata.index[mask].tolist()
+            else:
+                columns = coldata.index.tolist()
+        else:
+            columns = [col for col in _ensure_list(columns) if col in coldata.index]
+
+        coldata = coldata.loc[columns].copy()
+
+        # --- Get counts (samples x genes) ---
+        count_df = data.get_table(mode_slots=ModeSlot(mode, "count"), columns=columns).T
+        count_df = count_df.astype(int)
+
+        bic_per_model = {}
+
+        for model_name, formula in formulas.items():
+            if verbose:
+                print(f"Fitting model '{model_name}' ...")
+
+            bic_values = []
+
+            # Loop over genes
+            for gene in count_df.columns:
+                try:
+                    df = coldata.copy()
+                    df["counts"] = count_df[gene].values
+
+                    model = glm(formula=formula, data=df, family=NegativeBinomial(alpha=1.0)).fit()
+                    bic_values.append(model.bic_llf)
+
+                except Exception as e:
+                    if verbose:
+                        print(f"Warning: Skipping gene {gene} due to error: {e}")
+                    bic_values.append(np.nan)
+
+            bic_per_model[model_name] = bic_values
+
+        bic_df = pd.DataFrame(bic_per_model, index=count_df.columns)
+
+        # ΔBIC: subtract min BIC per gene
+        delta_bic_df = bic_df.subtract(bic_df.min(axis=1), axis=0)
+        delta_bic_df.columns = [f"{col}.dBIC" for col in delta_bic_df.columns]
+
+        print(delta_bic_df)
+        return data.with_analysis(name=name, table=delta_bic_df)
 
 
     def compute_ntr_ci(self, ci_size: float = 0.95, name_lower: str = "lower", name_upper: str = "upper"):

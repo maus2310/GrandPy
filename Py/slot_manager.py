@@ -6,8 +6,6 @@ import pandas as pd
 import scipy.sparse as sp
 
 
-
-
 class ModeSlot:
     """
     Used to store a mode slot.
@@ -42,6 +40,27 @@ class ModeSlot:
             self.mode = "total"
         else:
             raise ValueError(f"Invalid mode: {mode}. Can either be 'new', 'old' or 'total'.")
+
+
+def _parse_as_mode_slot(mode_slot: Union[str, ModeSlot]) -> ModeSlot:
+    """
+    Helper function to parse a mode_slot string.
+    """
+    if isinstance(mode_slot, ModeSlot):
+        return mode_slot
+
+    mode_slot_candidate = mode_slot.split("_", 1)
+
+    if len(mode_slot_candidate) == 1:
+        return ModeSlot("total", mode_slot)
+
+    if len(mode_slot_candidate) != 2:
+        raise ValueError(
+            f"Invalid mode_slot: '{mode_slot}'. Expected format: '<mode>_<slot>' or ModeSlot('<mode>', '<slot>').")
+
+    mode, slot = mode_slot_candidate
+
+    return ModeSlot(mode, slot)
 
 
 class SlotManager:
@@ -141,23 +160,6 @@ class SlotManager:
         return slot in self.slots()
 
     def resolve_mode_slot(self, mode_slot: Union[str, ModeSlot], *, allow_ntr = True) -> Union[np.ndarray, sp.csr_matrix]:
-        def parse_mode_slot(mode_slot_unparsed: str) -> ModeSlot:
-            """
-            Helper function to parse a mode_slot string.
-            """
-            mode_slot_candidate = mode_slot_unparsed.split("_", 1)
-
-            if len(mode_slot_candidate) == 1:
-                return ModeSlot("total", mode_slot_unparsed)
-
-            if len(mode_slot_candidate) != 2:
-                raise ValueError(
-                    f"Invalid mode_slot: '{mode_slot_unparsed}'. Expected format: '<mode>_<slot>' or ModeSlot('<mode>', '<slot>').")
-
-            mode, slot = mode_slot_candidate
-
-            return ModeSlot(mode, slot)
-
         def one_minus_csr_matrix(matrix: sp.csr_matrix) -> sp.csr_matrix:
             """
             Helper funktion to compute one minus a sparse matrix.
@@ -167,10 +169,7 @@ class SlotManager:
             return ones - matrix
 
         # if mode_slot is a string, it gets parsed into a ModeSlot Object
-        if isinstance(mode_slot, str):
-            if self.check_slot(mode_slot, allow_ntr = allow_ntr):
-                return self._adata.layers[mode_slot]
-            mode_slot = parse_mode_slot(mode_slot)
+        mode_slot = _parse_as_mode_slot(mode_slot)
 
         if not self.check_slot(mode_slot.slot, allow_ntr=allow_ntr):
             raise ValueError(f"Slot '{mode_slot.slot}' not found in data slots.")
