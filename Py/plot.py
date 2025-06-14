@@ -102,7 +102,7 @@ def _setup_default_aes(data: GrandPy, aest: dict | None = None) -> dict:
     # 13. rastersize
     # 14. correlation, correlation_x/_y/_hjust/_vjust
     # 15. layers.below
-
+#Beispielaufruf: plot_scatter(sars, mode_slot="count", remove_outlier=True, show_outlier=True, highlight="UHMK1")
 def plot_scatter(
     data: GrandPy,
     x: Optional[str] = None,
@@ -322,6 +322,7 @@ def plot_heatmap(
 # für mode_slot = "alpha" und do.vst=False sind die werte irgendwie an der y achse gespiegelt???
 # für mode_slot = "ntr" und do.vst=False alles komisch
 # für mode_slot = "beta" und do.vst=False alles einwandfrei
+#Beispielaufruf: plot_pca(sars)
 def plot_pca(
     data: GrandPy,
     mode_slot: str | ModeSlot = None,
@@ -381,9 +382,9 @@ def plot_pca(
         percent_var = pca.fit(vst_df).explained_variance_ratio_
         pc_df = pd.DataFrame(pcs, index=vst_df.index, columns=[f"PC{i + 1}" for i in range(pcs.shape[1])])
         df = pd.concat([pc_df, metadata_df], axis=1)
-        print("🔍 Matrix nach Pca, vor PCA (vst_df):")
-        print(df.shape)
-        print(df)
+        # print("🔍 Matrix nach Pca, vor PCA (vst_df):")
+        # print(df.shape)
+        # print(df)
     else:
         #print("novst")
 
@@ -415,7 +416,7 @@ def plot_pca(
         plt.savefig(f"{path_for_save}/PCA_{mode_slot}.png", dpi=300)
     plt.show()
 
-
+#Beispielaufruf: plot_gene_old_vs_new(sars, "UHMK1", show_ci=True)
 def plot_gene_old_vs_new(
     data: GrandPy,
     gene: str,
@@ -530,7 +531,7 @@ def plot_gene_old_vs_new(
     plt.show()
     plt.close()
 
-
+#Beispielaufruf: plot_gene_total_vs_ntr(sars, "UHMK1")
 def plot_gene_total_vs_ntr(
     data: GrandPy,
     gene: str,
@@ -637,7 +638,7 @@ def plot_gene_total_vs_ntr(
     plt.tight_layout()
     plt.show()
     plt.close()
-
+#Beispielaufruf: plot_gene_groups_points(sars, "UHMK1", group="Time")
 def plot_gene_groups_points(
     data: GrandPy,
     gene: str,
@@ -778,12 +779,13 @@ def plot_gene_groups_points(
     plt.show()
     plt.close()
 
-# TODO Alles noch überarbeiten :)
+#TODO show_ci muss noch überarbeitet werden
+#Beispielaufruf: plot_gene_groups_bars(sars, "UHMK1", xlab="Condition + '.' + Replicate")
 def plot_gene_groups_bars(
     data: GrandPy,
     gene: str,
     slot: Optional[str] = None,
-    columns: Optional[Union[list, str]] = None,
+    columns: Optional[Union[str, list]] = None,
     show_ci: bool = False,
     xlab: Optional[Union[str, list]] = None,
     transform: Optional[callable] = None
@@ -791,8 +793,8 @@ def plot_gene_groups_bars(
     if slot is None:
         slot = data.default_slot
 
-    mode_slot = _parse_as_mode_slot(slot)
-    slot = mode_slot.slot
+    mode_slot_old = ModeSlot("old", slot)
+    mode_slot_new = ModeSlot("new", slot)
 
     if columns is None:
         selected_columns = data.columns
@@ -801,62 +803,88 @@ def plot_gene_groups_bars(
     else:
         selected_columns = data.get_columns(columns)
 
+    coldata = data.coldata.loc[selected_columns].copy()
+    old_vals = data.get_table(mode_slots=mode_slot_old, genes=gene, columns=selected_columns).iloc[0].to_numpy()
+    new_vals = data.get_table(mode_slots=mode_slot_new, genes=gene, columns=selected_columns).iloc[0].to_numpy()
 
-    df = data.get_data(mode_slots="ntr", genes=gene, columns=selected_columns)
-    print(df)
-
-    if xlab is None:
-        df["xlab"] = df["Name"]
-    elif isinstance(xlab, list):
-        df["xlab"] = xlab * 2
+    if isinstance(xlab, list):
+        xlabels = xlab
     elif isinstance(xlab, str):
-        expr = data.coldata.loc[selected_columns].eval(xlab)
-        df["xlab"] = list(expr) * 2
+        local_vars = {col: coldata[col].astype(str) for col in coldata.columns}
+        try:
+            xlabels = eval(xlab, {}, local_vars).tolist()
+        except Exception as e:
+            raise ValueError(f"xlab expression could not be evaluated: {e}")
     else:
-        raise ValueError("xlab must be None, list, or string expression")
+        xlabels = coldata["Name"].tolist()
+
+    df = pd.DataFrame({
+        "sample": selected_columns,
+        "xlab": xlabels,
+        "old": old_vals,
+        "new": new_vals
+    })
 
     if transform is not None:
         df = transform(df)
 
+    x = np.arange(len(df))
+    width = 0.8
 
     fig, ax = plt.subplots(figsize=(10, 6))
-    palette = {"new": "red", "old": "gray"}
+    ax.bar(x, df["old"], width, label="old", color="lightgray")
+    ax.bar(x, df["new"], width, bottom=df["old"], label="new", color="red")
 
-    sns.barplot(
-        data=df,
-        x="xlab",
-        y=gene,
-        ax=ax,
-    )
-
+    ax.set_xticks(x)
+    ax.set_xticklabels(df["xlab"], rotation=90)
     ax.set_ylabel(f"Total RNA ({slot})")
     ax.set_xlabel("")
-    ax.set_title(f"{gene}")
-    plt.xticks(rotation=90)
+    ax.set_title(gene)
 
     if show_ci:
         if "lower" not in data.slots or "upper" not in data.slots:
             raise ValueError("CI slots ('lower' and 'upper') are missing. Run ComputeNtrCI first.")
 
-        slot_vals = data.get_table(mode_slots=slot, genes=gene, columns=selected_columns).iloc[0].to_numpy()
+        total = data.get_table(mode_slots=slot, genes=gene, columns=selected_columns).iloc[0].to_numpy()
         lower = data.get_table(mode_slots="lower", genes=gene, columns=selected_columns).iloc[0].to_numpy()
         upper = data.get_table(mode_slots="upper", genes=gene, columns=selected_columns).iloc[0].to_numpy()
 
-        ymin = (1 - upper) * slot_vals
-        ymax = (1 - lower) * slot_vals
+        ymin = (1 - upper) * total
+        ymax = (1 - lower) * total
 
-        xpos = np.arange(len(selected_columns))
+        err_low = total - ymin
+        err_high = (ymax - total)
 
-        ax.errorbar(
-            x=xpos,
-            y=slot_vals,
-            yerr=[slot_vals - ymin, ymax - slot_vals],
-            fmt='none',
-            ecolor='black',
-            capsize=3
+        print(err_low, err_high)
+
+        mask = (
+                np.isfinite(total) &
+                np.isfinite(lower) & np.isfinite(upper) &
+                np.isfinite(err_low) & np.isfinite(err_high) &
+                (total >= 0) &
+                (lower >= 0) & (upper >= 0) &
+                (lower <= upper) &
+                (err_low >= 0) & (err_high >= 0)
         )
-        ax.set_xticks(xpos)
-        ax.set_xticklabels(df["xlab"][:len(selected_columns)])
+
+        n_invalid = np.sum(~mask)
+        if n_invalid > 0:
+            warnings.warn(f"{n_invalid} data points with invalid CI were excluded from error bars.", UserWarning)
+
+        if np.any(mask):
+            x_valid = np.arange(len(total))[mask]
+            total_valid = total[mask]
+            err_valid = [err_low[mask], err_high[mask]]
+
+            ax.errorbar(
+                x=x_valid,
+                y=total_valid,
+                yerr=err_valid,
+                fmt='none',
+                ecolor='black',
+                capsize=3
+
+        )
 
     ax.legend().remove()
     plt.tight_layout()

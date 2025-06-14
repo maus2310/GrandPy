@@ -7,7 +7,7 @@ import anndata as ad
 import scipy.sparse as sp
 
 from Py.utils import _ensure_list, _make_unique
-from Py.slot_manager import SlotManager, ModeSlot
+from Py.slot_manager import SlotManager, ModeSlot, _parse_as_mode_slot
 from Py.plot_manager import PlotManager, Plot
 from Py.analysis_manager import AnalysisManager
 
