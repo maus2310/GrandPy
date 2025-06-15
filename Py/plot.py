@@ -4,7 +4,8 @@ import numpy as np
 import pandas as pd
 from typing import Optional, Union
 from Py.grandPy import GrandPy, ModeSlot, _parse_as_mode_slot
-from scipy.stats import gaussian_kde
+from scipy.stats import gaussian_kde, iqr
+from scipy.ndimage import gaussian_filter
 import seaborn as sns
 from sklearn.decomposition import PCA
 from pydeseq2.dds import DeseqDataSet
@@ -86,6 +87,56 @@ def _setup_default_aes(data: GrandPy, aest: dict | None = None) -> dict:
 
     return aest
 
+
+def _density2d(x, y, n=100, bw_x=None, bw_y=None, margin='n'):
+    x = np.asarray(x)
+    y = np.asarray(y)
+    finite_mask = np.isfinite(x + y)
+    if not np.any(finite_mask):
+        return np.full_like(x, np.nan, dtype=float)
+
+    x = x[finite_mask]
+    y = y[finite_mask]
+
+    if np.all(x == x[0]):
+        x = np.array([x[0] - 0.5, x[0] + 0.5])
+    if np.all(y == y[0]):
+        y = np.array([y[0] - 0.5, y[0] + 0.5])
+
+    def _bandwidth_nrd(v):
+        h = (np.max(v) - np.min(v)) / 1.34
+        return 1.06 * min(np.std(v, ddof=1), h) * len(v) ** (-1 / 5)
+
+    bw_x = bw_x or _bandwidth_nrd(x)
+    bw_y = bw_y or _bandwidth_nrd(y)
+
+    xbins = np.linspace(np.min(x), np.max(x), n)
+    ybins = np.linspace(np.min(y), np.max(y), n)
+
+    H, xedges, yedges = np.histogram2d(x, y, bins=[xbins, ybins])
+
+    dx = xedges[1] - xedges[0]
+    dy = yedges[1] - yedges[0]
+    sigma_x = bw_x / dx
+    sigma_y = bw_y / dy
+
+    H_smooth = gaussian_filter(H, sigma=[sigma_x, sigma_y])
+
+    if margin == 'x':
+        H_smooth = H_smooth / np.max(H_smooth, axis=1, keepdims=True)
+    elif margin == 'y':
+        H_smooth = H_smooth / np.max(H_smooth, axis=0, keepdims=True)
+    else:
+        H_smooth /= np.max(H_smooth)
+
+    from scipy.interpolate import RegularGridInterpolator
+    interp = RegularGridInterpolator((xbins[:-1], ybins[:-1]), H_smooth.T, bounds_error=False, fill_value=0)
+
+    result = np.full(len(finite_mask), np.nan)
+    result[finite_mask] = interp(np.vstack([x, y]).T)
+    result /= np.nanmax(result)
+
+    return result
 
 #Parameter die noch fehlen:
     # 1. analysis
@@ -171,7 +222,6 @@ def plot_scatter(
         raise ValueError(f"x is not a valid expression.")
     if y not in names:
         raise ValueError(f"y is not a valid expression.")
-    #Default slot
     if mode_slot is None:
         mode_slot = data.default_slot
 
@@ -199,13 +249,11 @@ def plot_scatter(
     x_lim = x_lim or auto_x_lim
     y_lim = y_lim or auto_y_lim
 
-    # KDE for density color
-    if np.allclose(x_vals, y_vals):
-        epsilon = np.random.normal(0, 1e-4, size=x_vals.shape)
-        y_vals = y_vals + epsilon
-    kde = gaussian_kde(np.vstack([x_vals, y_vals]))(np.vstack([x_vals, y_vals]))
-    idx = kde.argsort()
-    x_vals, y_vals, kde = x_vals[idx], y_vals[idx], kde[idx]
+    # Compute Density
+    z = _density2d(x_vals, y_vals, n=100, margin='n')
+    idx = z.argsort()
+    x_vals, y_vals, z = x_vals[idx], y_vals[idx], z[idx]
+
 
     fig, ax = plt.subplots(figsize=(6, 6))
 
@@ -220,7 +268,7 @@ def plot_scatter(
         ax.scatter(clipped_x, clipped_y, color="grey", s=size+10, alpha=1, label="Outliers")
 
     # Main scatter
-    scatter = ax.scatter(x_vals, y_vals, c=kde, s=size, cmap="viridis", alpha=1)
+    scatter = ax.scatter(x_vals, y_vals, c=z, s=size, cmap="viridis", alpha=1, rasterized=False)
     fig.colorbar(scatter, ax=ax, label="Density")
 
     # Axis labels and title
@@ -354,50 +402,34 @@ def plot_pca(
 
     if str(mode_slot).lower() == "count":
         slotmat = mat.T.round().astype(int)
-        #print("🔍 Matrix vor VST (SlotMat):")
-        #print(SlotMat.shape)
-        #print(SlotMat.head())
     else:
         slotmat = mat.T
+
     metadata_df = coldata.copy()
     metadata_df["condition"] = metadata_df["Condition"]
 
     if do_vst and str(mode_slot).lower() == "count":
-        #print("vst")
+        metadata_df = coldata.copy()
+        metadata_df["condition"] = metadata_df["Condition"]
+
         dds = DeseqDataSet(counts=slotmat, metadata=metadata_df, design_factors="condition")
         dds.deseq2()
         dds.vst_fit()
         vst_array = dds.vst_transform()
+
         vst_df = pd.DataFrame(vst_array, index=slotmat.index, columns=slotmat.columns)
-        #print("🔍 Matrix nach VST, vor PCA (vst_df):")
-        #print(vst_df.shape)
-        #print(vst_df.head())
-
-        variances = vst_df.var(axis=0)
-        top_genes = variances.sort_values(ascending=False).head(min(ntop, len(variances))).index
-        vst_df = vst_df[top_genes]
-
-        # PCA
-        pca = PCA()
-        pcs = pca.fit_transform(vst_df)
-        percent_var = pca.fit(vst_df).explained_variance_ratio_
-        pc_df = pd.DataFrame(pcs, index=vst_df.index, columns=[f"PC{i + 1}" for i in range(pcs.shape[1])])
-        df = pd.concat([pc_df, metadata_df], axis=1)
-        # print("🔍 Matrix nach Pca, vor PCA (vst_df):")
-        # print(df.shape)
-        # print(df)
+        top_genes = vst_df.var().nlargest(min(ntop, vst_df.shape[1])).index
+        mat_for_pca = vst_df[top_genes]
     else:
-        #print("novst")
+        top_genes = slotmat.var().nlargest(min(ntop, slotmat.shape[1])).index
+        mat_for_pca = slotmat[top_genes]
 
-        variances = slotmat.var(axis=0)
-        top_genes = variances.sort_values(ascending=False).head(min(ntop, len(variances))).index
-        mat_t = slotmat[top_genes]
-
-        pca = PCA()
-        pcs = pca.fit_transform(mat_t)
-        percent_var = pca.fit(mat_t).explained_variance_ratio_
-        pc_df = pd.DataFrame(pcs, index=mat_t.index, columns=[f"PC{i + 1}" for i in range(pcs.shape[1])])
-        df = pd.concat([pc_df, metadata_df], axis=1)
+    # PCA
+    pca = PCA()
+    pcs = pca.fit_transform(mat_for_pca)
+    percent_var = pca.explained_variance_ratio_
+    pc_df = pd.DataFrame(pcs, index=mat_for_pca.index, columns=[f"PC{i + 1}" for i in range(pcs.shape[1])])
+    df = pd.concat([pc_df, coldata], axis=1)
 
     aest = _setup_default_aes(data, aest)
     style = aest.get("shape")
@@ -890,7 +922,7 @@ def plot_gene_groups_bars(
     plt.show()
     plt.close()
 
-
+# Beispielsaufruf: plot_gene_snapshot_timecourse(sars, "UHMK1")
 def plot_gene_snapshot_timecourse(
     data: GrandPy,
     gene: str,
