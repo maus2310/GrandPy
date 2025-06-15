@@ -27,7 +27,7 @@ def infer_suffixes_from_df(df, known_suffixes=None) -> dict:
 
     if known_suffixes is None:
         known_suffixes = {
-            "count": [" Readcount", " Read count"],
+            # "count": [" Readcount", " Read count", "Readcount", "Read count"],
             "ntr": [" MAP", " NTR MAP", " Binom NTR MAP", " TbBinom NTR MAP", " TbBinomShape NTR MAP"],
             "alpha": [" alpha", " Binom alpha", " TbBinom alpha", " TbBinomShape alpha"],
             "beta": [" beta", " Binom beta", " TbBinom beta", " TbBinomShape beta"],
@@ -42,6 +42,13 @@ def infer_suffixes_from_df(df, known_suffixes=None) -> dict:
             matching = [col for col in df.columns if col.endswith(suffix)]
             if matching:
                 result[slot] = suffix
+                break
+
+    # Regex für count statt known_suffix-Liste:
+    if "count" not in result:
+        for col in df.columns:
+            if re.search(r"(?:\s|^)?Read\s?count$", col, re.IGNORECASE):
+                result["count"] = " Readcount"
                 break
 
     return result
@@ -94,8 +101,8 @@ def parse_slots(df, suffixes, sparse, *, strict=True):
         Whether to return the matrices in sparse format.
 
     strict : bool, default=True
-        If True, raises an error if duplicate sample names are found across sots.
-        If False, only warn.
+        If True, raises an error if **the same sample appears in multiple slots (e.g., 'count', 'alpha')**.
+        This is usually expected behavior in GRAND-SLAM, so 'strict=False' is recommended.
 
     Returns
     -------
@@ -427,7 +434,7 @@ def resolve_prefix_path(prefix, pseudobulk=None, targets=None):
         candidates.append(base.parent / f"{base.name}.pseudobulk.{pseudobulk}" / "data.tsv.gz") # <prefix>.pseudobulk.<pseudobulk>
     if targets:                     # <prefix>.pseudobulk.<targets>.*
         pattern = re.compile(f"^{re.escape(base.name)}\\.pseudobulk\\.{re.escape(targets)}\\..+$")
-        subdirs = [p for p in base.parennt.iterdir() if p.is_dir() and pattern.match(p.name)]
+        subdirs = [p for p in base.parent.iterdir() if p.is_dir() and pattern.match(p.name)]
         for sub in subdirs:
             candidates.append(sub / "data.tsv.gz")
 
@@ -475,7 +482,7 @@ def is_sparse_file(path) -> bool:
             and (path / "features.tsv.gz").exists()
     ])
 
-def read_dense(file_path, default_slot="count", design=None, *, classification_genes=None, classification_genes_label="Viral", classify_genes_func=None, **kwargs):
+def read_dense(file_path, default_slot="count", design=None, *, classification_genes=None, classification_genes_label="Viral", classify_genes_func=None):
     """
     Reads a GRAND-SLAM TSV file as dense (NumPy) matrices and returns a GrandPy object.
 
@@ -510,7 +517,7 @@ def read_dense(file_path, default_slot="count", design=None, *, classification_g
                  classify_genes_func=classify_genes_func)
 
 
-def read_sparse(folder_path, default_slot="count", design=None, classification_genes=None, classification_genes_label="Viral", classify_genes_func=None, pseudobulk=None, targets=None, **kwargs):
+def read_sparse(folder_path, default_slot="count", design=None, classification_genes=None, classification_genes_label="Viral", classify_genes_func=None, pseudobulk=None, targets=None):
     """
     Reads a GRAND-SLAM sparse dataset from a directory.
 
@@ -518,6 +525,24 @@ def read_sparse(folder_path, default_slot="count", design=None, classification_g
     ----------
     folder_path : str or Path
         Path to the directory containing matrix.mtx.gz etc.
+
+    default_slot : str
+        The Default-Slot is set to "count".
+
+    design : tuple[str], optional
+        E.g. ("Condition", "Time")
+
+    classification_genes : list[str], optional
+        List of gene symbols considered viral, to be assigned a custom type.
+
+    classification_genes_label : str
+        The Default is set to "Viral".
+
+    classify_genes_func : callable, optional
+
+    pseudobulk : callable, optional
+
+    targets : list[str], optional
 
     Returns
     -------
@@ -563,7 +588,7 @@ def read_grand(prefix, pseudobulk=None, targets=None, **kwargs):
     else:
         file_path = resolve_prefix_path(prefix, pseudobulk=pseudobulk, targets=targets)
         print("Detected dense format -> using dense reader")
-        return read_dense(file_path, **kwargs)
+        return read_dense(str(file_path), **kwargs)
 
 
 def _read(file_path, sparse, default_slot, design,
@@ -655,6 +680,7 @@ def _read(file_path, sparse, default_slot, design,
 
         slot_suffixes = infer_suffixes_from_df(df)
         slots, sample_names, slot_sample_names = parse_slots(df, slot_suffixes, sparse, strict=False)
+        # strict=False, obwohl default=True ist, denn sonst wird ein Fehler geworfen, dass Duplicates bei dem sample names existieren - dies ist bei sars_R gerade der Fall
 
         if default_slot not in slots:
             raise ValueError(

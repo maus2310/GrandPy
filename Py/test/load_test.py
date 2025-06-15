@@ -1,10 +1,6 @@
 import pytest
 from scipy import sparse
 from Py.load import *
-import sys
-import os
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
 
 @pytest.fixture
 def mock_df():
@@ -18,6 +14,8 @@ def mock_df():
     }
     return pd.DataFrame(data)
 
+# -----------------------------------------------------------------------------
+# Tests für Infer / Suffixes:
 
 def test_infer_suffixes_from_df(mock_df):
     result = infer_suffixes_from_df(mock_df)
@@ -38,7 +36,6 @@ def test_infer_suffixes_multiple_slots():
     assert result["beta"] == " beta"
 
 
-
 def test_remove_suffixes_single():
     name = "Sample.1 alpha"
     assert remove_suffixes(name, " alpha") == "Sample.1"
@@ -48,6 +45,21 @@ def test_remove_suffixes_tuple():
     name = "Sample.1 MAP"
     assert remove_suffixes(name, (" alpha", " MAP")) == "Sample.1"
 
+
+def test_infer_suffixes_readcount_variants():
+    df = pd.DataFrame({
+        "Sample.1 Readcount": [100],
+        "Sample.2 Read count": [200],
+        "Gene": ["G1"],
+        "Symbol": ["S1"],
+        "Length": [1000]
+    })
+    result = infer_suffixes_from_df(df)
+    assert result["count"] == " Readcount"
+
+
+# -----------------------------------------------------------------------------
+# Tests für Slot Parsing / Padding:
 
 def test_parse_slots(mock_df):
     suffixes = {
@@ -61,10 +73,18 @@ def test_parse_slots(mock_df):
     assert slot_sample_names["alpha"] == ["Sample.1"]
 
 
-def test_build_gene_info(mock_df):
-    result = build_gene_info(mock_df, classify_genes)
-    assert "Type" in result.columns
-    assert result.loc["GENE1", "Type"] == "Cellular"
+def test_parse_slots_allows_duplicate_sample_names():
+    df = pd.DataFrame({
+        "Sample.A Readcount": [1],
+        "Sample.A alpha": [0.1],
+        "Gene": ["G1"],
+        "Symbol": ["S1"],
+        "Length": [100]
+    })
+    suffixes = {"count": " Readcount", "alpha": " alpha"}
+    slots, sample_names, slot_sample_names = parse_slots(df, suffixes, sparse=False, strict=False)
+    assert "count" in slots and "alpha" in slots
+    assert sample_names == ["Sample.A"]
 
 
 def test_pad_slots_dense():
@@ -95,30 +115,6 @@ def test_pad_slots_sparse():
     assert padded["count"].shape == (1, 3)
 
 
-def test_read_dense_real():
-    obj = read_grand("../data/sars_R.tsv", classification_genes=None, classification_genes_label="Viral", design=("Condition", "Time", "Replicate"))
-    assert "count" in obj.slots
-    assert obj.coldata.shape[0] > 0
-
-
-def test_sparse_loader_example():
-    obj = read_grand("../test-datasets/test_sparse.targets", design=("Time", "Replicate"))
-    count = obj._adata.X
-    assert count.shape[0] > 0
-
-
-def test_parse_time_string_edge_cases():
-    assert parse_time_string("90min") == 1.5
-    assert parse_time_string("2h") == 2.0
-    assert parse_time_string("60") == 1.0
-    assert parse_time_string("nos4U") is None
-
-
-def test_resolve_prefix_path_not_found():
-    with pytest.raises(FileNotFoundError):
-        resolve_prefix_path("nonexistent_path")
-
-
 def test_pad_slots_warn_on_missing_sample():
     slots = {
         "count": np.array([[1, 2]])
@@ -132,3 +128,65 @@ def test_pad_slots_warn_on_missing_sample():
 
     with pytest.warns(UserWarning):
         pad_slots(slots, sparse=False, coldata=coldata, slot_sample_names=slot_sample_names)
+
+
+# -----------------------------------------------------------------------------
+# Tests für Gene Info / Classification
+
+def test_build_gene_info(mock_df):
+    result = build_gene_info(mock_df, classify_genes)
+    assert "Type" in result.columns
+    assert result.loc["GENE1", "Type"] == "Cellular"
+
+
+def test_build_gene_info_classification():
+    df = pd.DataFrame({
+        "Gene": ["ENSG00000123456", "ERCC-00001", "MT-CO1", "X1"],
+        "Symbol": ["G1", "ERCC-00001", "MT-CO1", "GENE4"],
+        "Length": [1000, 500, 800, 700]
+    })
+    info = build_gene_info(df, classify_func=classify_genes)
+    assert set(info["Type"]) == {"Cellular", "ERCC", "mito", "Unknown"}
+
+
+# -----------------------------------------------------------------------------
+# Test für Zeitparsing / Design-Metadaten:
+
+def test_parse_time_string_edge_cases():
+    assert parse_time_string("90min") == 1.5
+    assert parse_time_string("2h") == 2.0
+    assert parse_time_string("60") == 1.0
+    assert parse_time_string("nos4U") is None
+
+
+# -----------------------------------------------------------------------------
+# Test für Dateipfade & Formaterkennung:
+
+def test_resolve_prefix_path_not_found():
+    with pytest.raises(FileNotFoundError):
+        resolve_prefix_path("nonexistent_path")
+
+
+# -----------------------------------------------------------------------------
+# Tests für Laden von GRAND-SLAM-Daten
+
+def test_read_dense_real():
+    obj = read_grand("../data/sars_R.tsv", classification_genes=None, classification_genes_label="Viral", design=("Condition", "Time", "Replicate"))
+    assert "count" in obj.slots
+    assert obj.coldata.shape[0] > 0
+
+
+def test_sparse_loader_example():
+    obj = read_grand("../test-datasets/test_sparse.targets", design=("Time", "Replicate"))
+    count = obj._adata.X
+    assert count.shape[0] > 0
+
+
+def test_read_dense_and_sparse_load():
+    dense = read_grand("../data/sars_R.tsv", design=("Condition", "Time", "Replicate"))
+    sparse_test = read_grand("../test-datasets/test_sparse.targets", design=("Time", "Replicate"))
+
+    assert isinstance(dense.coldata, pd.DataFrame)
+    assert isinstance(sparse_test.coldata, pd.DataFrame)
+    assert "count" in dense.slots
+    assert "count" in sparse_test.slots
