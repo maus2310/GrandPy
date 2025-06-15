@@ -9,7 +9,8 @@ import seaborn as sns
 from sklearn.decomposition import PCA
 from pydeseq2.dds import DeseqDataSet
 import warnings
-
+# TODO Plots: PlotExpressionTest, PlotAnalyses, VulcanoPlot, MAPlot, PlotTypeDistribution, FormatCorrelation
+#      Helper: Transform, Transform.no, Transform.Z, Transform.vst, Transform.logFC
 
 def _get_plot_limits(vals, override_lim=None):
     """Compute IQR-based limits if not overridden."""
@@ -474,7 +475,7 @@ def plot_gene_old_vs_new(
 
     if show_ci:
         if "lower" not in data.slots or "upper" not in data.slots:
-            raise ValueError("CI slots ('lower' and 'upper') are missing. Run ComputeNtrCI first.")
+            raise ValueError("CI slots ('lower' and 'upper') are missing. Run compute_ntr_ci() first.")
 
         ci_lower = data.get_table(mode_slots="lower", genes=gene, columns=selected_columns).iloc[0].to_numpy()
         ci_upper = data.get_table(mode_slots="upper", genes=gene, columns=selected_columns).iloc[0].to_numpy()
@@ -587,7 +588,7 @@ def plot_gene_total_vs_ntr(
 
     if show_ci:
         if "lower" not in data.slots or "upper" not in data.slots:
-            raise ValueError("CI slots ('lower' and 'upper') are missing. Run ComputeNtrCI first.")
+            raise ValueError("CI slots ('lower' and 'upper') are missing. Run compute_ntr_ci() first.")
 
         ci_lower = data.get_table(mode_slots="lower", genes=gene, columns=selected_columns).iloc[0].to_numpy()
         ci_upper = data.get_table(mode_slots="upper", genes=gene, columns=selected_columns).iloc[0].to_numpy()
@@ -731,7 +732,7 @@ def plot_gene_groups_points(
 
     if show_ci:
         if "lower" not in data.slots or "upper" not in data.slots:
-            raise ValueError("CI slots ('lower' and 'upper') are missing. Run ComputeNtrCI first.")
+            raise ValueError("CI slots ('lower' and 'upper') are missing. Run compute_ntr_ci() first.")
 
         ci_lower = data.get_table(mode_slots="lower", genes=gene, columns=selected_columns).iloc[0].to_numpy()
         ci_upper = data.get_table(mode_slots="upper", genes=gene, columns=selected_columns).iloc[0].to_numpy()
@@ -832,8 +833,8 @@ def plot_gene_groups_bars(
     width = 0.8
 
     fig, ax = plt.subplots(figsize=(10, 6))
-    ax.bar(x, df["old"], width, label="old", color="lightgray")
-    ax.bar(x, df["new"], width, bottom=df["old"], label="new", color="red")
+    bar1 = ax.bar(x, df["old"], width, label="Old", color="lightgray")
+    bar2 = ax.bar(x, df["new"], width, bottom=df["old"], label="New", color="red")
 
     ax.set_xticks(x)
     ax.set_xticklabels(df["xlab"], rotation=90)
@@ -843,7 +844,7 @@ def plot_gene_groups_bars(
 
     if show_ci:
         if "lower" not in data.slots or "upper" not in data.slots:
-            raise ValueError("CI slots ('lower' and 'upper') are missing. Run ComputeNtrCI first.")
+            raise ValueError("CI slots ('lower' and 'upper') are missing. Run compute_ntr_ci() first.")
 
         total = data.get_table(mode_slots=slot, genes=gene, columns=selected_columns).iloc[0].to_numpy()
         lower = data.get_table(mode_slots="lower", genes=gene, columns=selected_columns).iloc[0].to_numpy()
@@ -854,8 +855,6 @@ def plot_gene_groups_bars(
 
         err_low = total - ymin
         err_high = (ymax - total)
-
-        print(err_low, err_high)
 
         mask = (
                 np.isfinite(total) &
@@ -886,7 +885,172 @@ def plot_gene_groups_bars(
 
         )
 
-    ax.legend().remove()
+    ax.legend()
+    plt.tight_layout()
+    plt.show()
+    plt.close()
+
+
+def plot_gene_snapshot_timecourse(
+    data: GrandPy,
+    gene: str,
+    time: str = "Time",
+    mode_slot: Union[str, ModeSlot, None] = None,
+    columns: Optional[Union[str, list]] = None,
+    average_lines: bool = True,
+    exact_tics: bool = True,
+    log: bool = True,
+    show_ci: bool = False,
+    aest: Optional[dict] = None,
+    size: float = 50
+):
+    import re
+    def parse_time_to_float(time_str):
+        match = re.match(r"(\d+(\.\d+)?)h", time_str)
+        if match:
+            return float(match.group(1))
+        else:
+            return 0.0
+
+
+    if mode_slot is None:
+        mode_slot = data.default_slot
+
+    mode_slot = _parse_as_mode_slot(mode_slot)
+    slot = mode_slot.slot
+    mode = mode_slot.mode
+    log = False if slot == "ntr" else log
+
+    if columns is None:
+        selected_columns = data.columns
+    elif isinstance(columns, str):
+        selected_columns = list(data.coldata.query(columns).index)
+    else:
+        selected_columns = data.get_columns(columns)
+
+    df = data.get_data(mode_slots=[slot, "ntr"], genes=gene, columns=selected_columns, with_coldata=True)
+    slot_val = data.get_table(mode_slots=slot, genes=gene, columns=selected_columns).iloc[0].to_numpy()
+    ntr_val = data.get_table(mode_slots="ntr", genes=gene, columns=selected_columns).iloc[0].to_numpy()
+
+    if mode == "total":
+        df["value"] = slot_val
+    elif mode == "new":
+        df["value"] = slot_val * ntr_val
+    elif mode == "old":
+        df["value"] = slot_val * (1 - ntr_val)
+    else:
+        raise ValueError(f"Unknown mode '{mode}' in mode_slot '{mode_slot}'")
+
+    df["ntr"] = ntr_val
+    df[slot] = slot_val
+
+    if time not in df.columns:
+        raise ValueError(f"Column '{time}' not found in coldata!")
+    x_vals_numeric = df[time].apply(parse_time_to_float)
+
+    if not exact_tics:
+        x_breaks = sorted(df[time].unique())
+    else:
+        x_breaks_numeric = np.linspace(x_vals_numeric.min(), x_vals_numeric.max(), 5)
+        x_breaks = [f"{int(round(x))}h" for x in x_breaks_numeric]
+
+    aest = _setup_default_aes(data, aest)
+    hue = aest.get("color")
+    style = aest.get("shape")
+
+    if hue not in df.columns:
+        hue = None
+    if style not in df.columns:
+        style = None
+
+    y = "ntr" if slot == "ntr" else "value"
+    ylabel = "NTR" if slot == "ntr" else f"{mode.capitalize()} RNA ({slot})"
+
+    fig, ax = plt.subplots(figsize=(8, 6))
+    sns.scatterplot(data=df, x=time, y=y, hue=hue, style=style, s=size, ax=ax)
+
+    if log:
+        ax.set_yscale("log")
+        ax.yaxis.set_major_formatter(matplotlib.ticker.ScalarFormatter())
+
+    ax.set_xticks(x_breaks if not exact_tics else x_breaks_numeric)
+    ax.set_xticklabels(x_breaks)
+    ax.set_xlabel("")
+    ax.set_ylabel(ylabel)
+    ax.set_title(gene)
+
+    if average_lines:
+        avg_input_df = df.drop(columns=["Replicate"], errors="ignore")
+        group_cols = [time]
+        if hue and hue in avg_input_df.columns:
+            group_cols.append(hue)
+        if style and style in avg_input_df.columns and style != hue:
+            group_cols.append(style)
+
+        avg_df = avg_input_df.groupby(group_cols, observed=True)[y].mean().reset_index()
+
+        sns.lineplot(
+            data=avg_df,
+            x=time,
+            y=y,
+            hue=hue if hue in avg_df.columns else None,
+            style=style if style in avg_df.columns else None,
+            ax=ax,
+            legend=False
+        )
+
+    if show_ci:
+        if "lower" not in data.slots or "upper" not in data.slots:
+            raise ValueError("CI slots ('lower' and 'upper') are missing. Run compute_ntr_ci() first.")
+
+        lower = data.get_table(mode_slots="lower", genes=gene, columns=selected_columns).iloc[0].to_numpy()
+        upper = data.get_table(mode_slots="upper", genes=gene, columns=selected_columns).iloc[0].to_numpy()
+
+        if slot == "ntr":
+            ymin = lower
+            ymax = upper
+            center = df["ntr"].to_numpy()
+        elif mode == "new":
+            ymin = lower * slot_val
+            ymax = upper * slot_val
+            center = df["value"].to_numpy()
+        elif mode == "old":
+            ymin = (1 - upper) * slot_val
+            ymax = (1 - lower) * slot_val
+            center = df["value"].to_numpy()
+        else:
+            ymin = ymax = center = None
+
+        if ymin is not None:
+            err_low = center - ymin
+            err_high = ymax - center
+
+            mask = (
+                    np.isfinite(center) & np.isfinite(lower) & np.isfinite(upper) &
+                    np.isfinite(err_low) & np.isfinite(err_high) &
+                    (center >= 0) & (lower >= 0) & (upper >= 0) &
+                    (lower <= upper) & (err_low >= 0) & (err_high >= 0)
+            )
+
+            n_invalid = np.sum(~mask)
+            if n_invalid > 0:
+                warnings.warn(f"{n_invalid} data points with invalid CI were excluded from error bars.", UserWarning)
+
+            if np.any(mask):
+                x_vals = df[time].to_numpy()
+                x_valid = x_vals[mask]
+                center_valid = center[mask]
+                err_valid = [err_low[mask], err_high[mask]]
+
+                ax.errorbar(
+                    x=x_valid,
+                    y=center_valid,
+                    yerr=err_valid,
+                    fmt='none',
+                    ecolor='gray',
+                    capsize=3
+                )
+
     plt.tight_layout()
     plt.show()
     plt.close()
