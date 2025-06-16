@@ -1797,7 +1797,12 @@ class GrandPy:
         return data.with_analysis(name=name, table=delta_bic_df)
 
 
-    def compute_ntr_ci(self, ci_size: float = 0.95, name_lower: str = "lower", name_upper: str = "upper"):
+    def compute_ntr_ci(self, ci_size: float = 0.95, name_lower: str = "lower", name_upper: str = "upper")-> "GrandPy":
         from Py.processing import _compute_ntr_ci
 
         return _compute_ntr_ci(self, ci_size, name_lower, name_upper)
+
+    def compute_steady_state_half_lives(self, time=None, name="HL", columns=None, max_hl=48.0, ci_size=0.95, compute_ci=False, as_analysis=False) -> "GrandPy":
+        from Py.processing import _compute_steady_state_half_lives
+
+        return _compute_steady_state_half_lives(self, time, name=name ,columns=columns, max_hl=max_hl, ci_size=ci_size, compute_ci=compute_ci, as_analysis=as_analysis)
