@@ -98,7 +98,8 @@ def _compute_ntr_ci(data: "GrandPy", ci_size: float = 0.95, name_lower: str = "l
     data = compute_ntr_posterior_upper(data, ci_size, name_upper)
     return data
 
-
+# Beispielaufruf: sars = sars.compute_steady_state_half_lives(compute_ci=True)
+#                 print(sars.get_analysis_table())
 def _compute_steady_state_half_lives(
     data: "GrandPy",
     time = None,
