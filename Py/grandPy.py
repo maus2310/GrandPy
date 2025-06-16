@@ -1,3 +1,4 @@
+import copy
 import re
 import warnings
 from typing import Any, Union, Sequence, Literal, Mapping, Callable, Optional
@@ -17,13 +18,11 @@ class GrandPy:
     Create a GrandPy object.
 
     Data is typically loaded using the `read_grand()` function, which parses preprocessed GrandR-compatible
-    data formats into a usable GrandPy object.
+    data formats into a GrandPy object.
 
     The Object is designed to be immutable. Changes are made through `with_...` methods.
 
     Simple getters are implemented as properties, more complex ones through `get_...` methods.
-
-    Subsetting is similar to pandas.
 
     Examples
     --------
@@ -40,23 +39,35 @@ class GrandPy:
     Available plots: None
     Default data slot: count
 
-
     Parameters
     ----------
     prefix: str
         Path to the data file.
+
     gene_info: pd.DataFrame
         Genes and their metadata.
+
     coldata: pd.DataFrame
         Samples and their metadata.
+
     slots: dict[str, Union[np.ndarray, pd.DataFrame, sp.csr_matrix]]]
         Name and the corresponding data matrix.
+
     metadata: dict[str, Any]
         Metadata about the data and file.
+
     analyses: dict[str, Any]
         Results from analyzing functions.
+
     plots: dict[str, Any]
         Plot functions. (global or gene plots)
+
+    See Also
+    --------
+    read_grand()
+        Read a file into a GrandPy object.
+
+
     """
 
     def __init__(
@@ -96,7 +107,10 @@ class GrandPy:
             self._adata.layers[key] = matrix
 
     def _initialize_uns_data(self, prefix, metadata, analyses, plots):
-        self._adata.uns['prefix'] = prefix
+        if metadata.get('default_slot') is None:
+                metadata["default_slot"] = "count"
+
+        self._adata.uns['prefix'] = prefix if prefix is not None else "Unknown"
         self._adata.uns['metadata'] = metadata
         self._adata.uns['analyses'] = analyses if analyses is not None else {}
         self._adata.uns['plots'] = plots if plots is not None else {}
@@ -104,13 +118,13 @@ class GrandPy:
     def _ensure_no4sU_column(self):
         if 'no4sU' not in self._adata.var.columns:
             warnings.warn("No no4sU entry in coldata, assuming all samples/cells as 4sU treated!")
-            self._adata.obs["no4sU"] = False
+            self._adata.var["no4sU"] = False
 
 
     def __str__(self):
         return (
             f"GrandPy:\n"
-            f"Read from {self._adata.uns.get('prefix', 'Unknown')}\n"
+            f"Read from {self._adata.uns['prefix']}\n"
             f"{self._adata.n_obs} genes, {self._adata.n_vars} samples/cells\n"
             f"Available data slots: {self.slots}\n"
             f"Available analyses: {self.analyses}\n"
@@ -121,8 +135,7 @@ class GrandPy:
     def __getitem__(self, items):
         new_adata = self._adata.copy()
         new_adata = new_adata[items]
-        return self.replace(anndata = new_adata)
-
+        return self._dev_replace(anndata = new_adata)
 
     def replace(
             self,
@@ -137,13 +150,78 @@ class GrandPy:
             anndata: ad.AnnData = None
     ) -> "GrandPy":
         """
+        Replaces given parameters in a new GrandPy instance.
+
         This function is useful when you want to modify the GrandPy instance on your own.
 
-        USE WITH CAUTION!
+        Should be handled with care, as no additional checks are performed.
 
-        It is not recommended to use this function directly,
-        as it will replace the given parameters without sufficient checks or copying.
-        This can make parts mutable if not handled correctly.
+        Parameters
+        ----------
+        prefix: str, optional
+            A new prefix.
+
+        gene_info: pd.DataFrame, optional
+            A new gene_info DataFrame.
+
+        coldata: pd.DataFrame, optional
+            A new coldata DataFrame.
+
+        slots: dict[str, Union[np.ndarray, sp.csr_matrix]], optional
+            A new dictionary of slots.
+
+        metadata: dict[str, any], optional
+            Replaces all metadata. If no `default_slot` is specified, the default slot will be set to 'count'.
+
+        analyses: dict[str, Any], optional
+            Replaces all analyses.
+
+        plots: dict[str, any], optional
+            Replaces all plots, gene and global.
+
+        anndata: AnnData, optional
+            Use with caution. GrandPy uses anndata internally. This will replace the whole anndata instance.
+            Anndata can be retrieved from the instance via ._adata.
+
+        Returns
+        -------
+        GrandPy
+            A new GrandPy object with the given parameters replaced.
+
+        See Also
+        --------
+            get_matrix()
+                Gives the raw data for a slot, as it is stored internally.
+        """
+        if anndata is None:
+            anndata = self._adata.copy()
+
+        return self.__class__(
+            prefix = prefix if prefix is not None else anndata.uns.get('prefix'),
+            gene_info = gene_info.copy() if gene_info is not None else anndata.obs,
+            coldata = coldata.copy() if coldata is not None else anndata.var,
+            slots = copy.deepcopy(slots) if slots is not None else anndata.layers,
+            metadata = copy.deepcopy(metadata) if metadata is not None else anndata.uns.get("metadata"),
+            analyses = copy.deepcopy(analyses) if analyses is not None else anndata.uns.get("analyses"),
+            plots = copy.deepcopy(plots) if plots is not None else anndata.uns.get("plots")
+        )
+
+    def _dev_replace(
+            self,
+            *,
+            prefix: str = None,
+            gene_info: pd.DataFrame = None,
+            coldata: pd.DataFrame = None,
+            slots: dict[str, Union[np.ndarray, sp.csr_matrix]] = None,
+            metadata: dict[str, Any] = None,
+            analyses: dict[str, Any] = None,
+            plots: dict[str, Any] = None,
+            anndata: ad.AnnData = None
+    ) -> "GrandPy":
+        """
+        This function is replace() for internal use.
+
+        This function does not copy provided parameters. Parts can become mutable if not handled correctly!
 
         Parameters
         ----------
@@ -175,10 +253,6 @@ class GrandPy:
         -------
         GrandPy
             A new GrandPy object with the given parameters replaced.
-
-        See Also
-        --------
-            slot_data: Gives access to the raw data of each slot.
         """
         if anndata is None:
             anndata = self._adata.copy()
@@ -250,7 +324,7 @@ class GrandPy:
         new_metadata = self._adata.uns.get('metadata', {}).copy()
         new_metadata['default_slot'] = value
 
-        return self.replace(metadata=new_metadata)
+        return self._dev_replace(metadata=new_metadata)
 
 
     # All slot methods.
@@ -341,7 +415,7 @@ class GrandPy:
 
         new_adata = self._slot_manager.with_dropped_slots(slots_to_remove)
 
-        return self.replace(anndata = new_adata)
+        return self._dev_replace(anndata = new_adata)
 
     def with_slot(self, name: str, new_slot: Union[np.ndarray, pd.DataFrame, sp.csr_matrix, list], *, set_to_default = False) -> "GrandPy":
         """
@@ -368,7 +442,7 @@ class GrandPy:
         """
         new_adata = self._slot_manager.with_slot(name, new_slot, set_to_default=set_to_default)
 
-        return self.replace(anndata = new_adata)
+        return self._dev_replace(anndata = new_adata)
 
     def with_ntr_slot(self, as_ntr: str, save_ntr_as: str = None) -> "GrandPy":
         """
@@ -411,7 +485,7 @@ class GrandPy:
         """
         new_slots = self._slot_manager.with_ntr_slot(as_ntr, save_ntr_as=save_ntr_as)
 
-        return self.replace(slots=new_slots)
+        return self._dev_replace(slots=new_slots)
 
 
     # All analysis methods.
@@ -437,8 +511,8 @@ class GrandPy:
         with_dropped_analyses():
             Remove analyses with a regex pattern.
 
-        with_analyses():
-            Add analyses to the object. Usually not to be used directly.
+        with_analysis():
+            Add an analysis to the object. Usually not to be used directly.
         """
         return self._analysis_manager.analyses()
 
@@ -472,8 +546,8 @@ class GrandPy:
         with_dropped_analyses():
             Remove analyses with a regex pattern.
 
-        with_analyses():
-            Add analyses to the object. Usually not to be used directly.
+        with_analysis():
+            Add an analysis to the object. Usually not to be used directly.
         """
         return self._analysis_manager.get_analyses(pattern, regex=regex)
 
@@ -514,11 +588,13 @@ class GrandPy:
         """
         new_analyses = self._analysis_manager.with_analysis(name, table, by=by)
 
-        return self.replace(analyses=new_analyses)
+        return self._dev_replace(analyses=new_analyses)
 
     def with_dropped_analyses(self, pattern: str = None) -> "GrandPy":
         """
         Returns a new GrandPy object with analyses matching the pattern removed.
+
+        If no pattern is given, all analyses will be removed.
 
         Parameters
         ----------
@@ -537,12 +613,12 @@ class GrandPy:
         get_analysis():
             Get the names of analyses matching a pattern.
 
-        with_analyses():
-            Add analyses to the object. Usually not to be used directly.
+        with_analysis():
+            Add an analysis to the object. Usually not to be used directly.
         """
         new_analyses = self._analysis_manager.drop_analyses(pattern)
 
-        return self.replace(analyses=new_analyses)
+        return self._dev_replace(analyses=new_analyses)
 
 
     # All plot methods.
@@ -559,119 +635,84 @@ class GrandPy:
         -------
         dict[str, dict[str, Any]]
             A dictionary mapping plot types('gene', 'global') to plot names.
+
+        See Also
+        --------
+        with_plot()
+            Add a plot function.
+
+        with_dropped_plots()
+            Remove plots matching a regex pattern.
         """
         return self._plot_manager.plots()
 
-    # Beipiel im docstring unvollständig, da wir noch keine gene plot funktion haben
-    def with_gene_plot(self, name: str, function: Plot) -> "GrandPy":
+    def with_plot(self, name: str, function: Union[Plot, Callable]) -> "GrandPy":
         """
-        Returns a new GrandPy object with a gene plot added.
+        Returns a new GrandPy object with a plot added. Either a global or gene plot.
+        Global plots only take a GrandPy object. Gene plots additionally require a gene.
 
         Parameters
         ----------
         name: str
             A name for the plot.
 
-        function: Plot
-            A funktion, that takes a GrandPy object and a gene name as input and returns a plot.
+        function: Union[Plot, Callable]
+            A Plot Object, or a funktion, that takes a GrandPy object or a GrandPy object and a gene as input and returns a plot.
 
         Returns
         -------
         GrandPy
-            A new GrandPy object with a gene plot added.
+            A new GrandPy object with a plot added.
 
         Examples
         --------
-        Store the plot function in the object:
+        Store a global plot function in the object:
 
-        >>> sars.with_gene_plot()
+        >>> sars = sars.with_plot(
+        ...     "scatter",
+        ...     lambda data: plot_scatter(data, x = "Mock.1h.A", y = "SARS.1h.A", mode_slot = "new_count")
+        ... )
+        >>> print(sars.plots)
+        {'global': ['scatter']}
 
-        Compute the plot when needed:
+        Alternative version for adding plots using a Plot object:
 
-        >>> sars.plot_gene()
-
-
-        See Also
-        --------
-        plots
-            Get the names of all stored plot functions.
-
-        plot_gene()
-            Executes a stored plot function for a given gene.
-
-        with_global_plot()
-            Add a global plot.
-
-        with_dropped_plots()
-            Remove plots from the object.
-        """
-        new_plots = self._plot_manager.add_plot(name, "gene", function)
-
-        return self.replace(plots=new_plots)
-
-    # floating fehlt noch
-    def with_global_plot(self, name: str, function: Plot, floating: bool = False) -> "GrandPy":
-        """
-        Returns a new GrandPy object with a global plot added.
-
-        Parameters
-        ----------
-        name: str
-            A name for the plot.
-
-        function: Plot
-            A funktion, that takes a GrandPy object as input and returns a plot.
-
-        floating: bool
-            If True, the plot will be added as a floating plot.
-            Otherwise, the plot will be added as a global plot.
-
-        Returns
-        -------
-        GrandPy
-            A new GrandPy object with a global plot added.
-
-        Examples
-        --------
-        Store the plot function in the object:
-
-        >>> sars = sars.with_global_plot(
+        >>> sars = sars = sars.with_plot(
             ...     "scatter",
             ...     Plot(
             ...         function = plot_scatter,
-            ...         parameters = {
-            ...             "x": "Mock.1h.A",
-            ...             "y": "SARS.1h.A",
-            ...             "mode_slot": "new_count"
-            ...             },
+            ...         parameters = {"x": "Mock.1h.A", "y": "SARS.1h.A", "mode_slot": "new_count"},
             ...         plot_type = "global"
             ...     )
             ... )
+        >>> print(sars.plots)
+        {'global': ['scatter']}
 
-        Compute the plot when needed:
+        Storing a gene plot function in the object:
+
+        >>> sars = sars.with_plot("old_vs_new", lambda data, gene: plot_gene_old_vs_new(data, gene, slot = "count"))
+        >>> print(sars.plots)
+        {'gene': ['scatter']}
+
+        Executing stored plot functions:
 
         >>> sars.plot_global("scatter")
+        >>> sars.plot_gene("old_vs_new", "Mock.1h.A")
 
         See Also
         --------
+        Plot
+            A class used to store plot functions as.
+
         plots
             Get the names of all stored plot functions.
 
-        plot_global()
-            Executes a stored global plot function.
-
-        with_gene_plot()
-            Add a gene plot.
-
         with_dropped_plots()
-            Remove plots from the object.
+            Remove plots matching a regex.
         """
-        if floating:
-            raise NameError("Floating plots are not yet implemented.")
-        else:
-            new_plots = self._plot_manager.add_plot(name, "global", function)
+        new_plots = self._plot_manager.add_plot(name, function)
 
-        return self.replace(plots=new_plots)
+        return self._dev_replace(plots=new_plots)
 
     def plot_gene(self, name: str, gene: str):
         """
@@ -690,12 +731,16 @@ class GrandPy:
         plots
             Get the names of all stored plot functions.
 
-        with_gene_plot()
-            Add a gene plot.
+        with_plot()
+            Add a plot function.
+
+        with_dropped_plots()
+            Remove plots matching a regex.
 
         plot_global()
             Executes a stored global plot function.
         """
+        print(self._adata.uns["plots"]["gene"][name])
         return self._adata.uns["plots"]["gene"][name](self, gene)
 
     def plot_global(self, name: str):
@@ -712,19 +757,20 @@ class GrandPy:
         plots
             Get the names of all stored plot functions.
 
-        with_global_plot()
-            Add a global plot.
+        with_plot()
+            Add a plot function.
+
+        with_dropped_plots()
+            Remove plots matching a regex.
 
         plot_gene()
             Executes a stored plot function for a given gene.
         """
         return self._adata.uns["plots"]["global"][name](self)
 
-    def with_dropped_plot(self, pattern: str = None) -> "GrandPy":
+    def with_dropped_plots(self, pattern: str = None) -> "GrandPy":
         """
-        Returns a new GrandPy object with plot names matching the pattern removed.
-
-        The pattern is interpreted as a regular expression.
+        Returns a new GrandPy object with plot names matching the regex pattern removed.
 
         Parameters
         ----------
@@ -741,15 +787,12 @@ class GrandPy:
         plots
             Get the names of all stored plot functions.
 
-        with_gene_plot()
-            Add a gene plot.
-
-        with_global_plot()
-            Add a global plot.
+        with_plot()
+            Add a plot function.
         """
         new_plots = self._plot_manager.drop_plot(pattern)
 
-        return self.replace(plots=new_plots)
+        return self._dev_replace(plots=new_plots)
 
 
 
@@ -793,14 +836,14 @@ class GrandPy:
 
         if isinstance(value, Mapping):
             new_gene_info.loc[value.keys(), column] = list(value.values())
-            return self.replace(gene_info = new_gene_info)
+            return self._dev_replace(gene_info = new_gene_info)
 
         if isinstance(value, pd.Series):
             value.index = _make_unique(value.index, warn = False)
 
         new_gene_info[column] = value
 
-        return self.replace(gene_info = new_gene_info)
+        return self._dev_replace(gene_info = new_gene_info)
 
     def get_index(self, genes: Union[str, int, Sequence[Union[str, int, bool]]] = None, *, regex: bool = False) -> list[int]:
         """
@@ -834,10 +877,10 @@ class GrandPy:
         symbol_column = gene_info.get("Symbol")
 
         # Handles regex
-        if regex and isinstance(genes, str):
+        if regex:
             mask_symbol = gene_column.astype(str).str.contains(genes, regex=True) | \
                    symbol_column.astype(str).str.contains(genes, regex=True)
-            return list(np.where(mask_symbol)[0])
+            return np.array(index)[mask_symbol]
 
         genes = _ensure_list(genes)
 
@@ -907,7 +950,7 @@ class GrandPy:
         symbol_map = dict(zip(result["query"], result["symbol"]))
         new_gene_info["Symbol"] = new_gene_info["Gene"].map(symbol_map)
 
-        return self.replace(gene_info=new_gene_info)
+        return self._dev_replace(gene_info=new_gene_info)
 
     @property
     def genes(self) -> list[str]:
@@ -962,6 +1005,7 @@ class GrandPy:
             indices = self.get_index(gene, regex=regex)
             return self.gene_info.iloc[indices]["Gene"].tolist()
 
+    # TODO get_significant_genes implementieren
     def get_significant_genes(self):
         ...
 
@@ -997,11 +1041,11 @@ class GrandPy:
         if column in new_coldata.columns:
             if isinstance(value, Mapping):
                 new_coldata.loc[value.keys(), column] = list(value.values())
-                return self.replace(coldata = new_coldata)
+                return self._dev_replace(coldata = new_coldata)
 
         new_coldata[column] = value
 
-        return self.replace(coldata = new_coldata)
+        return self._dev_replace(coldata = new_coldata)
 
     @property
     def condition(self) -> list[str]:
@@ -1029,7 +1073,7 @@ class GrandPy:
         if isinstance(value, Mapping):
             for k, v in value.items():
                 new_coldata.loc[k, "Condition"] = v
-            return self.replace(coldata = new_coldata)
+            return self._dev_replace(coldata = new_coldata)
 
         value = _ensure_list(value)
 
@@ -1044,7 +1088,7 @@ class GrandPy:
 
             new_coldata['Condition'] = value
 
-        return self.replace(coldata = new_coldata)
+        return self._dev_replace(coldata = new_coldata)
 
     @property
     def columns(self) -> list[str]:
@@ -1132,7 +1176,7 @@ class GrandPy:
 
         new_coldata = coldata.rename(mapping)
 
-        return self.replace(coldata = new_coldata)
+        return self._dev_replace(coldata = new_coldata)
 
     def with_swapped_columns(self, column1: Union[str, int], column2: Union[str, int]) -> "GrandPy":
         """
@@ -1235,12 +1279,20 @@ class GrandPy:
                 key: value.reindex(index=new_adata.obs.index).dropna() for key, value in new_adata.uns['analyses'].items()
             }
 
-        return self.replace(anndata=new_adata)
+        return self._dev_replace(anndata=new_adata)
 
-    # TODO concat() überarbeiten
-    def concat(self, other: "GrandPy", axis: Literal["gene_info", 0, "coldata", 1] = 1) -> "GrandPy":
+    def concat(
+            self,
+            other: "GrandPy",
+            *,
+            axis: Literal["gene_info", 0, "coldata", 1] = 1,
+            join: Literal["inner", "outer"] = "inner",
+            merge: Union[Literal["same", "unique", "first", "only"], Callable] = "unique",
+    ) -> "GrandPy":
         """
         Concatenates the other object with the current instance along a given axis.
+
+        Merges metadata and plots using 'unique'. All Analyses are dropped.
 
         Parameters
         ----------
@@ -1250,11 +1302,23 @@ class GrandPy:
         axis: Literal["gene_info", 0, "coldata", 1]
             The axis along which to concatenate.
 
+        join: Literal["inner", "outer"]
+            How to align values when concatenating. If "outer", the union of the other axis is taken. If "inner", the intersection.
+
+        merge: Union[Literal["same", "unique", "first", "only"], Callable]
+            How elements not aligned to the axis being concatenated along are selected.
+            Currently implemented strategies include:
+
+            * `None`: No elements are kept.
+            * `"same"`: Elements that are the same in each of the objects.
+            * `"unique"`: Elements for which there is only one possible value.
+            * `"first"`: The first element seen at each from each position.
+            * `"only"`: Elements that show up in only one of the objects.
+
         Returns
         -------
         GrandPy
             A new concatenated GrandPy object.
-
         """
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", message="(Observation|Variable) names are not unique.*",
@@ -1267,17 +1331,11 @@ class GrandPy:
             else:
                 raise ValueError(f"axis must be either 0, 'gene_info' or 1, 'coldata' not {axis}.")
 
-            new_adata = ad.concat([self._adata, other._adata], axis=axis, merge="unique", uns_merge="unique")
+            new_adata = ad.concat([self._adata, other._adata], axis=axis, join=join, merge=merge, uns_merge="unique")
 
-            if axis == "obs":
-                new_adata.obs_names_make_unique("_")
-            else:
-                new_adata.var_names_make_unique("_")
-
-        return self.replace(anndata=new_adata)
+        return self._dev_replace(anndata=new_adata).with_dropped_analyses()
 
 
-    # Doch eher wie slot_data? Anndata Object ist denke ich die Mühe nicht wert.
     def get_matrix(
             self,
             mode_slot: Union[str, ModeSlot] = None,
@@ -1373,8 +1431,11 @@ class GrandPy:
 
         See Also
         --------
-        get_table():
+        get_table()
             Similar to get_data(), but slots are transposed, so gene_info can be concatenated.
+
+        get_matrix()
+            Similar to get_data(), but transposed and only gives raw_data without row or column names.
         """
         coldata = self.coldata
         gene_info = self.gene_info
@@ -1388,7 +1449,7 @@ class GrandPy:
         column_indices = self.get_index(genes) if genes is not None else self.get_index(None)
 
         # row_names is handled like this, so that the index remains unique ('Symbol' was not made unique, but index was)
-        row_names = coldata.iloc[row_indices]["Name"].tolist()
+        row_names = coldata.iloc[row_indices].index.tolist()
         column_names = gene_info.iloc[column_indices].index.tolist() if name_genes_by == "Symbol" else gene_info.iloc[column_indices][name_genes_by].tolist()
 
         result_df = pd.DataFrame()
@@ -1456,6 +1517,9 @@ class GrandPy:
         --------
         get_data():
             Similar to get_table(), but slots are transposed, so coldata can be concatenated.
+
+        get_matrix():
+            Similar to get_table(), but gives raw data without row or column names.
         """
         coldata = self.coldata
         gene_info = self.gene_info
@@ -1577,15 +1641,15 @@ class GrandPy:
 
         return result_df
 
-    # TODO Beispiele für find_references schreiben
-    def find_references(
+    # TODO Beispiele für get_references schreiben
+    def get_references(
             self,
             reference: Optional[Union[str, Callable[[pd.Series], bool]]] = None,
             reference_function: Optional[Callable[[pd.Series], list[str]]] = None,
             *,
             group: Optional[Union[str, list[str]]] = None,
             columns: Optional[Union[str, list[str]]] = None,
-            as_list: bool = False
+            as_dict: bool = False
     ) -> Union[pd.DataFrame, dict[str, list[str]]]:
         """
         Find reference samples within groups using a condition or custom function.
@@ -1607,7 +1671,7 @@ class GrandPy:
         columns : str or list[str], optional
             Limit the input to specific columns from `coldata` for evaluation.
 
-        as_list : bool, default False
+        as_dict : bool, default False
             If True, return a dictionary mapping each sample to its references.
             If False, return a square boolean DataFrame indicating references.
 
@@ -1703,20 +1767,19 @@ class GrandPy:
         else:
             raise TypeError("`reference` must be a string or a callable.")
 
-        return format_ref_output(df["__group__"], group_to_refs, as_list)
+        return format_ref_output(df["__group__"], group_to_refs, as_dict)
 
 
-    def deseq2_bic_statsmodels(
-            data,
+    # Noch fehlerhaft und unvollständig (u.a. Spalten wirken vertauscht) und EXTREM langsam (130 sec for sars.tsv)
+    def deseq2_bic(
+            self,
             name: str = "BIC",
             mode: str = "total",
             formulas: dict = None,
             no4su: bool = False,
-            columns: Optional[Union[Sequence[str], Sequence[bool]]] = None,
-            verbose: bool = False,
+            columns: Optional[Union[str, Sequence[str], Sequence[bool]]] = None,
     ) -> "GrandPy":
         """
-        GrandPy-compatible DESeq2BIC implementation using statsmodels.
 
         Parameters
         ----------
@@ -1730,26 +1793,24 @@ class GrandPy:
             Whether to exclude 4sU-treated samples.
         columns : list[str|bool], optional
             Manually selected sample filter.
-        verbose : bool
-            Print progress if True.
 
         Returns
         -------
         GrandPy
-            New object with the ΔBIC table added under `name`.
+            New object with the ΔBIC table added.
         """
         from statsmodels.formula.api import glm
         from statsmodels.genmod.families import NegativeBinomial
 
 
         if formulas is None:
-            formulas = {"full": "counts ~ Condition", "null": "counts ~ 1"}
+            formulas = {"Condition": "counts ~ Condition", "Background": "counts ~ 1"}
 
-        # --- Filter samples ---
-        coldata = data.coldata.copy()
+        coldata = self.coldata
 
+        # Filter samples
         if columns is None:
-            if no4su and "no4sU" in coldata.columns:
+            if no4su:
                 mask = ~coldata["no4sU"]
                 columns = coldata.index[mask].tolist()
             else:
@@ -1759,30 +1820,23 @@ class GrandPy:
 
         coldata = coldata.loc[columns].copy()
 
-        # --- Get counts (samples x genes) ---
-        count_df = data.get_table(mode_slots=ModeSlot(mode, "count"), columns=columns).T
-        count_df = count_df.astype(int)
+        #
+        count_df = self.get_data(mode_slots=ModeSlot(mode, "count"), columns=columns, with_coldata=False)
 
         bic_per_model = {}
 
         for model_name, formula in formulas.items():
-            if verbose:
-                print(f"Fitting model '{model_name}' ...")
-
             bic_values = []
-
-            # Loop over genes
             for gene in count_df.columns:
                 try:
-                    df = coldata.copy()
+                    df = coldata
                     df["counts"] = count_df[gene].values
 
                     model = glm(formula=formula, data=df, family=NegativeBinomial(alpha=1.0)).fit()
                     bic_values.append(model.bic_llf)
 
                 except Exception as e:
-                    if verbose:
-                        print(f"Warning: Skipping gene {gene} due to error: {e}")
+                    warnings.warn(f"Skipping gene {gene} due to error: {e}")
                     bic_values.append(np.nan)
 
             bic_per_model[model_name] = bic_values
@@ -1793,8 +1847,7 @@ class GrandPy:
         delta_bic_df = bic_df.subtract(bic_df.min(axis=1), axis=0)
         delta_bic_df.columns = [f"{col}.dBIC" for col in delta_bic_df.columns]
 
-        print(delta_bic_df)
-        return data.with_analysis(name=name, table=delta_bic_df)
+        return self.with_analysis(name=name, table=delta_bic_df)
 
 
     def compute_ntr_ci(self, ci_size: float = 0.95, name_lower: str = "lower", name_upper: str = "upper")-> "GrandPy":

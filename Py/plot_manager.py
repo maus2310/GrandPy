@@ -19,9 +19,9 @@ class Plot:
     plot_type: Literal["global", "gene"], optional
         The type of plot. Either 'global' or 'gene'.
     """
-    def __init__(self, function: Callable, parameters: Mapping[str, Any], plot_type: Literal["global", "gene"] = "global"):
+    def __init__(self, function: Callable, parameters: Mapping[str, Any] = None, plot_type: Literal["global", "gene"] = "global"):
         self.function = function
-        self.parameters = parameters
+        self.parameters = parameters if parameters is not None else {}
         self.plot_type = plot_type
 
     def __repr__(self):
@@ -50,23 +50,33 @@ class PlotManager:
         if plots is not None:
             result = {}
             if plots.get("gene") is not None:
-                result["gene"] = list(plots["plots"]["gene"].keys())
+                result["gene"] = list(plots["gene"].keys())
 
             if plots.get("global") is not None:
-                result["global"] = list(plots["plots"]["global"].keys())
+                result["global"] = list(plots["global"].keys())
 
         return result
 
-    def add_plot(self, name: str, plot_type: Literal["gene", "global"], function: Union[Plot, Callable]) -> dict[str, dict[str, Plot]]:
+    def add_plot(self, name: str, function: Union[Plot, Callable]) -> dict[str, dict[str, Plot]]:
         def function_to_plot(fun: Callable) -> Plot:
             from inspect import signature
 
             sig = signature(fun)
             params = dict(sig.parameters)
 
-            return Plot(fun, params, plot_type=plot_type)
+            p_type = "gene" if "gene" in params else "global"
+
+            clean_params = {k: v.default for k, v in params.items()
+                            if k not in ("data", "gene") and v.default is not v.empty}
+
+            return Plot(fun, clean_params, plot_type=p_type)
 
         new_plots = self._adata.uns["plots"].copy()
+
+        if not isinstance(function, Plot):
+            function = function_to_plot(function)
+
+        plot_type = function.plot_type
 
         if new_plots is None:
             new_plots = {}
@@ -75,14 +85,6 @@ class PlotManager:
         if name in new_plots[plot_type].keys():
             warnings.warn(f"A {plot_type} plot with the name '{name}' already exists. It will be overwritten.")
 
-        if isinstance(function, Plot):
-            pass
-
-        elif callable(function):
-            function = function_to_plot(function)
-
-        else:
-            raise TypeError("Expected Plot or function")
 
         new_plots[plot_type][name] = function
 
