@@ -1,5 +1,8 @@
 import matplotlib.pyplot as plt
 import matplotlib.ticker
+import matplotlib.colors as mcolors
+from IPython.core.pylabtools import figsize
+from matplotlib import cm
 import numpy as np
 import pandas as pd
 from typing import Optional, Union
@@ -10,6 +13,11 @@ import seaborn as sns
 from sklearn.decomposition import PCA
 from pydeseq2.dds import DeseqDataSet
 import warnings
+
+
+
+
+
 # TODO Plots: PlotExpressionTest, PlotAnalyses, VulcanoPlot, MAPlot, PlotTypeDistribution, FormatCorrelation
 #      Helper: Transform, Transform.no, Transform.Z, Transform.vst, Transform.logFC
 
@@ -301,70 +309,222 @@ def plot_scatter(
     plt.show(block=True)
     plt.close(fig)
 
+def _transform_no(matrix: np.ndarray) -> np.ndarray:
+    return matrix
 
-# noch nix gut aber gibt eine heatmap aus, aber nicht exact die gleiche
+def _transform_z(matrix: np.ndarray, center: bool = True, scale: bool = True) -> np.ndarray:
+    if not center and not scale:
+        return matrix.astype(np.float64)
+
+    from scipy.stats import zscore
+    return zscore(matrix, axis=1, ddof=0, nan_policy='omit' if (center or scale) else 'propagate')
+
+def _transform_vst(data, selected_columns: list, mode_slot) -> pd.DataFrame:
+    mat = data.get_table(mode_slots=mode_slot, columns=selected_columns)
+    mat = mat.loc[:, mat.notna().any(axis=0)]
+
+    selected_columns_valid = mat.columns.tolist()
+
+    metadata_df = data.coldata.loc[selected_columns_valid].copy()
+    metadata_df["condition"] = metadata_df["Condition"]
+
+    if str(mode_slot).lower() == "count":
+        slotmat = mat.T.round().astype(int)
+    else:
+        slotmat = mat.T
+
+    slotmat = slotmat.loc[metadata_df.index]
+    dds = DeseqDataSet(counts=slotmat, metadata=metadata_df, design_factors="condition")
+    dds.deseq2()
+    dds.vst_fit()
+    vst_array = dds.vst_transform()
+    vst_df = pd.DataFrame(vst_array, index=slotmat.index, columns=slotmat.columns)
+    return vst_df
+
+def _transform_logfc() -> np.ndarray:
+    ... #TODO LFC funktion in diffexpr fehlt noch dafür
+
+def _make_continuous_colors(values, colors=None, breaks=None):
+    values = np.asarray(values, dtype=np.float64)
+    values = values[np.isfinite(values)]
+
+    def quantile(arr, q):
+        return np.nanpercentile(arr, q*100)
+
+    if quantile(values, 0.25) < 0:
+        quant = [0.5, 0.95]
+
+        if breaks == "minmax":
+            ll = np.nanmax(np.abs(values))
+            breaks = np.linspace(-ll, ll, 5)
+        elif isinstance(breaks, int):
+            quant = [q * 100 for q in np.linspace(0, 1, breaks + 1)[1:-1]] + [95]
+            breaks = None
+
+        if breaks is None:
+            upper = np.nanpercentile(values[values > 0], quant)
+            lower = np.nanpercentile(-values[values < 0], quant)
+            breaks = [-b for b in reversed(np.maximum(upper, lower))] + [0] + list(np.maximum(upper, lower))
+
+        if colors is None:
+            colors = "RdBu"
+
+    else:
+        quant = [5, 25, 50, 75, 95]
+
+        if breaks == "minmax":
+            breaks = np.linspace(np.nanmin(values), np.nanmax(values), 5)
+        elif isinstance(breaks, int):
+            quant = [5] + [q * 100 for q in np.linspace(0, 1, breaks)[1:-1]] + [95]
+            breaks = None
+
+        if breaks is None:
+            breaks = np.nanpercentile(values, quant)
+
+        if colors is None:
+            colors = "YlOrRd"
+
+    rev = False
+    if isinstance(colors, str):
+        if colors.startswith("rev"):
+            rev = True
+            colors = colors[3:]
+        try:
+            cmap = cm.get_cmap(colors, len(breaks) - 1)
+            color_list = [mcolors.rgb2hex(cmap(i)) for i in range(cmap.N)]
+        except ValueError:
+            cmap = cm.get_cmap("viridis", len(breaks) - 1)
+            color_list = [mcolors.rgb2hex(cmap(i)) for i in range(cmap.N)]
+
+        if rev:
+            color_list = color_list[::-1]
+
+        colors = color_list
+    else:
+        colors = list(colors)
+
+    return {"breaks": breaks, "colors": colors}
+
 def plot_heatmap(
-    data: GrandPy,
-    mode_slot="count",
-    genes=None,
-    columns=None,
-    transform="Z",
-    cluster_genes=True,
-    cluster_columns=False,
-    title=None,
-    na_to=np.nan):
+    data,
+    mode_slot: Union[str, list, None] = None,
+    columns: Optional[Union[str, list]] = None,
+    genes: Optional[list] = None,
+    transform: Union[str, callable] = "Z",
+    cluster_genes: bool = True,
+    cluster_columns: bool = False,
+    label_genes: Optional[bool] = None,
+    xlab: Optional[list] = None,
+    breaks: Optional[list] = None,
+    colors: Optional[Union[list, str]] = None,
+    title: Optional[str] = None,
+    return_matrix: bool = False,
+    na_to: Optional[float] = None,
+):
 
-    def _z_score_rows(matrix):
-        mean = np.nanmean(matrix, axis=1, keepdims=True)
-        std = np.nanstd(matrix, axis=1, keepdims=True)
-        std[std == 0] = 1
-        print(matrix - mean / std)
-        return (matrix - mean) / std
+    if mode_slot is None:
+        mode_slot = data.default_slot
 
-    matrix = data._resolve_mode_slot(mode_slot)
-    matrix = matrix.toarray() if hasattr(matrix, "toarray") else matrix
-
-    if genes is not None:
-        gene_idx = data.get_index(genes)
-        matrix = matrix[gene_idx, :]
-    else:
-        gene_idx = range(matrix.shape[0])
-
-    if columns is not None:
-        col_idx = [data.columns.index(c) for c in columns]
-        matrix = matrix[:, col_idx]
-    else:
-        col_idx = range(matrix.shape[1])
-
-    # Transformation
-    if transform == "Z":
-        matrix = _z_score_rows(matrix)
-        label = "z score"
-    elif transform == "logFC":
-        ref = np.mean(matrix[:, :2], axis=1, keepdims=True)
-        matrix = np.log2((matrix + 1e-8) / (ref + 1e-8))
-        label = "log2 FC"
-    elif transform == "none":
-        label = ""
-
-    # NA ersetzen
-    if not np.isnan(na_to):
-        matrix = np.nan_to_num(matrix, nan=na_to)
-
-    sns.set(context="notebook")
-    g = sns.clustermap(
-        matrix,
-        cmap="RdBu",
-        row_cluster=cluster_genes,
-        col_cluster=cluster_columns,
-        xticklabels=False,
-        yticklabels=False,
-        cbar_kws={"label": label}
+    mode_slots = (
+        [_parse_as_mode_slot(t) for t in mode_slot]
+        if isinstance(mode_slot, list)
+        else [_parse_as_mode_slot(mode_slot)]
     )
 
+    is_slot = all(m.mode is not None for m in mode_slots)
+    is_analysis = all(m.mode is None for m in mode_slots)
+
+    if not (is_slot or is_analysis):
+        raise ValueError("Cannot mix data slot and analysis in 'type'!")
+
+    if columns is None:
+        selected_columns = data.columns
+    elif isinstance(columns, str):
+        selected_columns = list(data.coldata.query(columns).index)
+    else:
+        selected_columns = data.get_columns(columns)
+
+    if is_slot:
+        if len(mode_slots) > 1 and xlab is not None:
+            raise ValueError("Cannot use 'xlab' with multiple slots")
+
+        table = data.get_table(mode_slots=mode_slot, genes=genes, columns=selected_columns)
+    else:
+        table = data.get_analysis_table(names=[ms.slot for ms in mode_slots], genes=genes)
+        table = table[selected_columns]
+    mat = table.to_numpy(dtype=np.float64)
+    gene_names = table.index.to_list()
+    sample_names = table.columns.to_list()
+
+    if isinstance(transform, str):
+        transform = transform.lower()
+        if transform == "z":
+            mat = _transform_z(mat)
+            label = "z score"
+            vmin = -2
+            vmax = 2
+        elif transform in ["no", "none"]:
+            mat = _transform_no(mat)
+            label = " "
+            vmin = 0
+            vmax = mat.max()
+        elif transform == "vst":
+            df_vst = _transform_vst(data, selected_columns, mode_slot=mode_slot)
+            mat = df_vst.to_numpy()
+            sample_names = df_vst.index.to_list()
+            gene_names = df_vst.columns.to_list()
+            mat = mat.T
+            label = "VST"
+            vmin = None #TODO noch falsch
+            vmax = None #TODO noch falsch
+        elif transform == "logfc":
+            if selected_columns is None or len(selected_columns) == 0:
+                raise ValueError("Need columns=... to compute logFC reference")
+            ref_cols = list(range(len(selected_columns)))
+            mat = _transform_logfc(mat, ref_columns=ref_cols)
+            label = "log2 FC"
+            vmin = None
+            vmax = None
+        else:
+            raise ValueError(f"Unknown transform: {transform}")
+
+    if na_to is not None:
+        mat = np.where(np.isnan(mat), na_to, mat)
+
+    if xlab is not None and len(xlab) == len(sample_names):
+        sample_names = xlab
+    if label_genes is None:
+        label_genes = len(gene_names) <= 50
+
+    df = pd.DataFrame(mat, index=gene_names, columns=sample_names)
+    color_def = _make_continuous_colors(mat, colors=colors, breaks=breaks)
+
+    breaks = color_def["breaks"]
+    colors = color_def["colors"]
+    from matplotlib.colors import LinearSegmentedColormap
+    cmap = LinearSegmentedColormap.from_list("custom", colors, N=256)
+
+
+    sns.clustermap(
+        df,
+        figsize=(8, 6),
+        cmap=cmap,
+        row_cluster=cluster_genes,
+        col_cluster=cluster_columns,
+        yticklabels=label_genes,
+        xticklabels=True,
+        cbar_kws={"label": label},
+        vmin=vmin, vmax=vmax
+    )
+
+    if return_matrix:
+         print(df)
+
     if title:
-        plt.title(title)
-    plt.show(block=True)
+        plt.title(title, y=1.05)
+
+    plt.show()
+    plt.close()
 
 
 # für mode_slot = "counts" und do.vst=True alles gut
@@ -396,7 +556,6 @@ def plot_pca(
     mat = data.get_table(mode_slots=mode_slot, columns=selected_columns)
     coldata = data.coldata.loc[selected_columns].copy()
 
-    # Drop columns (samples) that contain only NaN values
     mat = mat.loc[:, mat.notna().any(axis=0)]
     coldata = coldata.loc[mat.columns]
 
