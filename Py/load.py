@@ -7,6 +7,22 @@ from Py.grandPy import *
 from Py.utils import _to_sparse, _make_unique
 
 
+# Predefined design variable names for harmonized analysis (mirrors R's Design list)
+DESIGN_KEYS = {
+    "has_4sU": "has.4sU",
+    "conc_4sU": "concentration.4sU",
+    "dur_4sU": "duration.4sU",
+    "Replicate": "Replicate",
+    "Condition": "Condition",
+    "hpi": "hpi",
+    "hps": "hps",
+    "Library": "Library",
+    "Sample": "Sample",
+    "Barcode": "Barcode",
+    "Origin": "Origin"
+}
+
+
 def infer_suffixes_from_df(df, known_suffixes=None) -> dict:
     """
     Automatically tries to recognize slots (count, ntr, alpha, beta, ...) and their suffixes from column names.
@@ -220,7 +236,8 @@ def build_coldata(names, design=None):
     max_fields = max(len(parts) for parts in split_names)
 
     if design is None:
-        design = tuple(f"Design_{i+1}" for i in range(max_fields))
+        predefined = list(DESIGN_KEYS.values())
+        design = tuple(predefined[i] if i < len(predefined) else f"Design_{i+1}" for i in range(max_fields))
     elif len(design) < max_fields:
         design += tuple(f"Extra_{i+1}" for i in range(max_fields - len(design)))
 
@@ -242,29 +259,29 @@ def build_coldata(names, design=None):
 def pad_slots(slots, sparse, coldata, slot_sample_names) -> dict:
     """
     Pads all slot matrices to have the same columns (samples), based on coldata["Name"].
-    If a sample is missing in a slot:
-    - If no4sU == True: fill with 0 (sparse) or NaN (dense)
-    - else: warn (as in grandR)
-    Ensures slot columns align exactly with coldata["Name"] order.
+
+    For samples missing in a given slot, a zero-filled column is inserted (dense or sparse).
+    This applies to both 4sU-treated and no4sU samples, matching grandR behavior.
+    Samples are aligned to match the order in coldata["Name"].
 
     Parameters
     ----------
-    slots : dict[str] -> np.ndarray or sparse matrix
+    slots : dict[str, np.ndarray or sparse matrix]
         Dictionary of data matrices, e.g. count, ntr, alpha, beta
 
     sparse : bool
-        If True, output matrices are sparse, otherwise they are dense.
+        If True, output matrices are in sparse format. Otherwise, dense NumPy arrays are used.
 
     coldata : pd.DataFrame
-        Sample metadata; must include "Name" and optionally "no4sU".
+        Sample metadata. Must include a "Name" column, and optionally a "no4sU" flag.
 
     slot_sample_names : dict[str, list[str]]
-        Slot-specific sample names, parsed from column names (e.g. from 'Mock.1h.A alpha').
+        Original sample names per slot (column names without suffix), used for alignment.
 
     Returns
     -------
     dict[str, np.ndarray or sparse matrix]
-        Updated slots with padded sample columns
+        Updated slots with padded sample columns.
     """
 
     # Liste aller erwarteten Samples aus coldata:
@@ -719,8 +736,8 @@ def _read(file_path, sparse, default_slot, design,
             metadata=metadata
         )
 
-# sars = read_grand("data/sars_R.tsv", design=("Condition", "Time", "Replicate"))
-# print(sars.coldata) # funktioniert
+sars = read_grand("data/sars_R.tsv", design=("Condition", "Time", "Replicate"))
+print(sars.coldata) # funktioniert
 
 # sparse_data = read_grand("test-datasets/test_sparse.targets", design=("Time", "Replicate"))
 # print(sparse_data.coldata) # funktioniert
