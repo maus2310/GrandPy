@@ -23,6 +23,14 @@ DESIGN_KEYS = {
 }
 
 
+SEMANTICS = {
+    "duration.4sU": "time",
+    "Experimental.time": "time",
+    "Time": "time",
+    "concentration.4sU": "concentration"
+}
+
+
 def infer_suffixes_from_df(df, known_suffixes=None) -> dict:
     """
     Automatically tries to recognize slots (count, ntr, alpha, beta, ...) and their suffixes from column names.
@@ -211,6 +219,21 @@ def parse_time_string(s):
         return None
 
 
+def apply_design_semantics(coldata: pd.DataFrame) -> pd.DataFrame:
+    """
+    Adds a _semantics dictionary to coldata.attrs with semantic hints
+    for selected design columns (e.g. time, concentration).
+    """
+    semantics = {}
+
+    for key, kind in SEMANTICS.items():
+        if key in coldata.columns:
+            semantics[key] = kind
+
+    coldata.attrs["_semantics"] = semantics
+    return coldata
+
+
 def build_coldata(names, design=None):
     """
     Builds sample metadata (coldata) from sample names and an optional experimental design.
@@ -253,7 +276,8 @@ def build_coldata(names, design=None):
     else:
         coldata["no4sU"] = False
 
-    return coldata[["Name"] + [c for c in coldata.columns if c != "Name"]]
+    coldata = coldata[["Name"] + [c for c in coldata.columns if c != "Name"]]
+    return apply_design_semantics(coldata)
 
 
 def pad_slots(slots, sparse, coldata, slot_sample_names) -> dict:
@@ -310,14 +334,14 @@ def pad_slots(slots, sparse, coldata, slot_sample_names) -> dict:
                 # Sample fehlt im Slot - hier muss dann 'gepadded' werden
                 if "no4sU" in coldata.columns and coldata.loc[sample, "no4sU"]:
                     # Falls no4sU == True -> auffüllen mit 0 oder NaN (abhängig von Matrix-Art)
-                    col = np.zeros(n_genes) if sparse else np.full(n_genes, np.nan)
+                    col = np.zeros(n_genes)
                 else:
                     # Sample fehlt, ist aber 4sU-behandelt -> Warnung wird ausgegeben
                     # das ist anders als in grandR - da wird ein Fehler ausgeworfen
                     if warn_key not in warned_once:
                         warnings.warn(f"Sample '{sample}' missing in slot '{slot_name}' but not marked as no4sU.",
                                   stacklevel=2)
-                    col = np.zeros(n_genes) if sparse else np.full(n_genes, np.nan)
+                    col = np.zeros(n_genes)
             # Hinzufügen der Spalte
             new_matrix.append(col)
 
@@ -736,8 +760,8 @@ def _read(file_path, sparse, default_slot, design,
             metadata=metadata
         )
 
-sars = read_grand("data/sars_R.tsv", design=("Condition", "Time", "Replicate"))
-print(sars.coldata) # funktioniert
+# sars = read_grand("data/sars_R.tsv", design=("Condition", "Time", "Replicate"))
+# print(sars.coldata) # funktioniert
 
 # sparse_data = read_grand("test-datasets/test_sparse.targets", design=("Time", "Replicate"))
 # print(sparse_data.coldata) # funktioniert
