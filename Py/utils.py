@@ -70,6 +70,39 @@ def _make_unique(series: pd.Series, warn = True) -> pd.Series:
     return pd.Series(result, index=series.index)
 
 
+def _reindex_by_index_name(df: pd.DataFrame, by: pd.DataFrame) -> pd.DataFrame:
+    """
+    Sorts the index of a DataFrame by a column from `by`, inferred from the index name of `df`.
+
+    Parameters
+    ----------
+    df: pd.DataFrame
+        The DataFrame to sort.
+
+    by: pd.DataFrame
+        The DataFrame to sort by, that contains a column with the same name as the index name of `df`.
+
+    Returns
+    -------
+    pd.DataFrame
+        The sorted DataFrame.
+    """
+    colname_to_sort_by = df.index.name
+
+    if colname_to_sort_by is None:
+        warnings.warn("Tried to reindex (see pandas) a DataFrame, by a column inferred from the index name, "
+                      "but DataFrame did not have an index name. Now reindexing by a default.")
+        sort_by = by.index
+
+    else:
+        sort_by = by[colname_to_sort_by]
+        sort_by = pd.Index(sort_by)
+
+    sorted_df = df.reindex(sort_by)
+
+    return sorted_df
+
+
 def _ensure_list(obj):
     if obj is None:
         return []

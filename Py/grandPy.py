@@ -7,7 +7,7 @@ import pandas as pd
 import anndata as ad
 import scipy.sparse as sp
 
-from Py.utils import _ensure_list, _make_unique
+from Py.utils import _ensure_list, _make_unique, _reindex_by_index_name
 from Py.slot_manager import SlotManager, ModeSlot, _parse_as_mode_slot
 from Py.plot_manager import PlotManager, Plot
 from Py.analysis_manager import AnalysisManager
@@ -357,7 +357,7 @@ class GrandPy:
         """
         return self._slot_manager.slot_data()
 
-    def _check_slot(self, slot: str, *, allow_ntr = True) -> bool:
+    def _check_slot(self, slot: str, *, allow_ntr: bool = True) -> bool:
         """
         Checks if a given slot exists in the data slots.
 
@@ -376,7 +376,7 @@ class GrandPy:
         """
         return self._slot_manager.check_slot(slot, allow_ntr=allow_ntr)
 
-    def _resolve_mode_slot(self, mode_slot: Union[str, ModeSlot], *, allow_ntr = True) -> Union[np.ndarray, sp.csr_matrix]:
+    def _resolve_mode_slot(self, mode_slot: Union[str, ModeSlot], *, allow_ntr: bool = True, ntr_nan: bool = False) -> Union[np.ndarray, sp.csr_matrix]:
         """
         Checks whether the given slot is valid and computes the resulting mode slot if a mode was specified.
 
@@ -395,7 +395,7 @@ class GrandPy:
         Union[np.ndarray, sp.csr_matrix]
             The resulting slot after the mode has been applied.
         """
-        return self._slot_manager.resolve_mode_slot(mode_slot, allow_ntr=allow_ntr)
+        return self._slot_manager.resolve_mode_slot(mode_slot, allow_ntr=allow_ntr, ntr_nan=ntr_nan)
 
     def with_dropped_slots(self, slots_to_remove: Union[str, Sequence[str]]) -> "GrandPy":
         """
@@ -1234,17 +1234,15 @@ class GrandPy:
         return self.apply(swap, function_coldata=swap, col1=column1, col2=column2)
 
 
-    def apply(self, function: Callable, *, function_gene_info: Callable = None, function_coldata: Callable = None,
+    def apply(self, function: Callable = lambda x: x, *, function_gene_info: Callable = None, function_coldata: Callable = None,
               **kwargs) -> "GrandPy":
         """
         Returns a new GrandPy object with the given function applied to each data slot.
-
         Can also apply a function to the gene_info and coldata DataFrames.
 
-        To change the order of the matrizes in the object, use subsetting instead.
+        When trying to change the order of genes or sample/cells, do so via `function_gene_info` or `function_coldata`.`
 
-        It is not advised to use this method for changing the order of columns or rows,
-        as slots, gene_info, and coldata are not automatically updated when changing one of them.
+        Trying to do the same with `function` will swap the values but keep the order.
 
         Parameters
         ----------
@@ -1263,20 +1261,44 @@ class GrandPy:
             New GrandPy object with transformed data.
 
         """
+        old_obs_index = self._adata.obs.index
+        old_var_index = self._adata.var.index
+
         new_adata = self._adata.copy()
-        for key in self._adata.layers.keys():
-            new_adata.layers[key] = function(self._adata.layers[key], **kwargs)
 
+        # Apply function to gene_info
         if function_gene_info is not None:
-            new_adata.obs = function_gene_info(self._adata.obs, **kwargs)
+            new_adata.obs = function_gene_info(new_adata.obs.copy(), **kwargs)
 
+        # Apply function to coldata
         if function_coldata is not None:
-            new_adata.var = function_coldata(self._adata.var, **kwargs)
+            new_adata.var = function_coldata(new_adata.var.copy(), **kwargs)
 
-        # immer noch nicht perfekt(with_analysis hat den Parameter 'by', das heißt index muss nicht immer 'Symbol')
+        new_obs_index = new_adata.obs.index
+        new_var_index = new_adata.var.index
+
+        # Calculate reordering indices
+        row_reorder = None if new_obs_index.equals(old_obs_index) else new_obs_index.get_indexer(old_obs_index)
+        col_reorder = None if new_var_index.equals(old_var_index) else new_var_index.get_indexer(old_var_index)
+
+        for key in self._adata.layers.keys():
+            matrix = function(self._adata.layers[key], **kwargs)
+
+            # Adjust row order if necessary
+            if row_reorder is not None:
+                matrix = matrix[row_reorder, :] if not sp.issparse(matrix) else matrix[row_reorder, :]
+
+            # Adjust column order if necessary
+            if col_reorder is not None:
+                matrix = matrix[:, col_reorder] if not sp.issparse(matrix) else matrix[:, col_reorder]
+
+            new_adata.layers[key] = matrix
+
+        # Also fix analysis reindexing if needed
         if new_adata.uns['analyses'] is not None:
             new_adata.uns['analyses'] = {
-                key: value.reindex(index=new_adata.obs.index).dropna() for key, value in new_adata.uns['analyses'].items()
+                key: _reindex_by_index_name(value, new_adata.obs)
+                for key, value in new_adata.uns['analyses'].items()
             }
 
         return self._dev_replace(anndata=new_adata)
@@ -1392,7 +1414,7 @@ class GrandPy:
 
         return data_subset
 
-    # TODO get_data() um die fehlenden Parameter aus R erweitern. (ntr.na, by.rows)
+    # TODO get_data() um die fehlenden Parameter aus R erweitern. (by.rows)
     def get_data(
             self,
             mode_slots: Union[str, ModeSlot, Sequence[Union[str, ModeSlot]]] = None,
@@ -1400,7 +1422,8 @@ class GrandPy:
             columns: Union[str, int, Sequence[Union[str, int]]] = None,
             *,
             with_coldata: bool = True,
-            name_genes_by = "Symbol"
+            name_genes_by: str = "Symbol",
+            ntr_nan: bool = False
     ) -> pd.DataFrame:
         """
         Get a DataFrame containing the data from data slots, optionally with the corresponding coldata.
@@ -1423,6 +1446,10 @@ class GrandPy:
 
         name_genes_by: str
             A column in the gene_info DataFrame to be used as the name of the genes.
+
+        ntr_nan: bool
+            If True, ntr values for no4sU will be set to NaN.
+            Otherwise, they remain 0.
 
         Returns
         -------
@@ -1455,7 +1482,7 @@ class GrandPy:
         result_df = pd.DataFrame()
 
         for slot_name in mode_slots:
-            all_data = self._resolve_mode_slot(slot_name).T
+            all_data = self._resolve_mode_slot(slot_name, ntr_nan=ntr_nan).T
             data_subset = all_data[np.ix_(row_indices, column_indices)]
 
             if self._is_sparse:
@@ -1476,7 +1503,7 @@ class GrandPy:
 
         return result_df
 
-    # TODO get_table() um die fehlenden Parameter aus R erweitern(ntr.na, summarize, prefix, reorder.columns). mode_slot soll auch noch ein regex sein können(der mit analysis names verglichen wird).
+    # TODO get_table() um die fehlenden Parameter aus R erweitern(summarize, prefix, reorder.columns). mode_slot soll auch noch ein regex sein können(der mit analysis names verglichen wird).
     def get_table(
             self,
             mode_slots: Union[str, ModeSlot, Sequence[Union[str, ModeSlot]]] = None,
@@ -1484,7 +1511,8 @@ class GrandPy:
             columns: Union[str, int, Sequence[Union[str, int]]] = None,
             *,
             with_gene_info: bool = False,
-            name_genes_by = "Symbol"
+            name_genes_by = "Symbol",
+            ntr_nan: bool = False
     ) -> pd.DataFrame:
         """
         Get a DataFrame containing the data from data slots, optionally with the corresponding gene_info.
@@ -1508,6 +1536,10 @@ class GrandPy:
         name_genes_by: str
             A column in the gene_info DataFrame to be used as the name of the genes.
 
+        ntr_nan: bool
+            If True, ntr values for no4sU will be set to NaN.
+            Otherwise, they remain 0.
+
         Returns
         -------
         pd.DataFrame
@@ -1529,10 +1561,6 @@ class GrandPy:
 
         mode_slots = _ensure_list(mode_slots)
 
-        for slot in mode_slots:
-            if isinstance(slot, ModeSlot):
-                slot = slot.__str__()
-
         row_indices = self.get_index(genes)
         column_indices = [coldata.index.get_loc(column) for column in self.get_columns(columns)]
 
@@ -1542,7 +1570,7 @@ class GrandPy:
         result_df = pd.DataFrame()
 
         for slot_name in mode_slots:
-            all_data = self._resolve_mode_slot(slot_name)
+            all_data = self._resolve_mode_slot(slot_name, ntr_nan=ntr_nan)
             data_subset = all_data[np.ix_(row_indices, column_indices)]
 
             if self._is_sparse:
@@ -1617,24 +1645,27 @@ class GrandPy:
         analyses = self.get_analyses(analyses, regex = regex)
 
         row_indices = self.get_index(genes)
-        row_names = self._adata.obs.iloc[row_indices][name_genes_by].tolist()
 
         result_df = pd.DataFrame()
 
         for name in analyses:
             analysis_data = self._adata.uns["analyses"][name]
-            analysis_data_subset = np.array(analysis_data)[row_indices]
 
-            analysis_column_names = [name + "_" + column for column in analysis_data.columns]
+            # Orders the analysis DataFrame, in case the order of the Object has changed(subsetting)
+            analysis_data = _reindex_by_index_name(analysis_data, self._adata.obs)
 
-            processed_data = pd.DataFrame(analysis_data_subset, index=row_names, columns=analysis_column_names)
+            analysis_data.index = pd.Index(self._adata.obs[name_genes_by])
 
-            # Only take columns that match to 'columns' if it is specified.
+            # Only take rows that match 'genes', if specified.
+            if genes is not None:
+                analysis_data = analysis_data.iloc[row_indices]
+
+            # Only take columns that match 'columns', if specified.
             if columns is not None:
-                matching_cols = [col for col in processed_data.columns if re.search(columns, col)]
-                result_df = pd.concat([result_df, processed_data[matching_cols]], axis=1)
+                matching_cols = [col for col in analysis_data.columns if re.search(columns, col)]
+                result_df = pd.concat([result_df, analysis_data[matching_cols]], axis=1)
             else:
-                result_df = pd.concat([result_df, processed_data], axis=1)
+                result_df = pd.concat([result_df, analysis_data], axis=1)
 
         if with_gene_info:
             result_df = pd.concat([self._adata.obs.iloc[row_indices], result_df], axis=1)

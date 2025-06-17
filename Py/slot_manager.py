@@ -159,7 +159,7 @@ class SlotManager:
             return False
         return slot in self.slots()
 
-    def resolve_mode_slot(self, mode_slot: Union[str, ModeSlot], *, allow_ntr = True) -> Union[np.ndarray, sp.csr_matrix]:
+    def resolve_mode_slot(self, mode_slot: Union[str, ModeSlot], *, allow_ntr = True, ntr_nan = False) -> Union[np.ndarray, sp.csr_matrix]:
         def one_minus_csr_matrix(matrix: sp.csr_matrix) -> sp.csr_matrix:
             """
             Helper funktion to compute one minus a sparse matrix.
@@ -176,6 +176,10 @@ class SlotManager:
 
         slot_total = self._adata.layers[mode_slot.slot].copy()
         ntr = self._adata.layers["ntr"]
+
+        if ntr_nan:
+            boolean_mask = self._adata.var["no4sU"].values
+            ntr[:, boolean_mask] = np.nan
 
         resulting_mode_slot = slot_total
 
