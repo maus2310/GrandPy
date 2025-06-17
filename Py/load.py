@@ -27,7 +27,7 @@ def infer_suffixes_from_df(df, known_suffixes=None) -> dict:
 
     if known_suffixes is None:
         known_suffixes = {
-            # "count": [" Readcount", " Read count", "Readcount", "Read count"],
+            "count": [" Readcount", " Read count", "Readcount", "Read count"],
             "ntr": [" MAP", " NTR MAP", " Binom NTR MAP", " TbBinom NTR MAP", " TbBinomShape NTR MAP"],
             "alpha": [" alpha", " Binom alpha", " TbBinom alpha", " TbBinomShape alpha"],
             "beta": [" beta", " Binom beta", " TbBinom beta", " TbBinomShape beta"],
@@ -45,11 +45,11 @@ def infer_suffixes_from_df(df, known_suffixes=None) -> dict:
                 break
 
     # Regex für count statt known_suffix-Liste:
-    if "count" not in result:
-        for col in df.columns:
-            if re.search(r"(?:\s|^)?Read\s?count$", col, re.IGNORECASE):
-                result["count"] = " Readcount"
-                break
+    # if "count" not in result:
+    #     for col in df.columns:
+    #         if re.search(r"(?:\s|^)?Read\s?count$", col, re.IGNORECASE):
+    #             result["count"] = " Readcount"
+    #             break
 
     return result
 
@@ -719,11 +719,14 @@ def _read(file_path, sparse, default_slot, design,
             metadata=metadata
         )
 
-# sars = read_grand("data/sars_R.tsv", classification_genes=None, classification_genes_label="Viral", design=("Condition", "Time", "Replicate"))
+# sars = read_grand("data/sars_R.tsv", design=("Condition", "Time", "Replicate"))
 # print(sars.coldata) # funktioniert
 
 # sparse_data = read_grand("test-datasets/test_sparse.targets", design=("Time", "Replicate"))
 # print(sparse_data.coldata) # funktioniert
+
+# sc_dense = read_grand("test-datasets/test_sc_dense.targets", design=("Time", "Replicate"))
+# print(sc_dense)
 
 # df = pd.read_csv("test-datasets/targets_only_test_data/targets_only_test_data/test_targets.pseudobulk.all.tsv/test_targets.pseudobulk.all.tsv", sep="\t")
 # print(df.head())
