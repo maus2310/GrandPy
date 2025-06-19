@@ -16,10 +16,7 @@ import warnings
 
 
 
-
-
 # TODO Plots: PlotExpressionTest, PlotAnalyses, VulcanoPlot, MAPlot, PlotTypeDistribution, FormatCorrelation
-#      Helper: Transform, Transform.no, Transform.Z, Transform.vst, Transform.logFC
 
 def _get_plot_limits(vals, override_lim=None):
     """Compute IQR-based limits if not overridden."""
@@ -300,9 +297,6 @@ def plot_scatter(
         _highlight_points(ax, data, x_vals_all, y_vals_all, highlight, size)
 
     ax.grid(False)
-    #offsets = scatter.get_offsets()
-    #print(len(offsets))
-    # Save / Show
 
     if path_for_save:
         fig.savefig(f"{path_for_save}{x}_{y}_{mode_slot}.png", format="png", dpi=300)
@@ -317,10 +311,10 @@ def _transform_z(matrix: np.ndarray, center: bool = True, scale: bool = True) ->
         return matrix.astype(np.float64)
 
     from scipy.stats import zscore
-    return zscore(matrix, axis=1, ddof=0, nan_policy='omit' if (center or scale) else 'propagate')
+    return zscore(matrix, axis=1, ddof=1, nan_policy='omit' if (center or scale) else 'propagate')
 
-def _transform_vst(data, selected_columns: list, mode_slot) -> pd.DataFrame:
-    mat = data.get_table(mode_slots=mode_slot, columns=selected_columns)
+def _transform_vst(data, selected_columns: list, mode_slot, genes) -> pd.DataFrame:
+    mat = data.get_table(mode_slots=mode_slot, columns=selected_columns, genes=genes)
     mat = mat.loc[:, mat.notna().any(axis=0)]
 
     selected_columns_valid = mat.columns.tolist()
@@ -352,7 +346,7 @@ def _make_continuous_colors(values, colors=None, breaks=None):
         return np.nanpercentile(arr, q*100)
 
     if quantile(values, 0.25) < 0:
-        quant = [0.5, 0.95]
+        quant = [50, 95]
 
         if breaks == "minmax":
             ll = np.nanmax(np.abs(values))
@@ -363,11 +357,12 @@ def _make_continuous_colors(values, colors=None, breaks=None):
 
         if breaks is None:
             upper = np.nanpercentile(values[values > 0], quant)
-            lower = np.nanpercentile(-values[values < 0], quant)
-            breaks = [-b for b in reversed(np.maximum(upper, lower))] + [0] + list(np.maximum(upper, lower))
+            lower = np.nanpercentile(np.abs(values[values < 0]), quant)
+            pm = np.maximum(upper, lower)
+            breaks = [-b for b in reversed(pm)] + [0] + list(pm)
 
         if colors is None:
-            colors = "RdBu"
+            colors = ["#CA0020", "#F4A582", "#F7F7F7", "#92C5DE", "#0571B0"]
 
     else:
         quant = [5, 25, 50, 75, 95]
@@ -382,7 +377,7 @@ def _make_continuous_colors(values, colors=None, breaks=None):
             breaks = np.nanpercentile(values, quant)
 
         if colors is None:
-            colors = "YlOrRd"
+            colors = ["#FFFFB2", "#FECC5C", "#FD8D3C", "#F03B20", "#BD0026"]
 
     rev = False
     if isinstance(colors, str):
@@ -390,10 +385,10 @@ def _make_continuous_colors(values, colors=None, breaks=None):
             rev = True
             colors = colors[3:]
         try:
-            cmap = cm.get_cmap(colors, len(breaks) - 1)
+            cmap = cm.get_cmap(colors, len(breaks))
             color_list = [mcolors.rgb2hex(cmap(i)) for i in range(cmap.N)]
         except ValueError:
-            cmap = cm.get_cmap("viridis", len(breaks) - 1)
+            cmap = cm.get_cmap("viridis", len(breaks))
             color_list = [mcolors.rgb2hex(cmap(i)) for i in range(cmap.N)]
 
         if rev:
@@ -402,7 +397,6 @@ def _make_continuous_colors(values, colors=None, breaks=None):
         colors = color_list
     else:
         colors = list(colors)
-
     return {"breaks": breaks, "colors": colors}
 
 def plot_heatmap(
@@ -461,30 +455,25 @@ def plot_heatmap(
         if transform == "z":
             mat = _transform_z(mat)
             label = "z score"
-            vmin = -2
-            vmax = 2
         elif transform in ["no", "none"]:
             mat = _transform_no(mat)
             label = " "
-            vmin = 0
-            vmax = mat.max()
         elif transform == "vst":
-            df_vst = _transform_vst(data, selected_columns, mode_slot=mode_slot)
-            mat = df_vst.to_numpy()
+            df_vst = _transform_vst(data, selected_columns, mode_slot=mode_slot, genes=genes)
+
+            if genes is not None:
+                df_vst = df_vst[genes]
             sample_names = df_vst.index.to_list()
             gene_names = df_vst.columns.to_list()
+            mat = df_vst.to_numpy()
             mat = mat.T
             label = "VST"
-            vmin = None #TODO noch falsch
-            vmax = None #TODO noch falsch
         elif transform == "logfc":
             if selected_columns is None or len(selected_columns) == 0:
                 raise ValueError("Need columns=... to compute logFC reference")
             ref_cols = list(range(len(selected_columns)))
             mat = _transform_logfc(mat, ref_columns=ref_cols)
             label = "log2 FC"
-            vmin = None
-            vmax = None
         else:
             raise ValueError(f"Unknown transform: {transform}")
 
@@ -501,25 +490,31 @@ def plot_heatmap(
 
     breaks = color_def["breaks"]
     colors = color_def["colors"]
+
+    min_b, max_b = breaks[0], breaks[-1]
+    scaled_breaks = [(b - min_b) / (max_b - min_b) for b in breaks]
+    color_list = list(zip(scaled_breaks, colors))
+
     from matplotlib.colors import LinearSegmentedColormap
-    cmap = LinearSegmentedColormap.from_list("custom", colors, N=256)
+    from matplotlib.colors import Normalize
+    cmap = LinearSegmentedColormap.from_list("custom", color_list)
+    norm = Normalize(vmin=min_b, vmax=max_b)
 
 
     sns.clustermap(
         df,
         figsize=(8, 6),
         cmap=cmap,
+        norm = norm,
         row_cluster=cluster_genes,
         col_cluster=cluster_columns,
         yticklabels=label_genes,
         xticklabels=True,
-        cbar_kws={"label": label},
-        vmin=vmin, vmax=vmax
+        cbar_kws={"label": label}
     )
 
     if return_matrix:
-         print(df)
-
+        print(df)
     if title:
         plt.title(title, y=1.05)
 
@@ -527,10 +522,6 @@ def plot_heatmap(
     plt.close()
 
 
-# für mode_slot = "counts" und do.vst=True alles gut
-# für mode_slot = "alpha" und do.vst=False sind die werte irgendwie an der y achse gespiegelt???
-# für mode_slot = "ntr" und do.vst=False alles komisch
-# für mode_slot = "beta" und do.vst=False alles einwandfrei
 #Beispielaufruf: plot_pca(sars)
 def plot_pca(
     data: GrandPy,
@@ -674,8 +665,6 @@ def plot_gene_old_vs_new(
         plot_df["ci_lower"] = ci_lower
         plot_df["ci_upper"] = ci_upper
         plot_df["total"] = total
-
-        print(plot_df)
 
         valid_mask = (
                 (plot_df["old"] > 0) &
@@ -871,7 +860,6 @@ def plot_gene_total_vs_ntr(
             ]
             ax.errorbar(x, y, yerr=yerr, fmt='none', ecolor='gray', capsize=3)
 
-    print(plot_df)
     sns.scatterplot(
         data=plot_df,
         x="total",
@@ -886,6 +874,7 @@ def plot_gene_total_vs_ntr(
     plt.tight_layout()
     plt.show()
     plt.close()
+
 #Beispielaufruf: plot_gene_groups_points(sars, "UHMK1", group="Time")
 def plot_gene_groups_points(
     data: GrandPy,
@@ -1056,7 +1045,6 @@ def plot_gene_groups_points(
     plt.show()
     plt.close()
 
-#TODO show_ci muss noch überarbeitet werden
 #Beispielaufruf: plot_gene_groups_bars(sars, "UHMK1", xlab="Condition + '.' + Replicate")
 def plot_gene_groups_bars(
     data: GrandPy,
@@ -1095,12 +1083,12 @@ def plot_gene_groups_bars(
     else:
         xlabels = coldata["Name"].tolist()
 
-    # df = pd.DataFrame({
-    #     "sample": selected_columns,
-    #     "xlab": xlabels,
-    #     "old": old_vals,
-    #     "new": new_vals
-    # })
+    df = pd.DataFrame({
+        "sample": selected_columns,
+        "xlab": xlabels,
+        "old": old_vals,
+        "new": new_vals
+    })
 
     if transform is not None:
         df = transform(df)
@@ -1122,15 +1110,15 @@ def plot_gene_groups_bars(
         if "lower" not in data.slots or "upper" not in data.slots:
             raise ValueError("CI slots ('lower' and 'upper') are missing. Run compute_ntr_ci() first.")
 
-        total = data.get_table(mode_slots=slot, genes=gene, columns=selected_columns).iloc[0].to_numpy()
-        lower = data.get_table(mode_slots="lower", genes=gene, columns=selected_columns).iloc[0].to_numpy()
-        upper = data.get_table(mode_slots="upper", genes=gene, columns=selected_columns).iloc[0].to_numpy()
+        total = data.get_table(mode_slots=slot, genes=gene, columns=selected_columns, ntr_nan=False).iloc[0].to_numpy()
+        lower = data.get_table(mode_slots="lower", genes=gene, columns=selected_columns, ntr_nan=False).iloc[0].to_numpy()
+        upper = data.get_table(mode_slots="upper", genes=gene, columns=selected_columns, ntr_nan=False).iloc[0].to_numpy()
 
         ymin = (1 - upper) * total
         ymax = (1 - lower) * total
 
-        err_low = total - ymin
-        err_high = (ymax - total)
+        err_low = np.maximum(0, (total - ymin)) #TODO fragen ob cis negativ sein dürfen und wenn nicht ob man sie zu 0 machen sollte oder gar nicht plotten sollte
+        err_high = np.maximum(0, (ymax - total))
 
         mask = (
                 np.isfinite(total) &
