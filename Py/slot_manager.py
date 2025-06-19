@@ -175,7 +175,7 @@ class SlotManager:
             raise ValueError(f"Slot '{mode_slot.slot}' not found in data slots.")
 
         slot_total = self._adata.layers[mode_slot.slot].copy()
-        ntr = self._adata.layers["ntr"]
+        ntr = self._adata.layers.get("ntr")
 
         if ntr_nan:
             boolean_mask = self._adata.var["no4sU"].values

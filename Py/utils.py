@@ -103,6 +103,38 @@ def _reindex_by_index_name(df: pd.DataFrame, by: pd.DataFrame) -> pd.DataFrame:
     return sorted_df
 
 
+def _subset_dense_or_sparse(matrix: Union[np.ndarray, sp.csr_matrix], row_indices: list[int], column_indices: list[int]) -> np.ndarray:
+    """
+    Subsets dense or sparse matrices by given row and column indices.
+
+    Not optimal for sparse matrices, as they are converted to np.ndarray.
+
+    Parameters
+    ----------
+    matrix: np.ndarray or sp.csr_matrix
+        The matrix to subset.
+
+    row_indices: list[int]
+        The row indices to subset by.
+
+    column_indices: list[int]
+        The column indices to subset by.
+
+    Returns
+    -------
+    np.ndarray
+        The subsetted matrix.
+    """
+    if sp.issparse(matrix):
+        # matrix = matrix.tocsr()
+        data_subset = matrix[np.ix_(row_indices, column_indices)].toarray()
+    else:
+        data_subset = matrix[np.ix_(row_indices, column_indices)]
+
+    return data_subset
+
+
+
 def _ensure_list(obj):
     if obj is None:
         return []

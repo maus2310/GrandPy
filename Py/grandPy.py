@@ -1,13 +1,13 @@
 import copy
 import re
 import warnings
-from typing import Any, Union, Sequence, Literal, Mapping, Callable, Optional
+from typing import Any, Union, Sequence, Literal, Mapping, Callable
 import numpy as np
 import pandas as pd
 import anndata as ad
 import scipy.sparse as sp
 
-from Py.utils import _ensure_list, _make_unique, _reindex_by_index_name
+from Py.utils import _ensure_list, _make_unique, _reindex_by_index_name, _subset_dense_or_sparse
 from Py.slot_manager import SlotManager, ModeSlot, _parse_as_mode_slot
 from Py.plot_manager import PlotManager, Plot
 from Py.analysis_manager import AnalysisManager
@@ -41,33 +41,31 @@ class GrandPy:
 
     Parameters
     ----------
-    prefix: str
+    prefix: str, optional
         Path to the data file.
 
-    gene_info: pd.DataFrame
+    gene_info: pd.DataFrame, optional
         Genes and their metadata.
 
-    coldata: pd.DataFrame
+    coldata: pd.DataFrame, optional
         Samples and their metadata.
 
-    slots: dict[str, Union[np.ndarray, pd.DataFrame, sp.csr_matrix]]]
+    slots: dict[str, Union[np.ndarray, sp.csr_matrix]]], optional
         Name and the corresponding data matrix.
 
-    metadata: dict[str, Any]
+    metadata: dict[str, Any], optional
         Metadata about the data and file.
 
-    analyses: dict[str, Any]
+    analyses: dict[str, pd.DataFrame], optional
         Results from analyzing functions.
 
-    plots: dict[str, Any]
+    plots: dict[str, dict[str, Plot]], optional
         Plot functions. (global or gene plots)
 
     See Also
     --------
-    read_grand()
+    read_grand
         Read a file into a GrandPy object.
-
-
     """
 
     def __init__(
@@ -78,7 +76,7 @@ class GrandPy:
             slots: dict[str, Union[np.ndarray, sp.csr_matrix]] = None,
             metadata: dict[str, Any] = None,
             analyses: dict[str, pd.DataFrame] = None,
-            plots: dict[str, dict] = None
+            plots: dict[str, dict[str, Plot]] = None
     ):
 
         if gene_info is None:
@@ -135,6 +133,12 @@ class GrandPy:
     def __getitem__(self, items):
         new_adata = self._adata.copy()
         new_adata = new_adata[items]
+
+        # Reorders all existing analyses according to the new genes present in gene_info
+        if new_adata.uns.get("analyses") is not None:
+            for key in new_adata.uns["analyses"].keys():
+                new_adata.uns["analyses"][key] = _reindex_by_index_name(new_adata.uns["analyses"][key], new_adata.obs)
+
         return self._dev_replace(anndata = new_adata)
 
     def replace(
@@ -344,12 +348,6 @@ class GrandPy:
         """
         Get the raw data of all available slots as they are stored internally.
 
-        It is not recommended to use this function directly,
-        as it will return Matrizes without row or column names. (in contrast to get_data() and get_table())
-
-        If you want to use this to modify the data on your own and then add it back to the object with with_slot(),
-        it is recommended to use get_table() -> with_slot() instead.
-
         Returns
         -------
         dict[str, Union[np.ndarray, sp.csr_matrix]]
@@ -366,7 +364,7 @@ class GrandPy:
         slot: str
             The slot to be checked.
 
-        allow_ntr:
+        allow_ntr: bool, default True
             If True, the slot "ntr" is allowed as input.
 
         Returns
@@ -384,11 +382,14 @@ class GrandPy:
 
         Parameters
         ----------
-        mode_slot: Union[str, ModeSlot]
+        mode_slot: str or ModeSlot
             A slot or a mode slot to be resolved.
 
-        allow_ntr: bool
+        allow_ntr: bool, default True
             If True, the slot "ntr" is allowed as input.
+
+        ntr_nan: bool, default False
+            If True, the slot "ntr" is treated as NaN for no4sU samples/cells.
 
         Returns
         -------
@@ -403,7 +404,7 @@ class GrandPy:
 
         Parameters
         ----------
-        slots_to_remove: Union[str, Sequence[str]]
+        slots_to_remove: str or Sequence[str]
             One or more slots to remove from the data.
 
         Returns
@@ -432,7 +433,7 @@ class GrandPy:
             Name of the new slot.
         new_slot: Union[np.ndarray, pd.DataFrame, sp.csr_matrix]
             The data to be added as a new slot.
-        set_to_default: bool
+        set_to_default: bool, default False
             If True, sets the new slot as the default slot.
 
         Returns
@@ -505,13 +506,13 @@ class GrandPy:
 
         See Also
         --------
-        get_analysis():
+        GrandPy.get_analysis:
             Get the names of analyses matching a pattern.
 
-        with_dropped_analyses():
+        GrandPy.with_dropped_analyses:
             Remove analyses with a regex pattern.
 
-        with_analysis():
+        GrandPy.with_analysis:
             Add an analysis to the object. Usually not to be used directly.
         """
         return self._analysis_manager.analyses()
@@ -522,10 +523,10 @@ class GrandPy:
 
         Parameters
         ----------
-        pattern: Union[str, int, Sequence[Union[str, int, bool]]]
+        pattern: str or int or Sequence[str or int or bool], optional
             Names of analyses to be retrieved. Can be a regex, names, indices, or a boolean mask.
 
-        regex: bool
+        regex: bool, default True
             If True, `name` will be interpreted as a regular expression or a list of regular expressions.
 
         Returns
@@ -540,13 +541,13 @@ class GrandPy:
 
         See Also
         --------
-        analyses:
+        GrandPy.analyses:
             Get a list of all available analyses.
 
-        with_dropped_analyses():
+        GrandPy.with_dropped_analyses:
             Remove analyses with a regex pattern.
 
-        with_analysis():
+        GrandPy.with_analysis:
             Add an analysis to the object. Usually not to be used directly.
         """
         return self._analysis_manager.get_analyses(pattern, regex=regex)
@@ -568,8 +569,8 @@ class GrandPy:
         table: pd.DataFrame
             A DataFrame containing the analysis data. Has to contain gene names or symbols.
 
-        by: str
-            A column in the table to be used as index.
+        by: str, optional
+            A column in the table to be used as an index.
 
         Returns
         -------
@@ -577,13 +578,13 @@ class GrandPy:
 
         See Also
         --------
-        analyses:
+        GrandPy.analyses:
             Get the names of all stored analyses.
 
-        get_analysis():
+        GrandPy.get_analysis:
             Get the names of analyses matching a pattern.
 
-        with_dropped_analyses():
+        GrandPy.with_dropped_analyses:
             Remove analyses with a regex pattern.
         """
         new_analyses = self._analysis_manager.with_analysis(name, table, by=by)
@@ -598,7 +599,7 @@ class GrandPy:
 
         Parameters
         ----------
-        pattern: str
+        pattern: str, optional
             A regex pattern to match analyses.
 
         Returns
@@ -607,13 +608,13 @@ class GrandPy:
 
         See Also
         --------
-        analyses:
+        GrandPy.analyses:
             Get the names of all stored analyses.
 
-        get_analysis():
+        GrandPy.get_analysis:
             Get the names of analyses matching a pattern.
 
-        with_analysis():
+        GrandPy.with_analysis:
             Add an analysis to the object. Usually not to be used directly.
         """
         new_analyses = self._analysis_manager.drop_analyses(pattern)
@@ -638,10 +639,10 @@ class GrandPy:
 
         See Also
         --------
-        with_plot()
+        GrandPy.with_plot
             Add a plot function.
 
-        with_dropped_plots()
+        GrandPy.with_dropped_plots
             Remove plots matching a regex pattern.
         """
         return self._plot_manager.plots()
@@ -656,7 +657,7 @@ class GrandPy:
         name: str
             A name for the plot.
 
-        function: Union[Plot, Callable]
+        function: Plot or Callable
             A Plot Object, or a funktion, that takes a GrandPy object or a GrandPy object and a gene as input and returns a plot.
 
         Returns
@@ -704,10 +705,10 @@ class GrandPy:
         Plot
             A class used to store plot functions as.
 
-        plots
+        GrandPy.plots
             Get the names of all stored plot functions.
 
-        with_dropped_plots()
+        GrandPy.with_dropped_plots
             Remove plots matching a regex.
         """
         new_plots = self._plot_manager.add_plot(name, function)
@@ -728,16 +729,16 @@ class GrandPy:
 
         See Also
         --------
-        plots
+        GrandPy.plots
             Get the names of all stored plot functions.
 
-        with_plot()
+        GrandPy.with_plot
             Add a plot function.
 
-        with_dropped_plots()
+        GrandPy.with_dropped_plots
             Remove plots matching a regex.
 
-        plot_global()
+        GrandPy.plot_global
             Executes a stored global plot function.
         """
         print(self._adata.uns["plots"]["gene"][name])
@@ -754,16 +755,16 @@ class GrandPy:
 
         See Also
         --------
-        plots
+        GrandPy.plots
             Get the names of all stored plot functions.
 
-        with_plot()
+        GrandPy.with_plot
             Add a plot function.
 
-        with_dropped_plots()
+        GrandPy.with_dropped_plots
             Remove plots matching a regex.
 
-        plot_gene()
+        GrandPy.plot_gene
             Executes a stored plot function for a given gene.
         """
         return self._adata.uns["plots"]["global"][name](self)
@@ -774,7 +775,7 @@ class GrandPy:
 
         Parameters
         ----------
-        pattern: str
+        pattern: str, optional
             A regular expression matching plot names to be dropped.
 
         Returns
@@ -784,10 +785,10 @@ class GrandPy:
 
         See Also
         --------
-        plots
+        GrandPy.plots
             Get the names of all stored plot functions.
 
-        with_plot()
+        GrandPy.with_plot
             Add a plot function.
         """
         new_plots = self._plot_manager.drop_plot(pattern)
@@ -823,7 +824,7 @@ class GrandPy:
         column : str
             The name of the column to be modified.
 
-        value : Union[Mapping, pd.Series, Sequence[Any]]
+        value : Mapping or pd.Series or Sequence[Any]
             The values to assign to the column can be any iterable. Can also be a dictionary when trying to update a column.
             A Series will be matched to gene_info by its index.
 
@@ -857,9 +858,9 @@ class GrandPy:
 
         Parameters
         ----------
-        genes: Union[str, int, Sequence[Union[str, int, bool]]]
+        genes: str or int or Sequence[str or int or bool], optional
             Specifies which indices to return.
-        regex: bool
+        regex: bool, default False
             If True, `gene` will be interpreted as a regular expression.
 
         Returns
@@ -867,60 +868,60 @@ class GrandPy:
         list[int]
             A list containing the specified indices.
         """
-        gene_info = self.gene_info
-        index = list(range(len(gene_info.index)))
+        gene_info = self._adata.obs
+        n = len(gene_info)
 
         if genes is None:
-            return index
+            return list(range(n))
 
-        gene_column = gene_info.get("Gene")
-        symbol_column = gene_info.get("Symbol")
+        if "Gene" not in gene_info or "Symbol" not in gene_info:
+            raise ValueError("gene_info must contain 'Gene' and 'Symbol' columns.")
 
-        # Handles regex
-        if regex:
-            mask_symbol = gene_column.astype(str).str.contains(genes, regex=True) | \
-                   symbol_column.astype(str).str.contains(genes, regex=True)
-            return np.array(index)[mask_symbol]
+        gene_col = gene_info["Gene"].astype(str)
+        symbol_col = gene_info["Symbol"].astype(str)
 
         genes = _ensure_list(genes)
 
         if any(pd.isna(genes)):
-            warnings.warn("All None values were removed from the query.")
+            warnings.warn("NaN values removed from gene input.")
             genes = [g for g in genes if pd.notna(g)]
 
-        # Handles boolean mask
-        if isinstance(genes, list) and all(isinstance(g, (bool, np.bool_)) for g in genes):
-            if len(genes) != len(index):
-                raise ValueError("Length of boolean filter must match number of genes.")
-            return list(np.where(genes)[0])
+        # Boolean mask
+        if all(isinstance(g, (bool, np.bool_)) for g in genes):
+            if len(genes) != n:
+                raise ValueError("Boolean mask length does not match gene count.")
+            return list(np.flatnonzero(genes))
 
-        # Handles integers
-        if isinstance(genes, list) and all(isinstance(g, (int, np.integer)) for g in genes):
-            if all(gene < len(gene_info.index) for gene in genes):
-                return genes
-            else:
-                raise IndexError("The given index is out of range.")
+        # Integer index
+        if all(isinstance(g, (int, np.integer)) for g in genes):
+            if not all(0 <= g < n for g in genes):
+                raise IndexError("One or more gene indices out of bounds.")
+            return genes
 
-        gene_list = pd.Series(genes, dtype=str)
+        # Regex matching (only works with str input)
+        if regex:
+            pattern = genes[0] if isinstance(genes, list) else genes
+            mask = gene_col.str.contains(pattern, regex=True) | symbol_col.str.contains(pattern, regex=True)
+            return list(np.flatnonzero(mask))
 
-        matches_in_gene = gene_list[gene_list.isin(gene_column)]
-        matches_in_symbol = gene_list[gene_list.isin(symbol_column)]
+        # Matching by Gene/Symbol string
+        genes_str = pd.Series(genes, dtype=str)
 
-        if len(matches_in_gene) >= len(matches_in_symbol):
-            return_column = gene_column
-        else:
-            return_column = symbol_column
+        matches_gene = genes_str[genes_str.isin(set(gene_col))]
+        matches_symbol = genes_str[genes_str.isin(set(symbol_col))]
 
-        mapping = pd.Series(index, index=return_column)
-        found = gene_list[gene_list.isin(return_column)]
-        missing = gene_list[~gene_list.isin(return_column)]
+        use_col = gene_col if len(matches_gene) >= len(matches_symbol) else symbol_col
+        ref_map = pd.Series(np.arange(n), index=use_col)
+
+        found = genes_str[genes_str.isin(ref_map.index)]
+        missing = genes_str[~genes_str.isin(ref_map.index)]
 
         if not missing.empty:
             preview = ", ".join(missing.head(5))
             more = " ..." if len(missing) > 5 else ""
-            warnings.warn(f"Could not find given genes (n={len(missing)}, e.g. {preview}{more})")
+            warnings.warn(f"Could not find {len(missing)} genes (e.g. {preview}{more})")
 
-        return mapping.loc[found].tolist()
+        return ref_map.loc[found].tolist()
 
     # TODO with_updated_symbols vervollständigen. Aktuell wird noch nicht unique gemacht und
     #  auch nur die Spalte 'Symbol' wird geändert. None Behandlung ebenfalls fraglich
@@ -961,7 +962,7 @@ class GrandPy:
         """
         return self.gene_info["Symbol"].tolist()
 
-    def get_genes(self, gene: Union[str, int, Sequence[Union[str, int, bool]]] = None, *, use_gene_symbols: bool = True, regex: bool = False) -> list[str]:
+    def get_genes(self, genes: Union[str, int, Sequence[Union[str, int, bool]]] = None, *, use_gene_symbols: bool = True, regex: bool = False) -> list[str]:
         """
         Get gene names or symbols.
 
@@ -971,11 +972,11 @@ class GrandPy:
 
         Parameters
         ----------
-        gene: Union[str, int, Sequence[str|int|bool]]
+        genes: str or int or Sequence[str or int or bool], optional
             Genes to be retrieved.
-        use_gene_symbols: bool
+        use_gene_symbols: bool, default True
             If True, gene symbols will be returned. Otherwise, gene names will be returned.
-        regex: bool
+        regex: bool, default False
             If True, `genes` will be interpreted as a regular expression.
 
         Returns
@@ -985,24 +986,24 @@ class GrandPy:
 
         See Also
         --------
-        get_columns()
-            get the sample/cell names.
+        GrandPy.get_columns
+            Get the sample/cell names.
 
-        get_index()
+        GrandPy.get_index
             Get the index of gene names/symbols.
         """
         if use_gene_symbols:
-            if gene is None:
+            if genes is None:
                 return self.genes
 
-            indices = self.get_index(gene, regex=regex)
+            indices = self.get_index(genes, regex=regex)
             return self.gene_info.iloc[indices]["Symbol"].tolist()
 
         else:
-            if gene is None:
-                return self.gene_info["Gene"]
+            if genes is None:
+                return self.gene_info["Gene"].tolist()
 
-            indices = self.get_index(gene, regex=regex)
+            indices = self.get_index(genes, regex=regex)
             return self.gene_info.iloc[indices]["Gene"].tolist()
 
     # TODO get_significant_genes implementieren
@@ -1026,9 +1027,9 @@ class GrandPy:
         Parameters
         ----------
         column : str
-            The name of the column to be modified.
+            The name of the column to be modified or added.
 
-        value : Union[Mapping, pd.Series, Sequence[Any]]
+        value : Mapping or pd.Series or Sequence[Any]
             The values to assign to the column can be any iterable. Can also be a dictionary when trying to update a column.
 
         Returns
@@ -1060,8 +1061,9 @@ class GrandPy:
 
         Parameters
         ----------
-        value: Union[str, Sequence[str], pd.Series, Mapping]
-            The conditions to be set for the samples/cells. Can also construct the name from other columns in coldata, if their names are given.
+        value: str or Sequence[str] or pd.Series or Mapping
+            The conditions to be set for the samples/cells.
+            Can also construct the name from other columns in coldata, if their names are given.
 
         Returns
         -------
@@ -1107,10 +1109,10 @@ class GrandPy:
 
         Parameters
         ----------
-        columns: Union[str, int, Sequence[str|int|bool]]
+        columns: str or int or Sequence[str or int or bool], optional
             Samples/cells to be retrieved.
 
-        reorder: bool
+        reorder: bool, default False
             If True, the returned list will be in the same order as the original column data.
 
             Otherwise, the returned list will be in the same order as the input.
@@ -1122,7 +1124,7 @@ class GrandPy:
 
         See Also
         --------
-        get_genes()
+        GrandPy.get_genes
             get the gene symbols/names.
         """
         coldata = self.coldata
@@ -1162,10 +1164,10 @@ class GrandPy:
 
         See Also
         --------
-        with_swapped_columns()
+        GrandPy.with_swapped_columns
             Swaps columns in coldata and the corresponding in all slots.
 
-        get_columns()
+        GrandPy.get_columns
             Returns the names of columns, either by index, name, or a boolean mask.
         """
         coldata = self.coldata
@@ -1180,40 +1182,37 @@ class GrandPy:
 
     def with_swapped_columns(self, column1: Union[str, int], column2: Union[str, int]) -> "GrandPy":
         """
-        Returns a new GrandPy object with the two specified columns in all slots and corresponding rows in coldata swapped.
+        Returns a new GrandPy object with the values of two columns swapped in all slots.
+
+        This is what you call when samples/calls have been mislabled.
 
         Parameters
         ----------
-        column1: Union[str, int]
+        column1: str or int
             column to swap with.
 
-        column2: Union[str, int]
+        column2: str or int
             column to swap with.
 
         Returns
         -------
         GrandPy
-            A new GrandPy object with swapped columns.
+            A new GrandPy object with values for two columns swapped.
 
         See Also
         --------
-        with_renamed_columns()
+        GrandPy.with_renamed_columns
             Rename the columns of all slots.
         """
         def swap(matrix, col1, col2):
             """
             Helper function that swaps columns for ndarray or csr_matrix and rows for a DataFrame.
             """
-            if isinstance(matrix, pd.DataFrame):
-                rows = list(matrix.index)
-                rows[col1], rows[col2] = rows[col2], rows[col1]
-                return matrix.loc[rows]
-
-            elif isinstance(matrix, np.ndarray):
+            if isinstance(matrix, np.ndarray):
                 matrix = matrix.copy()
                 matrix[:, [col1, col2]] = matrix[:, [col2, col1]]
 
-            elif sp.isspmatrix_csr(matrix):
+            elif sp.issparse(matrix):
                 # Convert to CSC for efficient column slicing
                 csc = matrix.tocsc(copy=True)
                 # Swap the columns using slicing
@@ -1231,11 +1230,11 @@ class GrandPy:
         if isinstance(column2, str):
             column2 = self._adata.var.columns.get_loc(column2)
 
-        return self.apply(swap, function_coldata=swap, col1=column1, col2=column2)
+        return self._apply(swap, col1=column1, col2=column2)
 
 
-    def apply(self, function: Callable = lambda x: x, *, function_gene_info: Callable = None, function_coldata: Callable = None,
-              **kwargs) -> "GrandPy":
+    def _apply(self, function: Callable = lambda x: x, *, function_gene_info: Callable = None, function_coldata: Callable = None,
+               **kwargs) -> "GrandPy":
         """
         Returns a new GrandPy object with the given function applied to each data slot.
         Can also apply a function to the gene_info and coldata DataFrames.
@@ -1246,11 +1245,11 @@ class GrandPy:
 
         Parameters
         ----------
-        function:
+        function: Callable, default lambda x: x
             Function to apply to each data slot.
-        function_gene_info:
+        function_gene_info: Callable, default None
             Function to apply to the gene_info DataFrame.
-        function_coldata:
+        function_coldata: Callable, default None
             Function to apply to the coldata DataFrame.
         **kwargs:
             Additional keyword arguments to pass to the function.
@@ -1321,13 +1320,13 @@ class GrandPy:
         other: GrandPy
             The object to concatenate with the current instance.
 
-        axis: Literal["gene_info", 0, "coldata", 1]
+        axis: {"gene_info" or 0, "coldata" or 1}, default 1
             The axis along which to concatenate.
 
-        join: Literal["inner", "outer"]
+        join: {"inner", "outer"}, default "inner"
             How to align values when concatenating. If "outer", the union of the other axis is taken. If "inner", the intersection.
 
-        merge: Union[Literal["same", "unique", "first", "only"], Callable]
+        merge: {"same" or "unique" or "first" or "only"} or Callable, default "unique"
             How elements not aligned to the axis being concatenated along are selected.
             Currently implemented strategies include:
 
@@ -1371,16 +1370,16 @@ class GrandPy:
 
         Parameters
         ----------
-        mode_slot: Union[str, ModeSlot]
+        mode_slot: str or ModeSlot
             The name of the data slot. If None, uses the default slot.
 
             A mode("new"|"old"|"total") can be specified in the following formats: ModeSlot('<mode>', '<slot>') or '<mode>_<slot>'
 
-        genes: Union[str, int, Sequence[Union[str, int]]]
-            The genes to be retrieved. Either by gene symbols, names(Ensembl ids), indices or a boolean mask.
+        genes: str or int or Sequence[str or int]
+            The genes to be retrieved. Either by gene symbols, names(Ensembl ids), indices, or a boolean mask.
 
-        columns: Union[str, int, Sequence[Union[str, int]]]
-            The samples/cells to be retrieved. Either by names, indices or a boolean mask.
+        columns: str or int or Sequence[str or int]
+            The samples/cells to be retrieved. Either by names, indices, or a boolean mask.
 
         Returns
         -------
@@ -1389,10 +1388,10 @@ class GrandPy:
 
         See Also
         --------
-        get_table()
+        GrandPy.get_table
             Similar to get_matrix(), but with row and column names and coldata can be concatenated.
 
-        get_data()
+        GrandPy.get_data
             Similar to get_data(), but slots are transposed, so gene_info can be concatenated.
         """
         if mode_slot is None:
@@ -1400,17 +1399,10 @@ class GrandPy:
 
         data = self._resolve_mode_slot(mode_slot)
 
-        if genes is None and columns is None:
-            return data
-
         row_indices = self.get_index(genes)
         column_indices = [self._adata.var.index.get_loc(column) for column in self.get_columns(columns)]
 
-        if self._is_sparse:
-            data_subset = data[row_indices, :][:, column_indices]
-
-        else:
-            data_subset = data[np.ix_(row_indices, column_indices)]
+        data_subset = _subset_dense_or_sparse(data, row_indices, column_indices)
 
         return data_subset
 
@@ -1430,24 +1422,24 @@ class GrandPy:
 
         Parameters
         ----------
-        mode_slots: Union[str, ModeSlot, Sequence[Union[str, ModeSlot]]]
+        mode_slots: str or ModeSlot or Sequence[str or ModeSlot], optional
             The name of the data slots. If None, uses the default slot.
 
             A mode("new"|"old"|"total") can be specified in the following formats: ModeSlot('<mode>', '<slot>') or '<mode>_<slot>'
 
-        genes: Union[str, int, Sequence[Union[str, int]]]
+        genes: str or int or Sequence[str or int], optional
             The genes to be retrieved. Either by gene symbols, names(Ensembl ids), or indices.
 
-        columns: Union[str, int, Sequence[Union[str, int]]]
+        columns: str or int or Sequence[str or int], optional
             The samples/cells to be retrieved. Either by names or indices.
 
-        with_coldata: bool
+        with_coldata: bool, default True
             If True, the coldata DataFrame will be concatenated to the result.
 
-        name_genes_by: str
+        name_genes_by: str, default "Symbol"
             A column in the gene_info DataFrame to be used as the name of the genes.
 
-        ntr_nan: bool
+        ntr_nan: bool, default False
             If True, ntr values for no4sU will be set to NaN.
             Otherwise, they remain 0.
 
@@ -1458,10 +1450,10 @@ class GrandPy:
 
         See Also
         --------
-        get_table()
+        GrandPy.get_table
             Similar to get_data(), but slots are transposed, so gene_info can be concatenated.
 
-        get_matrix()
+        GrandPy.get_matrix
             Similar to get_data(), but transposed and only gives raw_data without row or column names.
         """
         coldata = self.coldata
@@ -1473,20 +1465,17 @@ class GrandPy:
         mode_slots = _ensure_list(mode_slots)
 
         row_indices = [coldata.index.get_loc(column) for column in self.get_columns(columns)]
-        column_indices = self.get_index(genes) if genes is not None else self.get_index(None)
+        column_indices = self.get_index(genes)
 
-        # row_names is handled like this, so that the index remains unique ('Symbol' was not made unique, but index was)
         row_names = coldata.iloc[row_indices].index.tolist()
-        column_names = gene_info.iloc[column_indices].index.tolist() if name_genes_by == "Symbol" else gene_info.iloc[column_indices][name_genes_by].tolist()
+        column_names = gene_info.iloc[column_indices][name_genes_by].tolist()
 
         result_df = pd.DataFrame()
 
         for slot_name in mode_slots:
             all_data = self._resolve_mode_slot(slot_name, ntr_nan=ntr_nan).T
-            data_subset = all_data[np.ix_(row_indices, column_indices)]
 
-            if self._is_sparse:
-                data_subset = np.array(data_subset)
+            data_subset = _subset_dense_or_sparse(all_data, row_indices, column_indices)
 
             if len(mode_slots) > 1:
                 local_column_names = [name + "_" + slot_name.__str__() for name in column_names]
@@ -1519,24 +1508,24 @@ class GrandPy:
 
         Parameters
         ----------
-        mode_slots: Union[str, ModeSlot, Sequence[Union[str, ModeSlot]]]
+        mode_slots: str or ModeSlot or Sequence[str or ModeSlot], optional
             The name of the data slots. If None, uses the default slot.
 
             A mode("new"|"old"|"total") can be specified in the following formats: ModeSlot('<mode>', '<slot>') or '<mode>_<slot>'
 
-        genes: Union[str, int, Sequence[Union[str, int]]]
+        genes: str or int or Sequence[str or int], optional
             The genes to be retrieved. Either by gene symbols, names(Ensembl ids), or indices.
 
-        columns: Union[str, int, Sequence[Union[str, int]]]
+        columns: str or int or Sequence[str or int], optional
             The samples/cells to be retrieved. Either by names or indices.
 
-        with_gene_info: bool
+        with_gene_info: bool, default False
             If True, the gene_info DataFrame will be concatenated to the result.
 
-        name_genes_by: str
+        name_genes_by: str, default "Symbol"
             A column in the gene_info DataFrame to be used as the name of the genes.
 
-        ntr_nan: bool
+        ntr_nan: bool, default False
             If True, ntr values for no4sU will be set to NaN.
             Otherwise, they remain 0.
 
@@ -1547,10 +1536,10 @@ class GrandPy:
 
         See Also
         --------
-        get_data():
+        GrandPy.get_data:
             Similar to get_table(), but slots are transposed, so coldata can be concatenated.
 
-        get_matrix():
+        GrandPy.get_matrix:
             Similar to get_table(), but gives raw data without row or column names.
         """
         coldata = self.coldata
@@ -1571,10 +1560,8 @@ class GrandPy:
 
         for slot_name in mode_slots:
             all_data = self._resolve_mode_slot(slot_name, ntr_nan=ntr_nan)
-            data_subset = all_data[np.ix_(row_indices, column_indices)]
 
-            if self._is_sparse:
-                data_subset = data_subset.toarray()
+            data_subset = _subset_dense_or_sparse(all_data, row_indices, column_indices)
 
             if len(mode_slots) > 1:
                 local_column_names = [name + "_" + slot_name.__str__() for name in column_names]
@@ -1605,22 +1592,22 @@ class GrandPy:
 
         Parameters
         ----------
-        analyses: Union[str, int, Sequence[Union[str, int, bool]]]
+        analyses: str or int or Sequence[str or int or bool], optional
             The analyses to be retrieved. Either by name, index, or a boolean mask.
 
-        genes: Union[str, int, Sequence[Union[str, int]]]
+        genes: str or int or Sequence[str or int], optional
             The genes for which to retrieve the analysis tables. Either by gene symbols, names(Ensembl ids), or indices.
 
-        columns: str
+        columns: str, optional
             A regular expression to match the name of the columns in the analysis tables.
 
-        regex: bool
+        regex: bool, default True
             If True, 'analyses' will be interpreted as a regular expression.
 
-        with_gene_info: bool
+        with_gene_info: bool, default True
             If True, the gene_info DataFrame will be concatenated to the result.
 
-        name_genes_by: str
+        name_genes_by: str, default "Symbol"
             The name of the column in the gene_info DataFrame to be used as the name of the genes.
 
         Returns
@@ -1630,16 +1617,16 @@ class GrandPy:
 
         See Also
         --------
-        analyses
+        GrandPy.analyses
             Get the names of all stored analyses.
 
-        get_analyses()
+        GrandPy.get_analyses
             Get the names of analyses. Either by a regex, names, indices, or a boolean mask.
 
-        with_analysis()
+        GrandPy.with_analysis
             Add a new analysis to the object.
 
-        with_dropped_analysis()
+        GrandPy.with_dropped_analysis
             Drop analyses from the object with a regex.
         """
         analyses = self.get_analyses(analyses, regex = regex)
@@ -1651,9 +1638,6 @@ class GrandPy:
         for name in analyses:
             analysis_data = self._adata.uns["analyses"][name]
 
-            # Orders the analysis DataFrame, in case the order of the Object has changed(subsetting)
-            analysis_data = _reindex_by_index_name(analysis_data, self._adata.obs)
-
             analysis_data.index = pd.Index(self._adata.obs[name_genes_by])
 
             # Only take rows that match 'genes', if specified.
@@ -1663,9 +1647,10 @@ class GrandPy:
             # Only take columns that match 'columns', if specified.
             if columns is not None:
                 matching_cols = [col for col in analysis_data.columns if re.search(columns, col)]
-                result_df = pd.concat([result_df, analysis_data[matching_cols]], axis=1)
             else:
-                result_df = pd.concat([result_df, analysis_data], axis=1)
+                matching_cols = analysis_data.columns
+
+            result_df = pd.concat([result_df, analysis_data[matching_cols]], axis=1)
 
         if with_gene_info:
             result_df = pd.concat([self._adata.obs.iloc[row_indices], result_df], axis=1)
@@ -1675,13 +1660,13 @@ class GrandPy:
     # TODO Beispiele für get_references schreiben
     def get_references(
             self,
-            reference: Optional[Union[str, Callable[[pd.Series], bool]]] = None,
-            reference_function: Optional[Callable[[pd.Series], list[str]]] = None,
+            reference: Union[str, Callable[[pd.Series], bool]] = None,
+            reference_function: Callable[[pd.Series], Sequence[str]] = None,
             *,
-            group: Optional[Union[str, list[str]]] = None,
-            columns: Optional[Union[str, list[str]]] = None,
+            group: Union[str, Sequence[str]] = None,
+            columns: Union[str, Sequence[str]] = None,
             as_dict: bool = False
-    ) -> Union[pd.DataFrame, dict[str, list[str]]]:
+    ) -> Union[pd.DataFrame, dict[str, Sequence[str]]]:
         """
         Find reference samples within groups using a condition or custom function.
 
@@ -1692,14 +1677,14 @@ class GrandPy:
             - a string (interpreted via `pandas.query`)
             - a function taking a row and returning True for reference samples, False otherwise.
 
-        reference_function : Callable[[pd.Series], list[str]], optional
+        reference_function : Callable[[pd.Series], Sequence[str]], optional
             A function that returns a list of references for each sample (row-wise).
             If specified, `reference` is ignored.
 
-        group : str or list[str], optional
+        group : str or Sequence[str], optional
             One or more column names in `coldata` used to group samples before applying the condition.
 
-        columns : str or list[str], optional
+        columns : str or Sequence[str], optional
             Limit the input to specific columns from `coldata` for evaluation.
 
         as_dict : bool, default False
@@ -1708,16 +1693,13 @@ class GrandPy:
 
         Returns
         -------
-        Union[pd.DataFrame, dict[str, list[str]]]
+        Union[pd.DataFrame, dict[str, Sequence[str]]]
             Either a reference matrix or a mapping from sample → list of references.
 
         Raises
         ------
         ValueError
-            When neither `reference` nor `reference_function` is provided.
-
-        ValueError
-            When `reference` is a string and the query on the DataFrame fails.
+            When neither `reference` nor `reference_function` is provided; When `reference` is a string and the query on the DataFrame fails.
 
         TypeError
             When `reference` is neither a string nor a callable.
@@ -1805,24 +1787,24 @@ class GrandPy:
     def deseq2_bic(
             self,
             name: str = "BIC",
-            mode: str = "total",
+            mode: Literal["new", "n", "old", "o", "total", "t"] = "total",
             formulas: dict = None,
             no4su: bool = False,
-            columns: Optional[Union[str, Sequence[str], Sequence[bool]]] = None,
+            columns: Union[str, Sequence[str], Sequence[bool]] = None,
     ) -> "GrandPy":
         """
 
         Parameters
         ----------
-        name : str
+        name: str
             Name of the analysis.
-        mode : str
+        mode: {"new" or "n" or "old" or "o" or "total" or "t"}, default "total"
             Data slot to use (e.g., 'total').
-        formulas : dict
+        formulas: dict, optional
             Dictionary of {model_name: formula_string}, e.g. {"full": "counts ~ Condition", "null": "counts ~ 1"}.
-        no4su : bool
+        no4su: bool, default False
             Whether to exclude 4sU-treated samples.
-        columns : list[str|bool], optional
+        columns: str or Sequence[str or bool], optional
             Manually selected sample filter.
 
         Returns
@@ -1851,7 +1833,6 @@ class GrandPy:
 
         coldata = coldata.loc[columns].copy()
 
-        #
         count_df = self.get_data(mode_slots=ModeSlot(mode, "count"), columns=columns, with_coldata=False)
 
         bic_per_model = {}
