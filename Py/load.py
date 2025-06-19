@@ -159,15 +159,20 @@ def parse_slots(df, suffixes, sparse, *, strict=True):
         if sample_names is None:
             sample_names = sample_names_this_slot
 
-    all_sample_names = [s for sample_list in slot_sample_names.values() for s in sample_list]
-    duplicates = [name for name, count in Counter(all_sample_names).items() if count > 1]
+    # all_sample_names = [s for sample_list in slot_sample_names.values() for s in sample_list]
+    # duplicates = [name for name, count in Counter(all_sample_names).items() if count > 1]
 
-    if duplicates:
-        message = f"Duplicate sample names across slots detected: {duplicates}"
-        if strict:
-            raise ValueError(message)
-        else:
-            warnings.warn(message)
+    # if duplicates:
+    #     message = f"Duplicate sample names across slots detected: {duplicates}"
+    #     if strict:
+    #         raise ValueError(message)
+    #     else:
+    #         warnings.warn(message)
+
+    # R erlaubt identische Sample-Namen in mehreren Slots – das ist normal.
+    # Daher keine globale Duplikat-Warnung notwendig.
+    # Wenn überhaupt, dann sollte man pro Slot prüfen, ob Duplikate intern vorliegen (optional).
+    pass
 
     return slots, sample_names, slot_sample_names
 
@@ -332,16 +337,14 @@ def pad_slots(slots, sparse, coldata, slot_sample_names) -> dict:
             else:
                 warn_key = (slot_name, sample)
                 # Sample fehlt im Slot - hier muss dann 'gepadded' werden
-                if "no4sU" in coldata.columns and coldata.loc[sample, "no4sU"]:
-                    # Falls no4sU == True -> auffüllen mit 0 oder NaN (abhängig von Matrix-Art)
-                    col = np.zeros(n_genes)
-                else:
-                    # Sample fehlt, ist aber 4sU-behandelt -> Warnung wird ausgegeben
-                    # das ist anders als in grandR - da wird ein Fehler ausgeworfen
-                    if warn_key not in warned_once:
-                        warnings.warn(f"Sample '{sample}' missing in slot '{slot_name}' but not marked as no4sU.",
-                                  stacklevel=2)
-                    col = np.zeros(n_genes)
+                is_no4su = False
+                if "no4sU" in coldata.columns:
+                    try:
+                        is_no4su = bool(coldata.loc[sample, "no4sU"])
+                    except KeyError:
+                        pass
+
+                col = np.zeros(n_genes)
             # Hinzufügen der Spalte
             new_matrix.append(col)
 
@@ -761,7 +764,7 @@ def _read(file_path, sparse, default_slot, design,
         )
 
 # sars = read_grand("data/sars_R.tsv", design=("Condition", "Time", "Replicate"))
-# print(sars.coldata) # funktioniert
+# print(sars) # funktionier
 
 # sparse_data = read_grand("test-datasets/test_sparse.targets", design=("Time", "Replicate"))
 # print(sparse_data.coldata) # funktioniert
