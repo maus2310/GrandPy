@@ -1305,36 +1305,36 @@ def plot_gene_snapshot_timecourse(
         if n_invalid > 0:
             warnings.warn(f"{n_invalid} data points with invalid CI were excluded from error bars.", UserWarning)
 
-        # if np.any(mask):
-        #     # x_valid_all = x_dodged[mask]
-        #     y_valid_all = dfmode_slot[mask]
-        #     err_low_valid = err_low[mask]
-        #     err_high_valid = err_high[mask]
-        #
-        #     if hue and hue in df.columns:
-        #         hue_col = df[hue].to_numpy()[mask]
-        #         palette = sns.color_palette(n_colors=len(np.unique(hue_col)))
-        #         hue_to_color = {val: palette[i] for i, val in enumerate(sorted(np.unique(hue_col)))}
-        #
-        #         for val in sorted(np.unique(hue_col)):
-        #             group_mask = hue_col == val
-        #             ax.errorbar(
-        #                 x=x_valid_all[group_mask],
-        #                 y=y_valid_all[group_mask],
-        #                 yerr=[err_low_valid[group_mask], err_high_valid[group_mask]],
-        #                 fmt='none',
-        #                 ecolor=hue_to_color[val],
-        #                 capsize=3
-        #             )
-        #     else:
-        #         ax.errorbar(
-        #             x=x_valid_all,
-        #             y=y_valid_all,
-        #             yerr=[err_low_valid, err_high_valid],
-        #             fmt='none',
-        #             ecolor='black',
-        #             capsize=3
-        #         )
+        if np.any(mask):
+            x_valid_all = x_dodged[mask]
+            y_valid_all = dfmode_slot[mask]
+            err_low_valid = err_low[mask]
+            err_high_valid = err_high[mask]
+
+            if hue and hue in df.columns:
+                hue_col = df[hue].to_numpy()[mask]
+                palette = sns.color_palette(n_colors=len(np.unique(hue_col)))
+                hue_to_color = {val: palette[i] for i, val in enumerate(sorted(np.unique(hue_col)))}
+
+                for val in sorted(np.unique(hue_col)):
+                    group_mask = hue_col == val
+                    ax.errorbar(
+                        x=x_valid_all[group_mask],
+                        y=y_valid_all[group_mask],
+                        yerr=[err_low_valid[group_mask], err_high_valid[group_mask]],
+                        fmt='none',
+                        ecolor=hue_to_color[val],
+                        capsize=3
+                    )
+            else:
+                ax.errorbar(
+                    x=x_valid_all,
+                    y=y_valid_all,
+                    yerr=[err_low_valid, err_high_valid],
+                    fmt='none',
+                    ecolor='black',
+                    capsize=3
+                )
 
 
     if log:
