@@ -6,15 +6,20 @@ import pandas as pd
 import pytest
 from Py.load import *
 
+read_input = {
+    "prefix": "../data/sars_R.tsv",
+    "design": ("Condition", "Time", "Replicate")
+}
+
 def test_default_slots_test():
 
-    gp = read_grand("../data/sars_R.tsv")
+    gp = read_grand(**read_input)
     default_slots_test = gp.default_slot
     assert default_slots_test in "count"
 
 def test_with_default_slots():
 
-    gp = read_grand("../data/sars_R.tsv")
+    gp = read_grand(**read_input)
     with_default_slots_test_alpha = gp.with_default_slot("alpha")
     assert with_default_slots_test_alpha.default_slot == "alpha"
     # with_default_slots_test_beta = gp.with_default_slot("beta")
@@ -26,18 +31,18 @@ def test_with_default_slots():
 
 def test_with_default_slots_immutability():
 
-    gp = read_grand("../data/sars_R.tsv")
+    gp = read_grand(**read_input)
     with_default_slots_test_immutability = gp.with_default_slot("alpha")
     assert with_default_slots_test_immutability.default_slot != gp.default_slot
 
 def test_slots():
 
     #work in progress
-    gp = read_grand("../data/sars_R.tsv")
+    gp = read_grand(**read_input)
 
 def test_slot_names():
 
-    gp = read_grand("../data/sars_R.tsv")
+    gp = read_grand(**read_input)
     control_list = ['count', 'ntr', 'alpha', 'beta']
     slots_test = gp.slots
     for slots in slots_test:
@@ -45,7 +50,7 @@ def test_slot_names():
 
 def test_with_dropped_slots():
 
-    gp = read_grand("../data/sars_R.tsv")
+    gp = read_grand(**read_input)
     control_list_ntr = ['count', 'alpha', 'beta']
     with_dropped_slots = gp.with_dropped_slots("ntr")
     assert with_dropped_slots.slots == control_list_ntr
@@ -62,7 +67,7 @@ def test_with_dropped_slots():
 #     gp = read_grand("../data/sars_R.tsv")
 
 def test_with_condition():
-    gp = read_grand("../data/sars_R.tsv")
+    gp = read_grand(**read_input)
     gp = gp[0:10]
     with_condition = gp.with_condition(["MOGGED"]*12)
     with_condition_dict = gp.with_condition({"Mock.1h.A": "Test1", "Mock.3h.A": "Test2"})
@@ -71,19 +76,19 @@ def test_with_condition():
         assert with_condition.condition[i] == "MOGGED"
 
 def test_with_renamed_columns_immutability():
-    gp = read_grand("../data/sars_R.tsv")
+    gp = read_grand(**read_input)
     gp = gp[0:10]
     with_renamed_columns_immmutibility = gp.with_renamed_columns({"Mock.no4sU.A": "Test1", "SARS.no4sU.A": "Test2"})
     assert gp.coldata.index[0] != "Test1" and gp.coldata.index[6] != "Test2"
 
 def test_with_renamed_columns_dict():
-    gp = read_grand("../data/sars_R.tsv")
+    gp = read_grand(**read_input)
     gp = gp[0:10]
     with_renamed_columns_dict = gp.with_renamed_columns({"Mock.no4sU.A": "Test1", "SARS.no4sU.A": "Test2"})
     assert with_renamed_columns_dict.coldata.index[0] == "Test1" and with_renamed_columns_dict.coldata.index[6] == "Test2"
 
 def test_with_swapped_columns():
-    gp = read_grand("../data/sars_R.tsv")
+    gp = read_grand(**read_input)
     gp = gp[0:10]
     with_swapped_columns = gp.with_swapped_columns("Name", "Design_1")
     # print(with_swapped_columns.columns[0], gp.columns[0], with_swapped_columns.columns[1], gp.columns[1])
@@ -99,7 +104,7 @@ def test_get_table():
     }
     pd_test_table = pd.DataFrame(test_table, index = ["HNRNPLC3", "AL137802.1", "AL137798.2"])
 
-    gp = read_grand("../data/sars.tsv")
+    gp = read_grand(**read_input)
     # gp = gp[0:10]
     test_get_table = gp.get_table(ModeSlot("new", "count"), [0,1,2], [0,1,2])
     columns = ["Mock.1h.A", "Mock.2h.A"]
@@ -111,7 +116,7 @@ def test_get_table():
 def test_concat_coldata():
     from io import StringIO
 
-    gp =read_grand("../data/sars_R.tsv", design = ["Condition", "Time", "Replicate"])
+    gp =read_grand(**read_input)
     egp = gp[0:10]
     zgp = gp[10:20]
 
@@ -155,20 +160,20 @@ def test_concat_coldata():
 
 def test_with_gene_info_immutability():
 
-    gp = read_grand("../data/sars_R.tsv")
+    gp = read_grand(**read_input)
     gp = gp[0:10]
     with_gene_info_immutability = gp.with_gene_info("Gene", [1,2,3,4,5,6,7,8,9,10])
     for el in with_gene_info_immutability.gene_info["Gene"].values: assert el not in gp.gene_info["Gene"].values
 
 def test_with_gene_info_dict():
-    gp = read_grand("../data/sars_R.tsv")
+    gp = read_grand(**read_input)
     gp = gp[0:10]
     with_gene_info_dict = gp.with_gene_info("Gene", {"UHMK1": "Control", "ATF3": "Treatment"})
     assert (with_gene_info_dict.gene_info["Gene"][0] == "Control"
             and with_gene_info_dict.gene_info["Gene"][1] == "Treatment")
 
 def test_with_gene_info_series():
-    gp = read_grand("../data/sars_R.tsv")
+    gp = read_grand(**read_input)
     gp = gp[0:10]
     with_gene_info_series = gp.with_gene_info("Gene", pd.Series([1,2,3,4,5,6,7,8,9,10], index = gp.gene_info.index[0:10]))
     for i in range(0,10):
@@ -176,14 +181,14 @@ def test_with_gene_info_series():
 
 def test_with_coldata():
 
-    gp = read_grand("../data/sars_R.tsv")
+    gp = read_grand(**read_input)
     gp = gp[0:10]
     with_coldata_immutability = gp.with_coldata("new_condition", [1,2,3,4,5,6,7,8,9,10,11,12])
     assert "new_condition" not in gp.coldata.columns
 
 def test_get_index():
 
-    gp = read_grand("../data/sars_R.tsv")
+    gp = read_grand(**read_input)
     gp = gp[0:10]
 
     one_gene_regex_false_test = gp.get_index("UHMK1", regex = False)
@@ -197,7 +202,7 @@ def test_get_index():
 
 def test_get_genes():
 
-    gp = read_grand("../data/sars_R.tsv")
+    gp = read_grand(**read_input)
     all_genes_test = gp.get_genes()
     all_genes_test_names = gp.get_genes(use_gene_symbols=False)
     assert gp.gene_info.shape[0] == len(all_genes_test) and gp.gene_info.shape[0] == len(all_genes_test_names)
@@ -218,7 +223,7 @@ def test_get_genes():
     assert regex_genes_test == ["UHMK1", "UPP1", "UBA1"] and regex_genes_test_names == ["ENSG00000152332", "ENSG00000183696", "ENSG00000130985"]
 
 def test_get_genes_immutability():
-    gp = read_grand("../data/sars_R.tsv")
+    gp = read_grand(**read_input)
     get_genes_immutability_test = gp.get_genes()
     get_genes_immutability_test[0] = "UHMK2"
     assert gp.get_genes()[0] != "UHMK2"

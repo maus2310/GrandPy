@@ -7,10 +7,11 @@ import pandas as pd
 import anndata as ad
 import scipy.sparse as sp
 
+from Py.diffexp import get_summary_matrix
 from Py.utils import _ensure_list, _make_unique, _reindex_by_index_name, _subset_dense_or_sparse
-from Py.slot_manager import SlotManager, ModeSlot, _parse_as_mode_slot
-from Py.plot_manager import PlotManager, Plot
-from Py.analysis_manager import AnalysisManager
+from Py.slot_tool import SlotTool, ModeSlot, _parse_as_mode_slot
+from Py.plot_tool import PlotTool, Plot
+from Py.analysis_tool import AnalysisTool
 
 
 class GrandPy:
@@ -333,8 +334,8 @@ class GrandPy:
 
     # All slot methods.
     @property
-    def _slot_manager(self) -> SlotManager:
-        return SlotManager(self._adata, self._is_sparse)
+    def _slot_manager(self) -> SlotTool:
+        return SlotTool(self._adata, self._is_sparse)
 
     @property
     def slots(self) -> list[str]:
@@ -492,7 +493,7 @@ class GrandPy:
     # All analysis methods.
     @property
     def _analysis_manager(self):
-        return AnalysisManager(self._adata)
+        return AnalysisTool(self._adata)
 
     @property
     def analyses(self) -> list[str]:
@@ -625,7 +626,7 @@ class GrandPy:
     # All plot methods.
     @property
     def _plot_manager(self):
-        return PlotManager(self._adata)
+        return PlotTool(self._adata)
 
     @property
     def plots(self) -> dict[str, dict[str, Any]]:
@@ -1007,9 +1008,78 @@ class GrandPy:
             return self.gene_info.iloc[indices]["Gene"].tolist()
 
     # TODO get_significant_genes implementieren
-    def get_significant_genes(self):
-        ...
+    def get_significant_genes(
+            self,
+            analysis=None,
+            regex=True,
+            criteria: str = None,
+            as_table: bool = False,
+            use_symbols: bool = True,
+            gene_info: bool = True
+    ) -> Union[list[str], pd.DataFrame]:
+        """
+        Return significantly regulated genes based on analysis results.
 
+        Parameters
+        ----------
+        analysis : str or list[str], optional
+            Name(s) of the analysis result(s) to evaluate.
+        regex : bool, default True
+            If True, treat `analysis` as a regular expression.
+        criteria : str, optional
+            String expression to evaluate significance (e.g. "Q < 0.05 and abs(LFC) >= 1").
+        as_table : bool, default False
+            If True, return full table instead of list.
+        use_symbols : bool, default True
+            Whether to use gene symbols as rownames.
+        gene_info : bool, default True
+            Whether to include gene info columns in output.
+        """
+        analyses = self.get_analyses(analysis, regex=regex)
+        re = self.gene_info
+        re.index = re["Symbol"] if use_symbols else re["Gene"]
+
+        for name in analyses:
+            tab = self.get_analysis_table(
+                analyses=name,
+                regex=False,
+                with_gene_info=False
+            )
+
+            if criteria is None:
+                use = (tab["Q"] < 0.05) & (tab["LFC"].abs() >= 1)
+            else:
+                try:
+                    use = tab.eval(criteria)
+                except Exception as e:
+                    raise ValueError(f"Could not evaluate criteria '{criteria}': {e}")
+
+            use = use.fillna(False)
+            re[name] = use
+
+        if not as_table:
+            result = re.iloc[:, self.gene_info.shape[1]:]
+
+            classes = set(result.dtypes)
+            # if len(classes) != 1:
+            #     print(result, classes)
+            #     raise ValueError("Output contains mixed data types (logical and numeric).")
+
+            dtype = list(classes)[0]
+            if pd.api.types.is_bool_dtype(dtype):
+                result = result.any(axis=1)
+                return result[result].index.tolist()
+
+            elif pd.api.types.is_numeric_dtype(dtype):
+                if result.shape[1] > 1:
+                    raise ValueError("Multiple numeric values present, can only return as a table.")
+                return result.sort_values(by=result.columns[0], ascending=False).index.tolist()
+
+        if not gene_info:
+            re = re.iloc[:, self.gene_info.shape[1]:]
+
+        re = re.sort_values(by=re.columns[-1], ascending=False)
+        return re
 
     @property
     def coldata(self) -> pd.DataFrame:
@@ -1656,6 +1726,31 @@ class GrandPy:
             result_df = pd.concat([self._adata.obs.iloc[row_indices], result_df], axis=1)
 
         return result_df
+
+    def get_summary_matrix(
+            self,
+            no4sU: bool = False,
+            columns: Union[None, str, list[str]] = None,
+            average: bool = True
+    ) -> np.ndarray:
+        """
+        Return a summarization matrix (e.g. condition indicators) for averaging or aggregation.
+
+        Parameters
+        ----------
+        no4sU : bool, default False
+            Whether to exclude 4sU-related samples (based on 'no4sU' flag in coldata).
+        columns : str or list of str, optional
+            Column names (samples) to include. Can be condition names or column filters.
+        average : bool, default True
+            If True, normalize columns to sum to 1 (i.e., compute group-wise average).
+
+        Returns
+        -------
+        np.ndarray
+            A (samples × conditions) matrix indicating group membership (optionally normalized).
+        """
+        return get_summary_matrix(self, no4sU, columns, average)
 
     # TODO Beispiele für get_references schreiben
     def get_references(

@@ -7,7 +7,7 @@ import pandas as pd
 from Py.utils import _ensure_list, _make_unique
 
 
-class AnalysisManager:
+class AnalysisTool:
     def __init__(self, adata: ad.AnnData):
         self._adata = adata
 

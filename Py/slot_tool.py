@@ -63,7 +63,7 @@ def _parse_as_mode_slot(mode_slot: Union[str, ModeSlot]) -> ModeSlot:
     return ModeSlot(mode, slot)
 
 
-class SlotManager:
+class SlotTool:
     def __init__(self, adata: ad.AnnData, is_sparse: bool):
         self._adata = adata
         self._is_sparse = is_sparse

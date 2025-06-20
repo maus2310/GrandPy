@@ -38,7 +38,7 @@ class Plot:
             raise ValueError(f"Invalid plot type: {self.plot_type}")
 
 
-class PlotManager:
+class PlotTool:
     def __init__(self, adata: ad.AnnData):
         self._adata = adata
 

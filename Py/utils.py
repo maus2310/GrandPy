@@ -57,8 +57,8 @@ def _make_unique(series: pd.Series, warn = True) -> pd.Series:
 
     else:
         if warn:
-            duplicates_list = series[series.duplicated()].unique()[:10]
-            warnings.warn(f"Duplicate gene symbols found: {', '.join(duplicates_list)}; they have been renamed to ensure uniqueness (e.g., MATR3 → MATR3_1).")
+            duplicates_list = series[series.duplicated()].unique()
+            warnings.warn(f"{len(duplicates_list)} Duplicate gene symbols found: {', '.join(duplicates_list[:5])} (first 5); they have been renamed to ensure uniqueness (e.g., MATR3 → MATR3_1).")
 
         for val in series:
             if val not in counts:
