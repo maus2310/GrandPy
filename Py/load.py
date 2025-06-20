@@ -264,8 +264,9 @@ def build_coldata(names, design=None):
     max_fields = max(len(parts) for parts in split_names)
 
     if design is None:
-        predefined = list(DESIGN_KEYS.values())
-        design = tuple(predefined[i] if i < len(predefined) else f"Design_{i+1}" for i in range(max_fields))
+        raise ValueError("Design must be specified.")
+        # predefined = list(DESIGN_KEYS.values())
+        # design = tuple(predefined[i] if i < len(predefined) else f"Design_{i+1}" for i in range(max_fields))
     elif len(design) < max_fields:
         design += tuple(f"Extra_{i+1}" for i in range(max_fields - len(design)))
 
