@@ -692,6 +692,7 @@ def _read(file_path, sparse, default_slot, design,
                 custom = {}
             classify_genes_func = lambda gene_info: classify_genes(gene_info, custom_classes=custom, use_default=True)
 
+        gene_info["Symbol"] = _make_unique(gene_info["Symbol"], warn=True)
         gene_info["Type"] = classify_genes_func(gene_info)
         gene_info.index = _make_unique(gene_info["Symbol"])
 
@@ -768,6 +769,9 @@ def _read(file_path, sparse, default_slot, design,
 
 # sparse_data = read_grand("test-datasets/test_sparse.targets", design=("Time", "Replicate"))
 # print(sparse_data.coldata) # funktioniert
+
+# sparse = read_grand("test-datasets/test_sc_sparse.targets", design=("Condition", "Time", "Replicate"))
+# print(sparse.get_table(genes="Gm4430_1"))
 
 # sc_dense = read_grand("test-datasets/test_sc_dense.targets", design=("Time", "Replicate"))
 # print(sc_dense)
