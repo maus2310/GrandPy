@@ -2,6 +2,7 @@
   <dictionary name="project">
     <words>
       <w>coldata</w>
+      <w>subdirs</w>
     </words>
   </dictionary>
 </component>

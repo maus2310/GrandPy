@@ -1,4 +1,7 @@
-from collections import Counter
+import tempfile
+import urllib.request
+import shutil
+
 from pathlib import Path
 import gzip
 from scipy.io import mmread
@@ -209,7 +212,7 @@ def parse_time_string(s):
     Converts Strings (e.g. '90min', '1h', '-') to float-hours.
     """
     if pd.isna(s) or s in ["-", "no4sU", "nos4U"]:
-        return None
+        return 0.0
     if isinstance(s, (int, float)):
         return float(s)
 
@@ -276,11 +279,24 @@ def build_coldata(names, design=None):
     coldata = pd.DataFrame(aligned_rows, columns=design, index=pd.Index(names, name="Name"))
     coldata["Name"] = coldata.index
 
-    if "Time" in coldata.columns:
-        coldata["no4sU"] = coldata["Time"].isin(["no4sU", "nos4U", "-"])
-        coldata["Time_hr"] = coldata["Time"].map(parse_time_string)
+    for col in coldata.columns:
+        if col.lower() in {"time", "duration.rsu"}:
+            coldata[f"{col}.original"] = coldata[col]
+            coldata[col] = coldata[col].map(parse_time_string)
+
+    no4su_col = next(
+        (c for c in coldata.columns if c.endswith(".original") and coldata[c].isin(["no4sU", "nos4U", "-"]).any()),
+        None)
+    if no4su_col:
+        coldata["no4sU"] = coldata[no4su_col].isin(["no4sU", "nos4U", "-"])
     else:
         coldata["no4sU"] = False
+
+    # if "Time" in coldata.columns:
+    #     coldata["no4sU"] = coldata["Time"].isin(["no4sU", "nos4U", "-"])
+    #     coldata["Time_hr"] = coldata["Time"].map(parse_time_string)
+    # else:
+    #     coldata["no4sU"] = False
 
     coldata = coldata[["Name"] + [c for c in coldata.columns if c != "Name"]]
     return apply_design_semantics(coldata)
@@ -623,6 +639,16 @@ def read_grand(prefix, pseudobulk=None, targets=None, **kwargs):
     GrandPy
     """
 
+    if isinstance(prefix, str) and prefix.startswith(("http://", "https://")):
+        print("Detected URL -> downloading to temp file")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            local_file = Path(tmpdir) / Path(prefix).name
+            with urllib.request.urlopen(prefix) as response, open(local_file, 'wb') as out_file:
+                shutil.copyfileobj(response, out_file)
+
+            return read_grand(local_file, pseudobulk=pseudobulk, targets=targets, **kwargs)
+
     path = Path(prefix)
 
     sparse = is_sparse_file(path)
@@ -765,17 +791,20 @@ def _read(file_path, sparse, default_slot, design,
             metadata=metadata
         )
 
-# sars = read_grand("data/sars_R.tsv", design=("Condition", "Time", "Replicate"))
-# print(sars) # funktionier
+# grand_obj = read_grand("https://zenodo.org/record/5834034/files/sars.tsv.gz", design=("Condition", "Time", "Replicate"))
+# print(grand_obj)
 
+# sars = read_grand("data/sars_R.tsv", design=("Condition", "Time", "Replicate"))
+# print(sars.coldata) # funktioniert
+#
 # sparse_data = read_grand("test-datasets/test_sparse.targets", design=("Time", "Replicate"))
 # print(sparse_data.coldata) # funktioniert
-
+#
 # sparse = read_grand("test-datasets/test_sc_sparse.targets", design=("Condition", "Time", "Replicate"))
 # print(sparse.get_table(genes="Gm4430_1"))
-
+#
 # sc_dense = read_grand("test-datasets/test_sc_dense.targets", design=("Time", "Replicate"))
-# print(sc_dense)
-
+# print(sc_dense.coldata)
+#
 # df = pd.read_csv("test-datasets/targets_only_test_data/targets_only_test_data/test_targets.pseudobulk.all.tsv/test_targets.pseudobulk.all.tsv", sep="\t")
 # print(df.head())
