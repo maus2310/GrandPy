@@ -537,11 +537,14 @@ def is_sparse_file(path) -> bool:
 
     if path.is_file():
         return False
-    return all([
-            (path / "matrix.mtx.gz").exists()
-            and (path / "barcodes.tsv.gz").exists()
-            and (path / "features.tsv.gz").exists()
-    ])
+    def exists_any(name, extensions):
+        return any((path / f"{name}{ext}").exists() for ext in extensions)
+
+    has_matrix = exists_any("matrix.mtx", [".gz", ""])
+    has_barcodes = exists_any("barcodes", [".tsv.gz", ".tsv", ""])
+    has_features = exists_any("features", [".tsv.gz", ".tsv", ""])
+
+    return has_matrix and has_barcodes and has_features
 
 def read_dense(file_path, default_slot="count", design=None, *, classification_genes=None, classification_genes_label="Viral", classify_genes_func=None):
     """
@@ -662,6 +665,18 @@ def read_grand(prefix, pseudobulk=None, targets=None, **kwargs):
         return read_dense(str(file_path), **kwargs)
 
 
+def find_existing_file(path: Path, base_name: str, extensions=(".gz", "", ".tsv", ".tsv.gz")):
+    """
+    Tries to find an existing file with one of the given extensions.
+    Returns the full path if found, else raises FileNotFoundError.
+    """
+    for ext in extensions:
+        candidate = path / f"{base_name}{ext}"
+        if candidate.exists():
+            return candidate
+    raise FileNotFoundError(f"Expected file '{base_name}' with one of {extensions} not found in {path}")
+
+
 def _read(file_path, sparse, default_slot, design,
           classification_genes, classification_genes_label,
           classify_genes_func=None, pseudobulk=None, targets=None):
@@ -700,16 +715,20 @@ def _read(file_path, sparse, default_slot, design,
     if sparse:
         base = path
 
-        with gzip.open(base / "matrix.mtx.gz", "rt") as file:
+        matrix_path = find_existing_file(base, "matrix.mtx", extensions=(".gz", ""))
+        features_path = find_existing_file(base, "features", extensions=(".tsv.gz", ".tsv", ""))
+        barcodes_path = find_existing_file(base, "barcodes", extensions=(".tsv.gz", ".tsv", ""))
+
+        with open(matrix_path, "rt") if matrix_path.suffix != ".gz" else gzip.open(matrix_path, "rt") as file:
             count_matrix = mmread(file).tocsr()
-        barcodes = pd.read_csv(base / "barcodes.tsv.gz", header=None, compression="infer")[0].tolist()
-        features = pd.read_csv(base / "features.tsv.gz", sep="\t", header=None, compression="infer")
+
+        features = pd.read_csv(features_path, sep="\t", header=None, compression="infer")
+        barcodes = pd.read_csv(barcodes_path, header=None, compression="infer")[0].tolist()
 
         if features.shape[1] == 4:
             features["Length"] = 1
 
         features.columns = ["Gene", "Symbol", "Mode", "Category", "Length"]
-
         gene_info = features[["Gene", "Symbol", "Length"]].copy()
 
         if classify_genes_func is None:
@@ -725,8 +744,27 @@ def _read(file_path, sparse, default_slot, design,
 
         coldata = build_coldata(barcodes, design)
 
-        slots = {default_slot: count_matrix}
-        slot_sample_names = {default_slot: barcodes}
+        slots = {}
+        slot_sample_names = {}
+
+        for mtx_file in sorted(base.glob("*.mtx")) + sorted(base.glob("*.mtx.gz")):
+            filename = mtx_file.name
+            basename = filename.replace(".mtx", "").replace(".gz", "")
+
+            if basename == "matrix":
+                slot = default_slot
+            else:
+                slot = basename.split(".")[-1].lower()
+
+            try:
+                with open(mtx_file, "rt") if mtx_file.suffix != ".gz" else gzip.open(mtx_file, "rt") as file:
+                    mat = mmread(file).tocsr()
+                slots[slot] = mat
+                slot_sample_names[slot] = barcodes
+            except Exception as e:
+                warnings.warn(f"Slot {slot}: Datei beschädigt – {filename} wird übersprungen ({e})")
+                continue
+
         slots = pad_slots(slots, sparse=True, coldata=coldata, slot_sample_names=slot_sample_names)
 
         metadata = {
@@ -793,18 +831,18 @@ def _read(file_path, sparse, default_slot, design,
 
 # grand_obj = read_grand("https://zenodo.org/record/5834034/files/sars.tsv.gz", design=("Condition", "Time", "Replicate"))
 # print(grand_obj)
-
+#
 # sars = read_grand("data/sars_R.tsv", design=("Condition", "Time", "Replicate"))
 # print(sars.coldata) # funktioniert
 #
 # sparse_data = read_grand("test-datasets/test_sparse.targets", design=("Time", "Replicate"))
-# print(sparse_data.coldata) # funktioniert
+# print(sparse_data) # funktioniert
 #
 # sparse = read_grand("test-datasets/test_sc_sparse.targets", design=("Condition", "Time", "Replicate"))
 # print(sparse.get_table(genes="Gm4430_1"))
 #
 # sc_dense = read_grand("test-datasets/test_sc_dense.targets", design=("Time", "Replicate"))
 # print(sc_dense.coldata)
-#
+
 # df = pd.read_csv("test-datasets/targets_only_test_data/targets_only_test_data/test_targets.pseudobulk.all.tsv/test_targets.pseudobulk.all.tsv", sep="\t")
 # print(df.head())
