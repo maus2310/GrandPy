@@ -1,0 +1,311 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="SELECTIVE" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="7fb2ad5b-72c5-409e-8a7e-34c05129a11a" name="Changes" comment="worked on the second vignette">
+      <change beforePath="$PROJECT_DIR$/Py/load.py" beforeDir="false" afterPath="$PROJECT_DIR$/Py/load.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Py/test-datasets/test_sc_sparse.targets/4sU.Binom.alpha.mtx.gz" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Py/test-datasets/test_sc_sparse.targets/4sU.Binom.beta.mtx.gz" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Py/test-datasets/test_sc_sparse.targets/4sU.Binom.lower.mtx.gz" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Py/test-datasets/test_sc_sparse.targets/4sU.Binom.ntr.mtx.gz" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Py/test-datasets/test_sc_sparse.targets/4sU.Binom.upper.mtx.gz" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Py/test-datasets/test_sc_sparse.targets/4sU.TbBinom.alpha.mtx.gz" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Py/test-datasets/test_sc_sparse.targets/4sU.TbBinom.beta.mtx.gz" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Py/test-datasets/test_sc_sparse.targets/4sU.TbBinom.lower.mtx.gz" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Py/test-datasets/test_sc_sparse.targets/4sU.TbBinom.ntr.mtx.gz" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Py/test-datasets/test_sc_sparse.targets/4sU.TbBinom.upper.mtx.gz" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Py/test-datasets/test_sc_sparse.targets/4sU.TbBinomShape.alpha.mtx.gz" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Py/test-datasets/test_sc_sparse.targets/4sU.TbBinomShape.beta.mtx.gz" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Py/test-datasets/test_sc_sparse.targets/4sU.TbBinomShape.lower.mtx.gz" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Py/test-datasets/test_sc_sparse.targets/4sU.TbBinomShape.ntr.mtx.gz" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Py/test-datasets/test_sc_sparse.targets/4sU.TbBinomShape.upper.mtx.gz" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Py/test-datasets/test_sc_sparse.targets/4sU.ll.mtx.gz" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Py/test-datasets/test_sc_sparse.targets/4sU.llr.mtx.gz" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Py/test-datasets/test_sc_sparse.targets/4sU.shape.mtx.gz" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Py/test-datasets/test_sc_sparse.targets/barcodes.tsv.gz" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Py/test-datasets/test_sc_sparse.targets/features.tsv.gz" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Py/test-datasets/test_sc_sparse.targets/matrix.mtx.gz" beforeDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="FileTemplateManagerImpl">
+    <option name="RECENT_TEMPLATES">
+      <list>
+        <option value="Python Script" />
+        <option value="Jupyter Notebook" />
+      </list>
+    </option>
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="GitLabMergeRequestFiltersHistory">{
+  &quot;lastFilter&quot;: {
+    &quot;state&quot;: &quot;OPENED&quot;,
+    &quot;assignee&quot;: {
+      &quot;type&quot;: &quot;org.jetbrains.plugins.gitlab.mergerequest.ui.filters.GitLabMergeRequestsFiltersValue.MergeRequestsMemberFilterValue.MergeRequestsAssigneeFilterValue&quot;,
+      &quot;username&quot;: &quot;Katharina.Steinkirchner&quot;,
+      &quot;fullname&quot;: &quot;Kathi Steinkirchner&quot;
+    }
+  }
+}</component>
+  <component name="GitLabMergeRequestsSettings">{
+  &quot;selectedUrlAndAccountId&quot;: {
+    &quot;first&quot;: &quot;https://git.uni-regensburg.de/se24/g03/grandpy.git&quot;,
+    &quot;second&quot;: &quot;21f0f714-2c0d-4aee-8214-617971043dc3&quot;
+  }
+}</component>
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 1
+}</component>
+  <component name="ProjectId" id="2xeRPM9RIgFIBcG9xfn3atjYVub" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
+    &quot;Python tests.Doctests in grandPy.executor&quot;: &quot;Run&quot;,
+    &quot;Python tests.Python tests for load_test.test_build_gene_info.executor&quot;: &quot;Run&quot;,
+    &quot;Python tests.Python tests for load_test.test_pad_slots_dense.executor&quot;: &quot;Run&quot;,
+    &quot;Python tests.Python tests for load_test.test_pad_slots_sparse.executor&quot;: &quot;Run&quot;,
+    &quot;Python tests.Python tests for load_test.test_read_dense_real.executor&quot;: &quot;Run&quot;,
+    &quot;Python tests.Python tests for load_test.test_remove_suffixes_single.executor&quot;: &quot;Run&quot;,
+    &quot;Python tests.Python tests for load_test.test_remove_suffixes_tuple.executor&quot;: &quot;Run&quot;,
+    &quot;Python tests.Python tests for load_test.test_sparse_loader_example.executor&quot;: &quot;Run&quot;,
+    &quot;Python tests.Python tests in load_test.py.executor&quot;: &quot;Run&quot;,
+    &quot;Python.grandPy.executor&quot;: &quot;Run&quot;,
+    &quot;Python.load.executor&quot;: &quot;Run&quot;,
+    &quot;Python.plot.executor&quot;: &quot;Run&quot;,
+    &quot;Python.plot_manager.executor&quot;: &quot;Run&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;deletionFromPopupRequiresConfirmation&quot;: &quot;false&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
+    &quot;ignore.virus.scanning.warn.message&quot;: &quot;true&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;preferences.keymap&quot;,
+    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
+  }
+}</component>
+  <component name="SharedIndexes">
+    <attachedChunks>
+      <set>
+        <option value="bundled-js-predefined-d6986cc7102b-6a121458b545-JavaScript-PY-251.25410.159" />
+        <option value="bundled-python-sdk-e0ed3721d81e-36ea0e71a18c-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-251.25410.159" />
+      </set>
+    </attachedChunks>
+  </component>
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="7fb2ad5b-72c5-409e-8a7e-34c05129a11a" name="Changes" comment="" />
+      <created>1748296529379</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1748296529379</updated>
+      <workItem from="1748296532400" duration="298000" />
+      <workItem from="1748296851047" duration="169000" />
+      <workItem from="1748297035488" duration="1042000" />
+      <workItem from="1748326098217" duration="9000" />
+      <workItem from="1748331979316" duration="6158000" />
+      <workItem from="1748341156820" duration="372000" />
+      <workItem from="1748348932180" duration="209000" />
+      <workItem from="1748380509836" duration="2845000" />
+      <workItem from="1748717922601" duration="131000" />
+      <workItem from="1748780100307" duration="3100000" />
+      <workItem from="1748783269184" duration="11841000" />
+      <workItem from="1748938014289" duration="6149000" />
+      <workItem from="1748982677435" duration="1574000" />
+      <workItem from="1749018459702" duration="5523000" />
+      <workItem from="1749378063114" duration="12521000" />
+      <workItem from="1749550535758" duration="5632000" />
+      <workItem from="1749622101604" duration="4121000" />
+      <workItem from="1749809159425" duration="12700000" />
+      <workItem from="1750106507734" duration="113000" />
+      <workItem from="1750147864345" duration="4969000" />
+      <workItem from="1750415372514" duration="2183000" />
+      <workItem from="1750417639244" duration="3078000" />
+      <workItem from="1750752961411" duration="2967000" />
+    </task>
+    <task id="LOCAL-00001" summary="Reset pad_slots">
+      <option name="closed" value="true" />
+      <created>1748334780884</created>
+      <option name="number" value="00001" />
+      <option name="presentableId" value="LOCAL-00001" />
+      <option name="project" value="LOCAL" />
+      <updated>1748334780884</updated>
+    </task>
+    <task id="LOCAL-00002" summary="format">
+      <option name="closed" value="true" />
+      <created>1748938613452</created>
+      <option name="number" value="00002" />
+      <option name="presentableId" value="LOCAL-00002" />
+      <option name="project" value="LOCAL" />
+      <updated>1748938613452</updated>
+    </task>
+    <task id="LOCAL-00003" summary="commented out fct read_all_in_dir">
+      <option name="closed" value="true" />
+      <created>1748939895780</created>
+      <option name="number" value="00003" />
+      <option name="presentableId" value="LOCAL-00003" />
+      <option name="project" value="LOCAL" />
+      <updated>1748939895780</updated>
+    </task>
+    <task id="LOCAL-00004" summary="new version of is_sparse_file()">
+      <option name="closed" value="true" />
+      <created>1748940851267</created>
+      <option name="number" value="00004" />
+      <option name="presentableId" value="LOCAL-00004" />
+      <option name="project" value="LOCAL" />
+      <updated>1748940851267</updated>
+    </task>
+    <task id="LOCAL-00005" summary="corrected some doc-strings">
+      <option name="closed" value="true" />
+      <created>1748944302684</created>
+      <option name="number" value="00005" />
+      <option name="presentableId" value="LOCAL-00005" />
+      <option name="project" value="LOCAL" />
+      <updated>1748944302684</updated>
+    </task>
+    <task id="LOCAL-00006" summary="renamed read_grand_auto() to read_grand()">
+      <option name="closed" value="true" />
+      <created>1749379450108</created>
+      <option name="number" value="00006" />
+      <option name="presentableId" value="LOCAL-00006" />
+      <option name="project" value="LOCAL" />
+      <updated>1749379450108</updated>
+    </task>
+    <task id="LOCAL-00007" summary="loaded our first sparse-file!!! (caution, we haven't tested correctness yet)">
+      <option name="closed" value="true" />
+      <created>1749386076676</created>
+      <option name="number" value="00007" />
+      <option name="presentableId" value="LOCAL-00007" />
+      <option name="project" value="LOCAL" />
+      <updated>1749386076676</updated>
+    </task>
+    <task id="LOCAL-00008" summary="worked on resolve_prefix_path()">
+      <option name="closed" value="true" />
+      <created>1749555368952</created>
+      <option name="number" value="00008" />
+      <option name="presentableId" value="LOCAL-00008" />
+      <option name="project" value="LOCAL" />
+      <updated>1749555368952</updated>
+    </task>
+    <task id="LOCAL-00009" summary="refactor load.py and started adding initial tests in load_test.py">
+      <option name="closed" value="true" />
+      <created>1749818240293</created>
+      <option name="number" value="00009" />
+      <option name="presentableId" value="LOCAL-00009" />
+      <option name="project" value="LOCAL" />
+      <updated>1749818240293</updated>
+    </task>
+    <task id="LOCAL-00010" summary="implemented some more tests">
+      <option name="closed" value="true" />
+      <created>1749823641500</created>
+      <option name="number" value="00010" />
+      <option name="presentableId" value="LOCAL-00010" />
+      <option name="project" value="LOCAL" />
+      <updated>1749823641500</updated>
+    </task>
+    <task id="LOCAL-00011" summary="fixed Readcount">
+      <option name="closed" value="true" />
+      <created>1750149560319</created>
+      <option name="number" value="00011" />
+      <option name="presentableId" value="LOCAL-00011" />
+      <option name="project" value="LOCAL" />
+      <updated>1750149560319</updated>
+    </task>
+    <task id="LOCAL-00012" summary="reworked pad_slots()">
+      <option name="closed" value="true" />
+      <created>1750151933787</created>
+      <option name="number" value="00012" />
+      <option name="presentableId" value="LOCAL-00012" />
+      <option name="project" value="LOCAL" />
+      <updated>1750151933787</updated>
+    </task>
+    <task id="LOCAL-00013" summary="transferred design_keys and semantics (like in GrandR)">
+      <option name="closed" value="true" />
+      <created>1750153322073</created>
+      <option name="number" value="00013" />
+      <option name="presentableId" value="LOCAL-00013" />
+      <option name="project" value="LOCAL" />
+      <updated>1750153322073</updated>
+    </task>
+    <task id="LOCAL-00014" summary="fixed uniqueness of sparse-input-genes">
+      <option name="closed" value="true" />
+      <created>1750415908658</created>
+      <option name="number" value="00014" />
+      <option name="presentableId" value="LOCAL-00014" />
+      <option name="project" value="LOCAL" />
+      <updated>1750415908658</updated>
+    </task>
+    <task id="LOCAL-00015" summary="fixed uniqueness of sparse-input-genes">
+      <option name="closed" value="true" />
+      <created>1750415940969</created>
+      <option name="number" value="00015" />
+      <option name="presentableId" value="LOCAL-00015" />
+      <option name="project" value="LOCAL" />
+      <updated>1750415940969</updated>
+    </task>
+    <task id="LOCAL-00016" summary="worked on the second vignette">
+      <option name="closed" value="true" />
+      <created>1750420750724</created>
+      <option name="number" value="00016" />
+      <option name="presentableId" value="LOCAL-00016" />
+      <option name="project" value="LOCAL" />
+      <updated>1750420750724</updated>
+    </task>
+    <option name="localTasksCounter" value="17" />
+    <servers />
+  </component>
+  <component name="TypeScriptGeneratedFilesManager">
+    <option name="version" value="3" />
+  </component>
+  <component name="Vcs.Log.Tabs.Properties">
+    <option name="TAB_STATES">
+      <map>
+        <entry key="MAIN">
+          <value>
+            <State />
+          </value>
+        </entry>
+      </map>
+    </option>
+  </component>
+  <component name="VcsManagerConfiguration">
+    <MESSAGE value="Reset pad_slots" />
+    <MESSAGE value="format" />
+    <MESSAGE value="commented out fct read_all_in_dir" />
+    <MESSAGE value="new version of is_sparse_file()" />
+    <MESSAGE value="corrected some doc-strings" />
+    <MESSAGE value="renamed read_grand_auto() to read_grand()" />
+    <MESSAGE value="loaded our first sparse-file!!! (caution, we haven't tested correctness yet)" />
+    <MESSAGE value="worked on resolve_prefix_path()" />
+    <MESSAGE value="refactor load.py and started adding initial tests in load_test.py" />
+    <MESSAGE value="implemented some more tests" />
+    <MESSAGE value="fixed Readcount" />
+    <MESSAGE value="reworked pad_slots()" />
+    <MESSAGE value="transferred design_keys and semantics (like in GrandR)" />
+    <MESSAGE value="fixed uniqueness of sparse-input-genes" />
+    <MESSAGE value="worked on the second vignette" />
+    <option name="LAST_COMMIT_MESSAGE" value="worked on the second vignette" />
+  </component>
+  <component name="com.intellij.coverage.CoverageDataManagerImpl">
+    <SUITE FILE_PATH="coverage/grandpy$grandPy.coverage" NAME="grandPy Coverage Results" MODIFIED="1748298071757" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/Py" />
+    <SUITE FILE_PATH="coverage/grandpy$load.coverage" NAME="load Coverage Results" MODIFIED="1750755738047" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/Py" />
+    <SUITE FILE_PATH="coverage/grandpy$plot.coverage" NAME="plot Coverage Results" MODIFIED="1748938484239" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/Py" />
+    <SUITE FILE_PATH="coverage/grandpy$Doctests_in_grandPy.coverage" NAME="Doctests in grandPy Coverage Results" MODIFIED="1749817921769" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/Py" />
+    <SUITE FILE_PATH="coverage/grandpy$plot_manager.coverage" NAME="plot_manager Coverage Results" MODIFIED="1749550642871" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/Py" />
+    <SUITE FILE_PATH="coverage/grandpy$.coverage" NAME=" Coverage Results" MODIFIED="1750148156528" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/Py/test" />
+  </component>
+</project>
