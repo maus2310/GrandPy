@@ -8,6 +8,7 @@ import anndata as ad
 import scipy.sparse as sp
 
 from Py.diffexp import get_summary_matrix
+from Py.processing import filter_genes
 from Py.utils import _ensure_list, _make_unique, _reindex_by_index_name, _subset_dense_or_sparse
 from Py.slot_tool import SlotTool, ModeSlot, _parse_as_mode_slot
 from Py.plot_tool import PlotTool, Plot
@@ -1007,11 +1008,57 @@ class GrandPy:
             indices = self.get_index(genes, regex=regex)
             return self.gene_info.iloc[indices]["Gene"].tolist()
 
-    # TODO get_significant_genes implementieren
+    def filter_genes(
+        self,
+        mode_slot: Union[str, "ModeSlot"] = None,
+        *,
+        min_expression = 100,
+        min_columns = None,
+        min_condition = None,
+        use = None,
+        keep = None,
+        return_genes = False
+    ) -> Union["GrandPy", list[int]]:
+        """
+        Filter genes based on expression/value thresholds.
+
+        Parameters
+        ----------
+        mode_slot : str or ModeSlot, optional
+            Which data slot to use.
+
+        min_expression : float, default 100
+            Minimum value threshold to consider a gene expressed.
+
+        min_columns : int, optional
+            Minimum number of samples the gene must meet `min_expression` in.
+            Defaults to half the number of columns in the matrix.
+            Will be ignored if `min_condition` is provided
+
+        min_condition : int, optional
+            Overrides `min_columns` if set.
+
+        use : list[bool or int or str], optional
+            Only these genes will be kept if provided (boolean mask, indices, or names).
+            Filtering will not be applied to them.
+
+        keep : list[str or int], optional
+            Genes to force-keep, regardless of threshold filtering.
+
+        return_genes : bool, default False
+            If True, return the list of selected gene indices instead of a filtered GrandPy object.
+
+        Returns
+        -------
+        list[str] or GrandPy
+        """
+        return filter_genes(self, mode_slot, min_expression=min_expression, min_columns=min_columns, min_condition=min_condition, use=use, keep=keep, return_genes=return_genes)
+
+    # TODO: get_significant_genes() doc string umschreiben
     def get_significant_genes(
             self,
-            analysis=None,
-            regex=True,
+            analysis = None,
+            regex = True,
             criteria: str = None,
             as_table: bool = False,
             use_symbols: bool = True,
@@ -1029,15 +1076,15 @@ class GrandPy:
         criteria : str, optional
             String expression to evaluate significance (e.g. "Q < 0.05 and abs(LFC) >= 1").
         as_table : bool, default False
-            If True, return full table instead of list.
+            If True, return full table instead of a list.
         use_symbols : bool, default True
             Whether to use gene symbols as rownames.
         gene_info : bool, default True
             Whether to include gene info columns in output.
         """
         analyses = self.get_analyses(analysis, regex=regex)
-        re = self.gene_info
-        re.index = re["Symbol"] if use_symbols else re["Gene"]
+        result = self.gene_info
+        result.index = result["Symbol"] if use_symbols else result["Gene"]
 
         for name in analyses:
             tab = self.get_analysis_table(
@@ -1055,15 +1102,15 @@ class GrandPy:
                     raise ValueError(f"Could not evaluate criteria '{criteria}': {e}")
 
             use = use.fillna(False)
-            re[name] = use
+            result[name] = use
 
         if not as_table:
-            result = re.iloc[:, self.gene_info.shape[1]:]
+            result = result.iloc[:, self.gene_info.shape[1]:]
 
             classes = set(result.dtypes)
-            # if len(classes) != 1:
-            #     print(result, classes)
-            #     raise ValueError("Output contains mixed data types (logical and numeric).")
+            if len(classes) != 1:
+                print(result, classes)
+                raise ValueError("Output contains mixed data types (logical and numeric).")
 
             dtype = list(classes)[0]
             if pd.api.types.is_bool_dtype(dtype):
@@ -1076,10 +1123,11 @@ class GrandPy:
                 return result.sort_values(by=result.columns[0], ascending=False).index.tolist()
 
         if not gene_info:
-            re = re.iloc[:, self.gene_info.shape[1]:]
+            result = result.iloc[:, self.gene_info.shape[1]:]
 
-        re = re.sort_values(by=re.columns[-1], ascending=False)
-        return re
+        result = result.sort_values(by=result.columns[-1], ascending=False)
+        return result
+
 
     @property
     def coldata(self) -> pd.DataFrame:
@@ -1254,15 +1302,15 @@ class GrandPy:
         """
         Returns a new GrandPy object with the values of two columns swapped in all slots.
 
-        This is what you call when samples/calls have been mislabled.
+        This is what you call when samples/calls have been mislabeled.
 
         Parameters
         ----------
         column1: str or int
-            column to swap with.
+            sample/cell to swap with.
 
         column2: str or int
-            column to swap with.
+            sample/cell to swap with.
 
         Returns
         -------
@@ -1285,7 +1333,7 @@ class GrandPy:
             elif sp.issparse(matrix):
                 # Convert to CSC for efficient column slicing
                 csc = matrix.tocsc(copy=True)
-                # Swap the columns using slicing
+
                 idx = [csc[:, i] for i in range(csc.shape[1])]
                 idx[col1], idx[col2] = idx[col2], idx[col1]
                 matrix = sp.hstack(idx).tocsr()
@@ -1296,9 +1344,9 @@ class GrandPy:
             return matrix
 
         if isinstance(column1, str):
-            column1 = self._adata.var.columns.get_loc(column1)
+            column1 = self._adata.var.index.get_loc(column1)
         if isinstance(column2, str):
-            column2 = self._adata.var.columns.get_loc(column2)
+            column2 = self._adata.var.index.get_loc(column2)
 
         return self._apply(swap, col1=column1, col2=column2)
 
@@ -1337,40 +1385,53 @@ class GrandPy:
 
         # Apply function to gene_info
         if function_gene_info is not None:
-            new_adata.obs = function_gene_info(new_adata.obs.copy(), **kwargs)
+            new_gene_info = function_gene_info(new_adata.obs, **kwargs)
+            new_obs_index = new_gene_info.index
+        else:
+            new_gene_info = new_adata.obs
+            new_obs_index = old_obs_index
 
         # Apply function to coldata
         if function_coldata is not None:
-            new_adata.var = function_coldata(new_adata.var.copy(), **kwargs)
+            new_coldata = function_coldata(new_adata.var, **kwargs)
+            new_var_index = new_coldata.index
+        else:
+            new_coldata = new_adata.var
+            new_var_index = old_var_index
 
-        new_obs_index = new_adata.obs.index
-        new_var_index = new_adata.var.index
+        # # Retrieve index for reordering
+        # row_reorder = None if new_obs_index.equals(old_obs_index) else new_obs_index.get_indexer(old_obs_index)
+        # col_reorder = None if new_var_index.equals(old_var_index) else new_var_index.get_indexer(old_var_index)
 
-        # Calculate reordering indices
-        row_reorder = None if new_obs_index.equals(old_obs_index) else new_obs_index.get_indexer(old_obs_index)
-        col_reorder = None if new_var_index.equals(old_var_index) else new_var_index.get_indexer(old_var_index)
+        row_indices = old_obs_index.get_indexer_for(new_obs_index)
+        column_indices = old_var_index.get_indexer_for(new_var_index)
+
+        new_layers = {}
 
         for key in self._adata.layers.keys():
             matrix = function(self._adata.layers[key], **kwargs)
 
-            # Adjust row order if necessary
-            if row_reorder is not None:
-                matrix = matrix[row_reorder, :] if not sp.issparse(matrix) else matrix[row_reorder, :]
+            # # Adjust row order if necessary
+            # if row_reorder is not None:
+            #     matrix = matrix[row_reorder, :]
+            #
+            # # Adjust column order if necessary
+            # if col_reorder is not None:
+            #     matrix = matrix[:, col_reorder]
 
-            # Adjust column order if necessary
-            if col_reorder is not None:
-                matrix = matrix[:, col_reorder] if not sp.issparse(matrix) else matrix[:, col_reorder]
+            matrix = matrix[np.ix_(row_indices, column_indices)]
 
-            new_adata.layers[key] = matrix
+            new_layers[key] = matrix
 
+        new_analyses = {}
         # Also fix analysis reindexing if needed
         if new_adata.uns['analyses'] is not None:
             new_adata.uns['analyses'] = {
-                key: _reindex_by_index_name(value, new_adata.obs)
+                key: _reindex_by_index_name(value, new_gene_info)
                 for key, value in new_adata.uns['analyses'].items()
             }
 
-        return self._dev_replace(anndata=new_adata)
+        return self._dev_replace(gene_info=new_gene_info, coldata=new_coldata, slots=new_layers, analyses=new_analyses)
 
     def concat(
             self,
@@ -1562,7 +1623,6 @@ class GrandPy:
 
         return result_df
 
-    # TODO get_table() um die fehlenden Parameter aus R erweitern(summarize, prefix, reorder.columns). mode_slot soll auch noch ein regex sein können(der mit analysis names verglichen wird).
     def get_table(
             self,
             mode_slots: Union[str, ModeSlot, Sequence[Union[str, ModeSlot]]] = None,
@@ -1571,7 +1631,10 @@ class GrandPy:
             *,
             with_gene_info: bool = False,
             name_genes_by = "Symbol",
-            ntr_nan: bool = False
+            summarize: pd.DataFrame = None,
+            prefix: str = None,
+            ntr_nan: bool = False,
+            reorder_columns: bool = False
     ) -> pd.DataFrame:
         """
         Get a DataFrame containing the data from data slots, optionally with the corresponding gene_info.
@@ -1579,7 +1642,7 @@ class GrandPy:
         Parameters
         ----------
         mode_slots: str or ModeSlot or Sequence[str or ModeSlot], optional
-            The name of the data slots. If None, uses the default slot.
+            The name of the data slots to be retrieved. If None, uses the default slot.
 
             A mode("new"|"old"|"total") can be specified in the following formats: ModeSlot('<mode>', '<slot>') or '<mode>_<slot>'
 
@@ -1595,9 +1658,20 @@ class GrandPy:
         name_genes_by: str, default "Symbol"
             A column in the gene_info DataFrame to be used as the name of the genes.
 
+        summarize: pd.DataFrame, default None
+            A summary DataFrame. This can be retrieved via GrandPy.get_summary_matrix().
+            `columns` will be ignored if provided.
+
+        prefix: str, default None
+            Will be prepended to all column names.
+
         ntr_nan: bool, default False
             If True, ntr values for no4sU will be set to NaN.
             Otherwise, they remain 0.
+
+        reorder_columns: bool, default False
+            If True, the columns in the result will be in the same order as in the object.
+            Otherwise, they will be in the same order as the input.
 
         Returns
         -------
@@ -1609,44 +1683,64 @@ class GrandPy:
         GrandPy.get_data:
             Similar to get_table(), but slots are transposed, so coldata can be concatenated.
 
+        GrandPy.get_summary_matrix:
+            Return a summarization matrix for averaging or aggregation. Can be provided to get_table() via `summarize`.
+
         GrandPy.get_matrix:
             Similar to get_table(), but gives raw data without row or column names.
         """
-        coldata = self.coldata
         gene_info = self.gene_info
+        coldata = self.coldata
 
         if mode_slots is None:
             mode_slots = self.default_slot
-
         mode_slots = _ensure_list(mode_slots)
 
-        row_indices = self.get_index(genes)
-        column_indices = [coldata.index.get_loc(column) for column in self.get_columns(columns)]
+        gene_indices = self.get_index(genes)
+        gene_names = gene_info.iloc[gene_indices][name_genes_by].tolist()
 
-        row_names = gene_info.iloc[row_indices][name_genes_by].tolist()
-        column_names = coldata.iloc[column_indices]["Name"].tolist()
+        if summarize is not None:
+            summarize = summarize.loc[:, (summarize != 0).sum(axis=0) > 0]
+            column_indices = list(range(summarize.shape[1]))
+            column_names = summarize.columns.tolist() if summarize.columns.notnull().all() else [f"group_{i}" for i in column_indices]
+        else:
+            column_ids = self.get_columns(columns, reorder=reorder_columns)
+            column_indices = [coldata.index.get_loc(c) for c in column_ids]
+            column_names = coldata.loc[column_ids, "Name"].tolist()
 
         result_df = pd.DataFrame()
 
         for slot_name in mode_slots:
-            all_data = self._resolve_mode_slot(slot_name, ntr_nan=ntr_nan)
+            all_data = self._resolve_mode_slot(slot_name, ntr_nan=ntr_nan)  # shape: genes × samples
 
-            data_subset = _subset_dense_or_sparse(all_data, row_indices, column_indices)
-
-            if len(mode_slots) > 1:
-                local_column_names = [name + "_" + slot_name.__str__() for name in column_names]
+            if summarize is not None:
+                matrix = all_data @ summarize.values
             else:
-                local_column_names = column_names
+                matrix = all_data
 
-            processed_data = pd.DataFrame(data_subset, index=row_names, columns=local_column_names)
+            data_subset = _subset_dense_or_sparse(matrix, row_indices=gene_indices, column_indices=column_indices)
 
-            result_df = pd.concat([result_df, processed_data], axis=1)
+            # Column names (add suffix if multiple slots)
+            if len(mode_slots) > 1:
+                local_colnames = [f"{col}_{slot_name}" for col in column_names]
+            else:
+                local_colnames = column_names
+
+            slot_df = pd.DataFrame(data_subset, index=gene_names, columns=local_colnames)
+            result_df = pd.concat([result_df, slot_df], axis=1)
 
         if with_gene_info:
-            result_df = pd.concat([gene_info.iloc[row_indices], result_df], axis=1)
+            gene_info_block = gene_info.iloc[gene_indices].copy()
+            gene_info_block.index = result_df.index  # match exactly
+            result_df = pd.concat([gene_info_block, result_df], axis=1)
 
+        if prefix is not None:
+            result_df.columns = [f"{prefix}{col}" for col in result_df.columns]
+
+        result_df.index = gene_names
         return result_df
 
+    # TODO: get_analysis_table() add the prefix thingey
     def get_analysis_table(
             self,
             analyses: Union[str, int, Sequence[Union[str, int, bool]]] = None,
@@ -1729,25 +1823,33 @@ class GrandPy:
 
     def get_summary_matrix(
             self,
+            *,
             no4sU: bool = False,
             columns: Union[None, str, list[str]] = None,
             average: bool = True
-    ) -> np.ndarray:
+    ) -> pd.DataFrame:
         """
-        Return a summarization matrix (e.g. condition indicators) for averaging or aggregation.
+        Return a summarization matrix for averaging or aggregation.
+
+        If this matrix is multiplied with a count table,
+        either the average (average=TRUE) or the sum (average=FALSE) of all columns (samples or cells)
+        belonging to the same Condition is computed.
 
         Parameters
         ----------
         no4sU : bool, default False
-            Whether to exclude 4sU-related samples (based on 'no4sU' flag in coldata).
+            If True, no4sU columns will be included in the summary matrix.
+            Otherwise, they will be ignored and returned as zeros.
+
         columns : str or list of str, optional
             Column names (samples) to include. Can be condition names or column filters.
+
         average : bool, default True
             If True, normalize columns to sum to 1 (i.e., compute group-wise average).
 
         Returns
         -------
-        np.ndarray
+        pd.DataFrame
             A (samples × conditions) matrix indicating group membership (optionally normalized).
         """
         return get_summary_matrix(self, no4sU, columns, average)

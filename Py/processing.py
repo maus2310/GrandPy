@@ -177,77 +177,49 @@ def _compute_steady_state_half_lives(
         return data.with_slot(name, hls)
 
 
+def filter_genes(
+    data: "GrandPy",
+    mode_slot: Union[str, "ModeSlot"]=None,
+    min_expression=100,
+    min_columns=None,
+    min_condition=None,
+    use=None,
+    keep=None,
+    return_genes=False
+) -> Union["GrandPy", list[str]]:
+    if use is not None and keep is not None:
+        raise ValueError("Do not specify both use and keep!")
 
+    if mode_slot is None:
+        mode_slot = data.default_slot
 
+    if not data._check_slot(mode_slot):
+        raise ValueError(f"Slot '{mode_slot}' unknown!")
 
-# def filter_genes(
-#     self,
-#     mode_slot="count",
-#     minval=100,
-#     mincol=None,
-#     min_cond=None,
-#     use=None,
-#     keep=None,
-#     return_genes=False
-# ) -> Union[GrandPy, list[int]]:
-#         """
-#         Filter genes based on expression/value thresholds.
-#
-#         Parameters
-#         ----------
-#         mode_slot : str, default "count"
-#             Which data slot to use.
-#         minval : float, default 100
-#             Minimum value threshold to consider a gene expressed.
-#         mincol : int, optional
-#             Minimum number of samples the gene must meet minval in.
-#             Defaults to half the number of columns in the matrix.
-#         min_cond : int, optional
-#             Overrides mincol if set.
-#         use : list[bool or int or str], optional
-#             Genes to keep explicitly (boolean mask, indices, or names).
-#         keep : list[str or int], optional
-#             Genes to force-keep, regardless of threshold filtering.
-#         return_genes : bool, default False
-#             If True, return the list of selected gene indices instead of a filtered GrandPy object.
-#
-#         Returns
-#         -------
-#         list[int] or GrandPy
-#         """
-#     if use is not None and keep is not None:
-#         raise ValueError("Do not specify both 'use' and 'keep'.")
-#
-#     if not isinstance(mode_slot, str):
-#         raise ValueError("Exactly one mode_slot must be given.")
-#
-#     if not self._check_mode_slot(mode_slot):
-#         raise ValueError(f"Unknown mode_slot: {mode_slot}")
-#
-#     if use is None:
-#         # Optional summarization
-#         summi = self.get_summary_matrix(average=False, no4sU=True) if min_cond is not None else None
-#         effective_mincol = min_cond if min_cond is not None else (
-#             mincol if mincol is not None else self.coldata.shape[0] / 2
-#         )
-#
-#         matrix = self.get_matrix(mode_slot=mode_slot, summarize=summi)
-#         mask = (matrix >= minval).sum(axis=1) >= effective_mincol
-#
-#         if keep is not None:
-#             keep_indices = self.get_index(keep)
-#             mask |= np.isin(np.arange(len(mask)), keep_indices)
-#
-#         use = mask
-#
-#     # Convert to final index list
-#     gene_indices = self.get_index(use)
-#
-#     if return_genes:
-#         return gene_indices
-#
-#     # Subset the object
-#     return self.apply(
-#         function=lambda t: t[gene_indices, :],
-#         function_gene_info=lambda df: df.iloc[gene_indices]
-#     )
+    if use is None:
+        aggregation_matrix = None
+        if min_condition is not None:
+            aggregation_matrix = data.get_summary_matrix(no4sU=True, average=False)
+
+        matrix = data.get_table(mode_slots=mode_slot, summarize=aggregation_matrix)
+
+        if min_columns is None:
+            min_columns = min_condition if min_condition is not None else matrix.shape[1] / 2
+
+        use_mask = (matrix >= min_expression).sum(axis=1) >= min_columns
+
+        if keep is not None:
+            keep_idx = data.get_index(keep)
+            use_mask |= np.isin(np.arange(matrix.shape[0]), keep_idx)
+
+        use = use_mask
+
+    gene_idx = data.get_index(use)
+
+    if return_genes:
+        return data.get_genes(gene_idx)
+
+    # apply adjusts slots according to changes to gene_info
+    return data._apply(
+        function_gene_info=lambda t: t.iloc[gene_idx, :]
+    )

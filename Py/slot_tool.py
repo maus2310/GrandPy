@@ -155,6 +155,8 @@ class SlotTool:
         return new_adata
 
     def check_slot(self, slot: str, *, allow_ntr: bool = True) -> bool:
+        if isinstance(slot, ModeSlot):
+            slot = slot.slot
         if not allow_ntr and slot == "ntr":
             return False
         return slot in self.slots()

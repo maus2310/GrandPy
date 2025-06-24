@@ -2,12 +2,15 @@ from typing import Union
 import numpy as np
 import pandas as pd
 
+from Py.utils import _ensure_list
+
+
 def get_summary_matrix(
         data: "GrandPy",
         no4sU: bool = False,
         columns: Union[None, str, list[str]] = None,
         average: bool = True
-) -> np.ndarray:
+) -> pd.DataFrame:
     coldata = data.coldata
     sample_names = coldata.index.tolist()
 
@@ -16,13 +19,12 @@ def get_summary_matrix(
 
     if columns is None:
         columns = sample_names
-    elif isinstance(columns, str):
-        columns = [columns]
     else:
+        columns = _ensure_list(columns)
         columns = [c for c in columns if c in sample_names]
 
     # Exclude 4sU-marked samples if requested
-    if not no4sU and "no4sU" in coldata.columns:
+    if not no4sU:
         no4su_samples = coldata.index[coldata["no4sU"]]
         columns = list(set(columns) - set(no4su_samples))
 
@@ -49,4 +51,4 @@ def get_summary_matrix(
     if average:
         matrix = matrix.div(matrix.sum(axis=0), axis=1).fillna(0)
 
-    return matrix.values
+    return matrix
