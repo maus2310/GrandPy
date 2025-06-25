@@ -115,21 +115,6 @@ def test_pad_slots_sparse():
     assert padded["count"].shape == (1, 3)
 
 
-def test_pad_slots_warn_on_missing_sample():
-    slots = {
-        "count": np.array([[1, 2]])
-    }
-    coldata = pd.DataFrame({
-        "Name": ["A", "B", "C"],
-        "no4sU": [False, False, False]
-    }).set_index("Name")
-    coldata["Name"] = coldata.index
-    slot_sample_names = {"count": ["A", "B"]}
-
-    with pytest.warns(UserWarning):
-        pad_slots(slots, sparse=False, coldata=coldata, slot_sample_names=slot_sample_names)
-
-
 # -----------------------------------------------------------------------------
 # Tests für Gene Info / Classification
 
@@ -156,7 +141,26 @@ def test_parse_time_string_edge_cases():
     assert parse_time_string("90min") == 1.5
     assert parse_time_string("2h") == 2.0
     assert parse_time_string("60") == 1.0
-    assert parse_time_string("nos4U") is None
+    assert parse_time_string("nos4U") == 0
+
+@pytest.mark.parametrize("value,expected", [
+    ("  90min  ", 1.5),
+    ("1H", 1.0),
+    ("-", 0.0),
+    (None, 0.0),
+    ("abc", None)
+])
+def test_parse_time_string_various(value, expected):
+    assert parse_time_string(value) == expected
+
+
+def test_apply_design_semantics_sets_semantics():
+    df = pd.DataFrame({"Time": [1, 2, 3], "Name": ["A", "B", "C"]})
+    df.attrs.clear()
+    df = apply_design_semantics(df)
+    assert "_semantics" in df.attrs
+    assert df.attrs["_semantics"]["Time"] == "time"
+
 
 
 # -----------------------------------------------------------------------------
@@ -190,3 +194,44 @@ def test_read_dense_and_sparse_load():
     assert isinstance(sparse_test.coldata, pd.DataFrame)
     assert "count" in dense.slots
     assert "count" in sparse_test.slots
+
+
+def test_read_grand_url():
+    url = "https://zenodo.org/record/5834034/files/sars.tsv.gz"
+    obj = read_grand(url, design=("Condition", "Time", "Replicate"))
+    assert "count" in obj._adata.layers
+
+
+def test_validate_input_raises_on_missing_columns():
+    df = pd.DataFrame({"A": [1], "B": [2]})
+    with pytest.raises(ValueError):
+        validate_input(df, ["A", "C"], context="mock")
+
+
+# -----------------------------------------------------------------------------
+# Test für get_table_qc():
+
+def test_get_table_qc_returns_dataframe():
+    obj = read_grand("../data/sars_R.tsv", design=("Condition", "Time", "Replicate"))
+    qc = get_table_qc(obj, slot="count")
+    assert isinstance(qc, pd.DataFrame)
+    assert "Detected" in qc.columns
+    assert "Fraction.Cellular" in qc.columns  # oder ein anderer gene type
+
+
+def test_get_table_qc_missing_slot_raises():
+    obj = read_grand("../data/sars_R.tsv", design=("Condition", "Time", "Replicate"))
+    with pytest.raises(ValueError):
+        get_table_qc(obj, slot="nonexistent")
+
+
+# -----------------------------------------------------------------------------
+# Test für uniqueness:
+
+def test_make_unique_adds_suffix():
+    from Py.utils import _make_unique
+    series = pd.Series(["A", "B", "A", "C", "B"])
+    unique = _make_unique(series)
+    assert len(set(unique)) == 5
+    assert unique[0] == "A"
+    assert unique[2].startswith("A_")

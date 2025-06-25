@@ -1,6 +1,8 @@
 import tempfile
 import urllib.request
 import shutil
+import pandas as pd
+from scipy import sparse
 
 from pathlib import Path
 import gzip
@@ -472,10 +474,8 @@ def resolve_prefix_path(prefix, pseudobulk=None, targets=None):
     ----------
     prefix : str or Path
         Base path or prefix to GRAND-SLAM result files.
-
     pseudobulk : str, optional
         Pseudobulk identifier used in file path pattern.
-
     targets : str, optional
         Target identifier used in file path pattern.
 
@@ -484,37 +484,48 @@ def resolve_prefix_path(prefix, pseudobulk=None, targets=None):
     Path
         Resolved Path to the 'data.tsv.gz' file.
     """
-
     base = Path(prefix)
-    candidates = []
 
-    if pseudobulk and targets:      # <prefix>.pseudobulk.<targets>.<pseudobulk>
-        candidates.append(base.parent / f"{base.name}.pseudobulk.{targets}.{pseudobulk}" / "data.tsv.gz")
-    if pseudobulk:                  # <prefix>.pseudobulk.targets.<pseudobulk>
-        candidates.append(base.parent / f"{base.name}.pseudobulk.targets.{pseudobulk}" / "data.tsv.gz")
-        candidates.append(base.parent / f"{base.name}.pseudobulk.{pseudobulk}" / "data.tsv.gz") # <prefix>.pseudobulk.<pseudobulk>
-    if targets:                     # <prefix>.pseudobulk.<targets>.*
+    # <prefix>.pseudobulk.<targets>.<pseudobulk>
+    if pseudobulk and targets:
+        path = base.parent / f"{base.name}.pseudobulk.{targets}.{pseudobulk}" / "data.tsv.gz"
+        if path.exists():
+            return path
+
+    # <prefix>.pseudobulk.targets.<pseudobulk>
+    if pseudobulk:
+        path = base.parent / f"{base.name}.pseudobulk.targets.{pseudobulk}" / "data.tsv.gz"
+        if path.exists():
+            return path
+
+        # <prefix>.pseudobulk.<pseudobulk>
+        path = base.parent / f"{base.name}.pseudobulk.{pseudobulk}" / "data.tsv.gz"
+        if path.exists():
+            return path
+
+    # <prefix>.pseudobulk.<targets>.*
+    if targets:
         pattern = re.compile(f"^{re.escape(base.name)}\\.pseudobulk\\.{re.escape(targets)}\\..+$")
-        subdirs = [p for p in base.parent.iterdir() if p.is_dir() and pattern.match(p.name)]
-        for sub in subdirs:
-            candidates.append(sub / "data.tsv.gz")
+        for i in base.parent.iterdir():
+            if i.is_dir() and pattern.match(i.name):
+                path = i / "data.tsv.gz"
+                if path.exists():
+                    return path
 
-    if (base / "data.tsv.gz").exists():
-        candidates.append(base / "data.tsv.gz")
+    # <prefix>/data.tsv.gz
+    path = base / "data.tsv.gz"
+    if path.exists():
+        return path
 
+    # direct file path
     if base.is_file() and base.name.endswith((".tsv", ".tsv.gz")):
-        candidates.append(base)
-
-    valid_paths = [p for p in candidates if p.exists()]
-
-    if valid_paths:
-        return valid_paths[0]
+        return base
 
     raise FileNotFoundError(
-        f"No valid 'data.tsv.gz' found. \n"
-        f"Checked prefix='{prefix}' with pseudobulk='{pseudobulk}', targets='{targets}'.\n"
-        f"Tried paths:\n" + "\n".join(str(p) for p in candidates)
+        f"No valid 'data.tsv.gz' found.\n"
+        f"Checked prefix='{prefix}' with pseudobulk='{pseudobulk}', targets='{targets}'."
     )
+
 
 
 def is_sparse_file(path) -> bool:
@@ -642,27 +653,39 @@ def read_grand(prefix, pseudobulk=None, targets=None, **kwargs):
     GrandPy
     """
 
-    if isinstance(prefix, str) and prefix.startswith(("http://", "https://")):
-        print("Detected URL -> downloading to temp file")
+    try:
+        if isinstance(prefix, str) and prefix.startswith(("http://", "https://")):
+            print("Detected URL -> downloading to temp file")
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            local_file = Path(tmpdir) / Path(prefix).name
-            with urllib.request.urlopen(prefix) as response, open(local_file, 'wb') as out_file:
-                shutil.copyfileobj(response, out_file)
+            with tempfile.TemporaryDirectory() as tmpdir:
+                local_file = Path(tmpdir) / Path(prefix).name
+                with urllib.request.urlopen(prefix) as response, open(local_file, 'wb') as out_file:
+                    shutil.copyfileobj(response, out_file)
 
-            return read_grand(local_file, pseudobulk=pseudobulk, targets=targets, **kwargs)
+                return read_grand(local_file, pseudobulk=pseudobulk, targets=targets, **kwargs)
 
-    path = Path(prefix)
+        path = Path(prefix)
 
-    sparse = is_sparse_file(path)
-    if sparse:
-        print("Detected sparse format -> using sparse reader")
-        return read_sparse(path, pseudobulk=pseudobulk, targets=targets, **kwargs)
+        sparse = is_sparse_file(path)
+        if sparse:
+            print("Detected sparse format -> using sparse reader")
+            return read_sparse(path, pseudobulk=pseudobulk, targets=targets, **kwargs)
 
-    else:
-        file_path = resolve_prefix_path(prefix, pseudobulk=pseudobulk, targets=targets)
-        print("Detected dense format -> using dense reader")
-        return read_dense(str(file_path), **kwargs)
+        else:
+            file_path = resolve_prefix_path(prefix, pseudobulk=pseudobulk, targets=targets)
+            print("Detected dense format -> using dense reader")
+            return read_dense(str(file_path), **kwargs)
+
+    except ValueError as e:
+        print(f"ValueError: {e}")
+
+    except FileNotFoundError as e:
+        print(f"FileNotFoundError: {e}")
+
+    except Exception as e:
+        print(f"Unexpected error: {e}")
+
+    return None
 
 
 def find_existing_file(path: Path, base_name: str, extensions=(".gz", "", ".tsv", ".tsv.gz")):
@@ -829,20 +852,74 @@ def _read(file_path, sparse, default_slot, design,
             metadata=metadata
         )
 
+
+def get_table_qc(grand, slot="count"):
+    """
+    Returns a QC table per sample with detected genes, totals, statistics and optional percentages per gene type.
+
+    Parameter
+    ---------
+    grand : GrandPy-object
+        grandpy-object
+
+    slot : str
+        Slot (e.g. "count", "ntr", ...)
+
+    Returns
+    -------
+    pd.DataFrame with QC-metrics + coldata-columns
+    """
+
+    if slot not in grand._adata.layers:
+        raise ValueError(f"Slot '{slot}' not found in grand._adata.layers.")
+
+    mat = grand._adata.layers[slot]
+    if sparse.issparse(mat):
+        mat = mat.toarray()
+
+    gene_info = grand.gene_info
+    if "Type" not in gene_info.columns:
+        raise ValueError("Gene type classification (column 'Type') not found in gene_info.")
+
+    gene_types = gene_info["Type"]
+    col_names = grand.coldata["Name"].tolist()
+
+    df = pd.DataFrame({
+        "Name": col_names,
+        "Detected": (mat > 0).sum(axis=0),
+        "Avg": mat.mean(axis=0),
+        "Median": np.median(mat, axis=0),
+        "Min": mat.min(axis=0),
+        "Max": mat.max(axis=0),
+    })
+
+    total_per_sample = mat.sum(axis=0)
+
+    for typ in gene_types.unique():
+        mask = gene_types == typ
+        frac = mat[mask.values, :].sum(axis=0) / total_per_sample
+        df[f"Fraction.{typ}"] = frac
+
+    coldata = grand.coldata.reset_index(drop=True)  # "Name" wird zur Spalte, Index wird entfernt, da sonst pandas Probleme mach
+    df = df.merge(coldata, on="Name", how="left")
+
+    return df
+
+
 # grand_obj = read_grand("https://zenodo.org/record/5834034/files/sars.tsv.gz", design=("Condition", "Time", "Replicate"))
 # print(grand_obj)
-#
+
 # sars = read_grand("data/sars_R.tsv", design=("Condition", "Time", "Replicate"))
-# print(sars.coldata) # funktioniert
-#
+# print(sars) # funktioniert
+
 # sparse_data = read_grand("test-datasets/test_sparse.targets", design=("Time", "Replicate"))
 # print(sparse_data) # funktioniert
-#
-# sparse = read_grand("test-datasets/test_sc_sparse.targets", design=("Condition", "Time", "Replicate"))
-# print(sparse.get_table(genes="Gm4430_1"))
-#
-# sc_dense = read_grand("test-datasets/test_sc_dense.targets", design=("Time", "Replicate"))
-# print(sc_dense.coldata)
 
-# df = pd.read_csv("test-datasets/targets_only_test_data/targets_only_test_data/test_targets.pseudobulk.all.tsv/test_targets.pseudobulk.all.tsv", sep="\t")
-# print(df.head())
+# grand_sparse = read_grand("test-datasets/test_sc_sparse.targets", design=("Condition", "Time", "Replicate"))
+# print(sparse)
+
+# sc_dense = read_grand("test-datasets/test_sc_dense.targets", design=("Time", "Replicate"))
+# print(sc_dense)
+
+# qc = get_table_qc(grand_obj, slot="count")
+# print(qc.head())

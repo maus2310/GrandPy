@@ -127,7 +127,7 @@ class GrandPy:
             f"Read from {self._adata.uns['prefix']}\n"
             f"{self._adata.n_obs} genes, {self._adata.n_vars} samples/cells\n"
             f"Available data slots: {self.slots}\n"
-            f"Available analyses: {self.analyses}\n"
+            f"Available analyses: {self.analyses()}\n"
             f"Available plots: {self.plots}\n"
             f"Default data slot: {self.default_slot}\n"
         )
