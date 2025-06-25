@@ -13,7 +13,10 @@ import seaborn as sns
 from sklearn.decomposition import PCA
 from pydeseq2.dds import DeseqDataSet
 import warnings
+from scipy.sparse import issparse
 
+def _is_sparse_matrix(mat):
+    return issparse(mat)
 
 
 # TODO Plots: PlotExpressionTest, PlotAnalyses, VulcanoPlot, MAPlot, PlotTypeDistribution, FormatCorrelation
@@ -35,9 +38,9 @@ def _apply_outlier_filter(x_vals, y_vals, remove):
         return mask, None, None
 
     # IQR-basierte Filtergrenzen
-    def get_bounds(vals):
+    def get_bounds(vals, min_iqr=1e-6):
         q1, q3 = np.percentile(vals[np.isfinite(vals)], [25, 75])
-        iqr = q3 - q1
+        iqr = max(q3 - q1, min_iqr)
         return q1 - 1.5 * iqr, q3 + 1.5 * iqr
 
     x_lower, x_upper = get_bounds(x_vals)
@@ -143,7 +146,7 @@ def _density2d(x, y, n=100, bw_x=None, bw_y=None, margin='n'):
 
     return result
 
-#Parameter die noch fehlen:
+# parameter die noch fehlen:
     # 1. analysis
     # 2. xcol/ycol
     # 3. log, log_x, log_y
@@ -230,14 +233,32 @@ def plot_scatter(
     if mode_slot is None:
         mode_slot = data.default_slot
 
+    raw_matrix = data._resolve_mode_slot(mode_slot)
 
-    matrix = data._resolve_mode_slot(mode_slot)
-    matrix = matrix.toarray() if hasattr(matrix, "toarray") else matrix
+    if _is_sparse_matrix(raw_matrix):
+        df = data.get_analysis_table()
+        print("DFFF",df)
+        print("Use sparse plot")
+    else:
+        df = data.get_table(mode_slots=mode_slot)
+        print("Use dense plot")
 
-    x_idx = list(data.coldata["Name"]).index(x)
-    y_idx = list(data.coldata["Name"]).index(y)
-    x_vals_all = matrix[:, x_idx]
-    y_vals_all = matrix[:, y_idx]
+    if x in df.columns:
+        x_vals_all = df[x].to_numpy()
+    else:
+        # Fallback: Annahme, dass x ein Zell-/Sample-Name ist
+        col_index = list(data.coldata["Name"]).index(x)
+        matrix = data._resolve_mode_slot(mode_slot)
+        matrix = matrix.toarray() if hasattr(matrix, "toarray") else matrix
+        x_vals_all = matrix[:, col_index]
+
+    if y in df.columns:
+        y_vals_all = df[y].to_numpy()
+    else:
+        col_index = list(data.coldata["Name"]).index(y)
+        matrix = data._resolve_mode_slot(mode_slot)
+        matrix = matrix.toarray() if hasattr(matrix, "toarray") else matrix
+        y_vals_all = matrix[:, col_index]
 
     if np.all(np.isnan(x_vals_all)):
         raise ValueError(f"All Values for '{x}' in slot '{mode_slot}' are NaN. - Plot not possible!")
@@ -253,6 +274,7 @@ def plot_scatter(
     x_vals, y_vals = x_vals_all[mask_keep], y_vals_all[mask_keep]
     x_lim = x_lim or auto_x_lim
     y_lim = y_lim or auto_y_lim
+    print(x_vals, y_vals)
 
     # Compute Density
     z = _density2d(x_vals, y_vals, n=100, margin='n')
@@ -319,16 +341,16 @@ def _transform_vst(data, selected_columns: list, mode_slot, genes) -> pd.DataFra
 
     selected_columns_valid = mat.columns.tolist()
 
-    metadata_df = data.coldata.loc[selected_columns_valid].copy()
-    metadata_df["condition"] = metadata_df["Condition"]
+    coldata = data.coldata.loc[selected_columns_valid]
+    coldata["condition"] = coldata["Condition"]
 
     if str(mode_slot).lower() == "count":
         slotmat = mat.T.round().astype(int)
     else:
         slotmat = mat.T
 
-    slotmat = slotmat.loc[metadata_df.index]
-    dds = DeseqDataSet(counts=slotmat, metadata=metadata_df, design_factors="condition")
+    slotmat = slotmat.loc[coldata.index]
+    dds = DeseqDataSet(counts=slotmat, metadata=coldata, design_factors="condition")
     dds.deseq2()
     dds.vst_fit()
     vst_array = dds.vst_transform()
@@ -514,7 +536,8 @@ def plot_heatmap(
     )
 
     if return_matrix:
-        print(df)
+        print(df) # TODO gucken wie in R ist Vielleicht dann nur ohne farbe einfach werte in heatmap anzeigen
+        return df
     if title:
         plt.title(title, y=1.05)
 
@@ -545,7 +568,7 @@ def plot_pca(
         selected_columns = data.get_columns(columns)
 
     mat = data.get_table(mode_slots=mode_slot, columns=selected_columns)
-    coldata = data.coldata.loc[selected_columns].copy()
+    coldata = data.coldata.loc[selected_columns]
 
     mat = mat.loc[:, mat.notna().any(axis=0)]
     coldata = coldata.loc[mat.columns]
@@ -555,14 +578,13 @@ def plot_pca(
     else:
         slotmat = mat.T
 
-    metadata_df = coldata.copy()
-    metadata_df["condition"] = metadata_df["Condition"]
+    coldata["condition"] = coldata["Condition"]
 
     if do_vst and str(mode_slot).lower() == "count":
-        metadata_df = coldata.copy()
-        metadata_df["condition"] = metadata_df["Condition"]
+        coldata = coldata
+        coldata["condition"] = coldata["Condition"]
 
-        dds = DeseqDataSet(counts=slotmat, metadata=metadata_df, design_factors="condition")
+        dds = DeseqDataSet(counts=slotmat, metadata=coldata, design_factors="condition")
         dds.deseq2()
         dds.vst_fit()
         vst_array = dds.vst_transform()
@@ -622,17 +644,12 @@ def plot_gene_old_vs_new(
     else:
         selected_columns = data.get_columns(columns)
 
-    coldata = data.coldata.loc[selected_columns].copy()
+    coldata = data.coldata.loc[selected_columns]
 
-    x = data.get_table(mode_slots=ModeSlot("old", slot), genes=gene, columns=selected_columns).iloc[0].to_numpy()
-    y = data.get_table(mode_slots=ModeSlot("new", slot), genes=gene, columns=selected_columns).iloc[0].to_numpy()
+    plot_df = data.get_data(mode_slots=[ModeSlot("old", slot), ModeSlot("new", slot)], genes=gene, columns=selected_columns, with_coldata=True)
 
-    plot_df = pd.DataFrame({
-        "old": x,
-        "new": y
-    }, index=coldata.index)
-
-    plot_df = pd.concat([plot_df, coldata], axis=1)
+    new_names = {plot_df.columns[-2]: "old", plot_df.columns[-1]: "new"}
+    plot_df = plot_df.rename(columns=new_names)
 
     aest = _setup_default_aes(data, aest)
     style = aest.get("shape")
@@ -658,9 +675,9 @@ def plot_gene_old_vs_new(
         if "lower" not in data.slots or "upper" not in data.slots:
             raise ValueError("CI slots ('lower' and 'upper') are missing. Run compute_ntr_ci() first.")
 
-        ci_lower = data.get_table(mode_slots="lower", genes=gene, columns=selected_columns, ntr_nan=False).iloc[0].to_numpy()
-        ci_upper = data.get_table(mode_slots="upper", genes=gene, columns=selected_columns, ntr_nan=False).iloc[0].to_numpy()
-        total = data.get_table(mode_slots=slot, genes=gene, columns=selected_columns, ntr_nan=False).iloc[0].to_numpy()
+        ci_lower = data.get_matrix(mode_slot="lower", genes=gene, columns=selected_columns)
+        ci_upper = data.get_matrix(mode_slot="upper", genes=gene, columns=selected_columns)
+        total = data.get_matrix(mode_slot=slot, genes=gene, columns=selected_columns)
 
         plot_df["ci_lower"] = ci_lower
         plot_df["ci_upper"] = ci_upper
@@ -760,17 +777,12 @@ def plot_gene_total_vs_ntr(
     else:
         selected_columns = data.get_columns(columns)
 
-    coldata = data.coldata.loc[selected_columns].copy()
+    coldata = data.coldata.loc[selected_columns]
 
-    total = data.get_table(mode_slots=slot, genes=gene, columns=selected_columns, ntr_nan=False).iloc[0].to_numpy()
-    ntr = data.get_table(mode_slots="ntr", genes=gene, columns=selected_columns, ntr_nan=False).iloc[0].to_numpy()
+    plot_df = data.get_data(mode_slots=[slot, "ntr"], genes=gene, columns=selected_columns, with_coldata=True)
 
-    plot_df = pd.DataFrame({
-        "total": total,
-        "ntr": ntr
-    }, index=coldata.index)
-
-    plot_df = pd.concat([plot_df, coldata], axis=1)
+    new_names = {plot_df.columns[-2]: "total", plot_df.columns[-1]: "ntr"}
+    plot_df = plot_df.rename(columns=new_names)
 
     aest = _setup_default_aes(data, aest)
     hue = aest.get("color")
@@ -794,9 +806,9 @@ def plot_gene_total_vs_ntr(
     if log:
         ax.set_xscale("log")
         ax.xaxis.set_major_formatter(matplotlib.ticker.ScalarFormatter())
-        xmin = total.min()
-        xmax = total.max()
-        ax.set_xlim(left=xmin * 0.9, right=xmax + (xmax/9))
+        # xmin = plot_df["total"].min()
+        # xmax = plot_df["total"].max()
+        # ax.set_xlim(left=xmin * 0.9, right=xmax + (xmax/9))
 
 
 
@@ -808,15 +820,10 @@ def plot_gene_total_vs_ntr(
         if "lower" not in data.slots or "upper" not in data.slots:
             raise ValueError("CI slots ('lower' and 'upper') are missing. Run compute_ntr_ci() first.")
 
-        ci_lower = data.get_table(mode_slots="lower", genes=gene, columns=selected_columns, ntr_nan=False).iloc[0].to_numpy()
-        ci_upper = data.get_table(mode_slots="upper", genes=gene, columns=selected_columns, ntr_nan=False).iloc[0].to_numpy()
+        ci_lower = data.get_matrix(mode_slot="lower", genes=gene, columns=selected_columns)
+        ci_upper = data.get_matrix(mode_slot="upper", genes=gene, columns=selected_columns)
 
-        plot_ci = pd.DataFrame({
-            "total": total,
-            "ntr": ntr,
-            "ci_lower": ci_lower,
-            "ci_upper": ci_upper,
-        }, index=coldata.index)
+        plot_ci = plot_df.assign(ci_lower=ci_lower, ci_upper=ci_upper)
 
         if hue and hue in coldata.columns:
             plot_ci[hue] = coldata[hue]
@@ -836,6 +843,9 @@ def plot_gene_total_vs_ntr(
 
         plot_ci = plot_ci[valid_mask]
 
+        unique_groups = plot_ci[hue].dropna().unique()
+        palette = sns.color_palette(n_colors=len(unique_groups))
+        color_map = {grp: col for grp, col in zip(sorted(unique_groups), palette)}
         if hue and hue in plot_ci.columns:
             for grp in plot_ci[hue].dropna().unique():
                 grp_df = plot_ci[plot_ci[hue] == grp]
@@ -848,7 +858,7 @@ def plot_gene_total_vs_ntr(
                 ax.errorbar(
                     x, y, yerr=yerr,
                     fmt='none',
-                    ecolor=color_map.get(grp, "gray"),
+                    ecolor=color_map[grp],
                     capsize=3
                 )
         else:
@@ -867,8 +877,7 @@ def plot_gene_total_vs_ntr(
         hue=hue,
         style=style,
         s=size,
-        ax=ax,
-        palette=color_map if hue else None
+        ax=ax
     )
 
     plt.tight_layout()
@@ -904,56 +913,53 @@ def plot_gene_groups_points(
     else:
         selected_columns = data.get_columns(columns)
 
-    coldata = data.coldata.loc[selected_columns].copy()
+    coldata = data.coldata.loc[selected_columns]
 
     if slot == "ntr":
-        df = data.get_data(mode_slots="ntr", genes=gene, columns=selected_columns, with_coldata=True)
-        df["ntr"] = df[gene]
-        df["value"] = df[gene]
+        plot_df = data.get_data(mode_slots="ntr", genes=gene, columns=selected_columns, with_coldata=True)
+        plot_df["ntr"] = plot_df[gene]
+        plot_df["value"] = plot_df[gene]
         log = False
     else:
-        df = data.get_data(mode_slots=[slot, "ntr"], genes=gene, columns=selected_columns, with_coldata=True)
-        df_slot = data.get_table(mode_slots=slot, genes=gene, columns=selected_columns).iloc[0].to_numpy()
-        df_ntr = data.get_table(mode_slots="ntr", genes=gene, columns=selected_columns).iloc[0].to_numpy()
-
-        df["slot_val"] = df_slot
-        df["ntr"] = df_ntr
+        plot_df = data.get_data(mode_slots=[slot, "ntr"], genes=gene, columns=selected_columns, with_coldata=True)
+        new_names = {plot_df.columns[-2]: "slot_val", plot_df.columns[-1]: "ntr"}
+        plot_df = plot_df.rename(columns=new_names)
 
         if mode == "total":
-            df["value"] = df["slot_val"]
+            plot_df["value"] = plot_df["slot_val"]
         elif mode == "new":
-            df["value"] = df["slot_val"] * df["ntr"]
+            plot_df["value"] = plot_df["slot_val"] * plot_df["ntr"]
         elif mode == "old":
-            df["value"] = df["slot_val"] * (1 - df["ntr"])
+            plot_df["value"] = plot_df["slot_val"] * (1 - plot_df["ntr"])
         else:
             raise ValueError(f"Unknown mode '{mode}' in mode_slot '{mode_slot}'")
-    df = df.loc[:, ~df.columns.duplicated()]
+    plot_df = plot_df.loc[:, ~plot_df.columns.duplicated()]
 
-    if group not in df.columns:
+    if group not in plot_df.columns:
         raise ValueError(f"Group column '{group}' not found in coldata!")
 
     if transform is not None:
-        df = transform(df)
+        plot_df = transform(plot_df)
 
     aest = _setup_default_aes(data, aest)
     hue = aest.get("color")
     style = aest.get("shape")
 
     fig, ax = plt.subplots(figsize=(8, 6))
-    group_order = df[group].unique()
+    group_order = plot_df[group].unique()
     group_to_num = {g: i for i, g in enumerate(group_order)}
-    df["_xbase"] = df[group].map(group_to_num)
+    plot_df["_xbase"] = plot_df[group].map(group_to_num)
 
-    if dodge and "Replicate" in df.columns:
-        replicates = sorted(df["Replicate"].unique())
+    if dodge and "Replicate" in plot_df.columns:
+        replicates = sorted(plot_df["Replicate"].unique())
         rep_to_offset = {r: (i - (len(replicates) - 1) / 2) * 0.15 for i, r in enumerate(replicates)}
-        df["_xpos"] = df["_xbase"] + df["Replicate"].map(rep_to_offset)
+        plot_df["_xpos"] = plot_df["_xbase"] + plot_df["Replicate"].map(rep_to_offset)
     else:
-        df["_xpos"] = df["_xbase"]
+        plot_df["_xpos"] = plot_df["_xbase"]
 
 
     sns.scatterplot(
-        data=df,
+        data=plot_df,
         x="_xpos",
         y="value",
         hue=hue,
@@ -978,37 +984,36 @@ def plot_gene_groups_points(
         if "lower" not in data.slots or "upper" not in data.slots:
             raise ValueError("CI slots ('lower' and 'upper') are missing. Run compute_ntr_ci() first.")
 
-        ci_lower = data.get_table(mode_slots="lower", genes=gene, columns=selected_columns).iloc[0].to_numpy()
-        ci_upper = data.get_table(mode_slots="upper", genes=gene, columns=selected_columns).iloc[0].to_numpy()
+        ci_lower = data.get_matrix(mode_slot="lower", genes=gene, columns=selected_columns)
+        ci_upper = data.get_matrix(mode_slot="upper", genes=gene, columns=selected_columns)
 
-        df["lower"] = ci_lower
-        df["upper"] = ci_upper
+        plot_df = plot_df.assign(lower=ci_lower, upper=ci_upper)
 
         if slot == "ntr":
-            ymin = df["lower"]
-            ymax = df["upper"]
+            ymin = plot_df["lower"]
+            ymax = plot_df["upper"]
         elif mode == "new":
-            ymin = df["lower"] * df["slot_val"]
-            ymax = df["upper"] * df["slot_val"]
+            ymin = plot_df["lower"] * plot_df["slot_val"]
+            ymax = plot_df["upper"] * plot_df["slot_val"]
         elif mode == "old":
-            ymin = (1 - df["upper"]) * df["slot_val"]
-            ymax = (1 - df["lower"]) * df["slot_val"]
+            ymin = (1 - plot_df["upper"]) * plot_df["slot_val"]
+            ymax = (1 - plot_df["lower"]) * plot_df["slot_val"]
         else:
             ymin = ymax = None
 
         if ymin is not None:
             mask = (
-                    (df["value"] >= 0) &
+                    (plot_df["value"] >= 0) &
                     (ymin >= 0) & (ymax >= 0) &
-                    (ymin <= df["value"]) & (ymax >= df["value"])
+                    (ymin <= plot_df["value"]) & (ymax >= plot_df["value"])
             )
-            df_ci = df[mask].copy()
+            df_ci = plot_df[mask]
             yerr = [
                 df_ci["value"] - ymin[mask],
                 ymax[mask] - df_ci["value"]
             ]
 
-            if hue and hue in df.columns:
+            if hue and hue in plot_df.columns:
                 unique_groups = df_ci[hue].unique()
                 palette = sns.color_palette(n_colors=len(unique_groups))
                 color_map = {grp: col for grp, col in zip(sorted(unique_groups), palette)}
@@ -1063,14 +1068,12 @@ def plot_gene_groups_bars(
 
     if columns is None:
         selected_columns = data.columns
-    elif isinstance(columns, str):
-        selected_columns = list(data.coldata.query(columns).index)
+    # elif isinstance(columns, str):
+    #     selected_columns = list(data.coldata.query(columns).index)
     else:
         selected_columns = data.get_columns(columns)
 
-    coldata = data.coldata.loc[selected_columns].copy()
-    old_vals = data.get_table(mode_slots=mode_slot_old, genes=gene, columns=selected_columns).iloc[0].to_numpy()
-    new_vals = data.get_table(mode_slots=mode_slot_new, genes=gene, columns=selected_columns).iloc[0].to_numpy()
+    coldata = data.coldata.loc[selected_columns]
 
     if isinstance(xlab, list):
         xlabels = xlab
@@ -1083,25 +1086,25 @@ def plot_gene_groups_bars(
     else:
         xlabels = coldata["Name"].tolist()
 
-    df = pd.DataFrame({
-        "sample": selected_columns,
-        "xlab": xlabels,
-        "old": old_vals,
-        "new": new_vals
-    })
+    plot_df = data.get_data(mode_slots=[mode_slot_old, mode_slot_new], genes=gene, columns=selected_columns)
+
+    new_names = {plot_df.columns[-2]: "old", plot_df.columns[-1]: "new"}
+    plot_df = plot_df.rename(columns=new_names)
+
+    plot_df["xlab"] = xlabels
 
     if transform is not None:
-        df = transform(df)
+        plot_df = transform(plot_df)
 
-    x = np.arange(len(df))
+    x = np.arange(len(plot_df))
     width = 0.8
 
     fig, ax = plt.subplots(figsize=(10, 6))
-    bar1 = ax.bar(x, df["old"], width, label="Old", color="lightgray")
-    bar2 = ax.bar(x, df["new"], width, bottom=df["old"], label="New", color="red")
+    bar1 = ax.bar(x, plot_df["old"], width, label="Old", color="lightgray")
+    bar2 = ax.bar(x, plot_df["new"], width, bottom=plot_df["old"], label="New", color="red")
 
     ax.set_xticks(x)
-    ax.set_xticklabels(df["xlab"], rotation=90)
+    ax.set_xticklabels(plot_df["xlab"], rotation=90)
     ax.set_ylabel(f"Total RNA ({slot})")
     ax.set_xlabel("")
     ax.set_title(gene)
@@ -1110,44 +1113,32 @@ def plot_gene_groups_bars(
         if "lower" not in data.slots or "upper" not in data.slots:
             raise ValueError("CI slots ('lower' and 'upper') are missing. Run compute_ntr_ci() first.")
 
-        total = data.get_table(mode_slots=slot, genes=gene, columns=selected_columns, ntr_nan=False).iloc[0].to_numpy()
-        lower = data.get_table(mode_slots="lower", genes=gene, columns=selected_columns, ntr_nan=False).iloc[0].to_numpy()
-        upper = data.get_table(mode_slots="upper", genes=gene, columns=selected_columns, ntr_nan=False).iloc[0].to_numpy()
+        total = data.get_matrix(mode_slot=slot, genes=gene, columns=selected_columns)
+        lower = data.get_matrix(mode_slot="lower", genes=gene, columns=selected_columns)
+        upper = data.get_matrix(mode_slot="upper", genes=gene, columns=selected_columns)
+
 
         ymin = (1 - upper) * total
         ymax = (1 - lower) * total
 
-        err_low = np.maximum(0, (total - ymin)) #TODO fragen ob cis negativ sein dürfen und wenn nicht ob man sie zu 0 machen sollte oder gar nicht plotten sollte
-        err_high = np.maximum(0, (ymax - total))
+        err_low = total - ymin
+        err_high = ymax - total
 
         mask = (
                 np.isfinite(total) &
                 np.isfinite(lower) & np.isfinite(upper) &
                 np.isfinite(err_low) & np.isfinite(err_high) &
-                (total >= 0) &
-                (lower >= 0) & (upper >= 0) &
-                (lower <= upper) &
-                (err_low >= 0) & (err_high >= 0)
+                (lower <= upper)
         )
-
-        n_invalid = np.sum(~mask)
-        if n_invalid > 0:
-            warnings.warn(f"{n_invalid} data points with invalid CI were excluded from error bars.", UserWarning)
 
         if np.any(mask):
             x_valid = np.arange(len(total))[mask]
             total_valid = total[mask]
             err_valid = [err_low[mask], err_high[mask]]
 
-            ax.errorbar(
-                x=x_valid,
-                y=total_valid,
-                yerr=err_valid,
-                fmt='none',
-                ecolor='black',
-                capsize=3
-
-        )
+            for i, (xi, y0, y1, valid) in enumerate(zip(x, ymin, ymax, mask)):
+                if valid:
+                    ax.plot([xi, xi], [y0, y1], color="black", linewidth=1)
 
     ax.legend()
     plt.tight_layout()
@@ -1158,7 +1149,7 @@ def plot_gene_groups_bars(
 def plot_gene_snapshot_timecourse(
     data: GrandPy,
     gene: str,
-    time: str = "Time",
+    time: str = "Time.original",
     mode_slot: Union[str, ModeSlot, None] = None,
     columns: Optional[Union[str, list]] = None,
     average_lines: bool = True,
@@ -1243,10 +1234,10 @@ def plot_gene_snapshot_timecourse(
             raise ValueError("CI slots ('lower' and 'upper') are missing. Run compute_ntr_ci() first.")
 
 
-        dfslot = data.get_table(mode_slots=slot, genes=gene, columns=selected_columns, ntr_nan=False).iloc[0].to_numpy()
-        dfmode_slot = data.get_table(mode_slots=mode_slot, genes=gene, columns=selected_columns, ntr_nan=False).iloc[0].to_numpy()
-        lower = data.get_table(mode_slots="lower", genes=gene, columns=selected_columns, ntr_nan=False).iloc[0].to_numpy()
-        upper = data.get_table(mode_slots="upper", genes=gene, columns=selected_columns, ntr_nan=False).iloc[0].to_numpy()
+        dfslot = data.get_matrix(mode_slot=slot, genes=gene, columns=selected_columns)
+        dfmode_slot = data.get_matrix(mode_slot=mode_slot, genes=gene, columns=selected_columns)
+        lower = data.get_matrix(mode_slot="lower", genes=gene, columns=selected_columns)
+        upper = data.get_matrix(mode_slot="upper", genes=gene, columns=selected_columns)
 
 
         if mode_slot.slot == "ntr":

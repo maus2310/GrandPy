@@ -7,12 +7,12 @@ import pandas as pd
 import anndata as ad
 import scipy.sparse as sp
 
-from Py.diffexp import get_summary_matrix
-from Py.processing import filter_genes
-from Py.utils import _ensure_list, _make_unique, _reindex_by_index_name, _subset_dense_or_sparse
 from Py.slot_tool import SlotTool, ModeSlot, _parse_as_mode_slot
 from Py.plot_tool import PlotTool, Plot
 from Py.analysis_tool import AnalysisTool
+from Py.diffexp import get_summary_matrix
+from Py.processing import filter_genes
+from Py.utils import _ensure_list, _make_unique, _reindex_by_index_name, _subset_dense_or_sparse
 
 
 class GrandPy:
@@ -422,7 +422,7 @@ class GrandPy:
 
     def with_slot(self, name: str, new_slot: Union[np.ndarray, pd.DataFrame, sp.csr_matrix, list], *, set_to_default = False) -> "GrandPy":
         """
-        Returns a new GrandPy Object with the new slot added.
+        Returns a new GrandPy Object with the new slot added. Will overwrite if the slot already exists and give a warning.
 
         Recommended: use this function with DataFrames for security.
 
@@ -433,8 +433,10 @@ class GrandPy:
         ----------
         name: str
             Name of the new slot.
+
         new_slot: Union[np.ndarray, pd.DataFrame, sp.csr_matrix]
             The data to be added as a new slot.
+
         set_to_default: bool, default False
             If True, sets the new slot as the default slot.
 

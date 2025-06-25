@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Union
 
 if TYPE_CHECKING:
     from Py.grandPy import GrandPy
+    from Py.slot_tool import ModeSlot
 
 def _comp_hl(p, time=1):
     """Computes half-life from NTR-value p and time t"""
@@ -68,11 +69,8 @@ def compute_ntr_posterior_quantile(data: "GrandPy", quantile: float, name: str) 
     - quantile: float in [0,1], quantile to compute
     - name: str, name of the new slot
     """
-    alpha = data.get_table(mode_slots="alpha", name_genes_by="Gene")
-    beta_ = data.get_table(mode_slots="beta", name_genes_by="Gene")
-
-    alpha = alpha.values
-    beta_ = beta_.values
+    alpha = data.get_matrix(mode_slot="alpha")
+    beta_ = data.get_matrix(mode_slot="beta")
 
     q = beta.ppf(quantile, alpha, beta_)
     return data.with_slot(name, q)

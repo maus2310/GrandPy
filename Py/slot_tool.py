@@ -87,7 +87,7 @@ class SlotTool:
         new_adata = self._adata.copy()
 
         if name in new_adata.layers.keys():
-            raise ValueError(f"Slot '{name}' already exists. Please choose a different name.")
+            warnings.warn(f"Slot '{name}' already exists. It will be overwritten.")
 
         def validate_and_convert_new_data(matrix: Union[pd.DataFrame, sp.csr_matrix, np.ndarray]
                                            ) -> Union[np.ndarray, sp.csr_matrix]:

@@ -131,7 +131,7 @@ def _subset_dense_or_sparse(matrix: Union[np.ndarray, sp.csr_matrix], row_indice
     else:
         data_subset = matrix[np.ix_(row_indices, column_indices)]
 
-    return data_subset
+    return data_subset.squeeze()
 
 
 
