@@ -6,6 +6,8 @@ from matplotlib import cm
 import numpy as np
 import pandas as pd
 from typing import Optional, Union
+
+from Py.analysis_tool import AnalysisTool
 from Py.grandPy import GrandPy, ModeSlot, _parse_as_mode_slot
 from scipy.stats import gaussian_kde, iqr
 from scipy.ndimage import gaussian_filter
@@ -178,7 +180,7 @@ def plot_scatter(
     diagonal: Optional[bool | float | tuple] = None,
     highlight: Optional[Union[list[str], dict[str, list[str]]]] = None,
     path_for_save: Optional[str] = None,
-    analysis: bool = False,
+    analysis: bool = False
 ):
     """
     ScatterPlot
@@ -1348,3 +1350,58 @@ def plot_gene_snapshot_timecourse(
     plt.tight_layout()
     plt.show()
     plt.close()
+
+#TODO Noch mehr testen mit analysen die wir aber noch nicht haben
+def plot_vulcano(
+    data: GrandPy,
+    analyses = None,
+    p_cutoff: float = 0.05,
+    lfc_cutoff: float = 1,
+    annotate_numbers=False #TODO Default ist True aber noch nicht implementiert
+):
+    if analyses is None:
+        analyses = data.analyses()[0]
+    df = data.get_analysis_table(analyses=analyses, regex=False, columns=["LFC", "Q"], with_gene_info=False)
+    df.columns = [col.split('.')[-1] for col in df.columns]
+    df['neg_log10_Q'] = -np.log10(df['Q'])
+
+    x_vals_all = df['LFC'].to_numpy()
+    y_vals_all = df['neg_log10_Q'].to_numpy()
+
+    if np.all(np.isnan(x_vals_all)):
+        raise ValueError(f"Alle LFC Werte sind NaN. Plot nicht möglich.")
+    if np.all(np.isnan(y_vals_all)):
+        raise ValueError(f"Alle Q Werte sind NaN. Plot nicht möglich.")
+
+    mask_keep, _, _ = _apply_outlier_filter(x_vals_all, y_vals_all, remove=True)
+    x_vals = x_vals_all[mask_keep]
+    y_vals = y_vals_all[mask_keep]
+
+    try:
+        density = _density2d(x_vals, y_vals, n=100, margin='n')
+    except NameError:
+        density = None
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    if density is not None:
+        idx = density.argsort()
+        x_vals, y_vals, density = x_vals[idx], y_vals[idx], density[idx]
+        scatter = ax.scatter(x_vals, y_vals, c=density, s=10, cmap="viridis", alpha=0.7)
+        fig.colorbar(scatter, ax=ax, label="Density")
+    else:
+        scatter = ax.scatter(x_vals, y_vals, c='blue', s=10, alpha=0.7)
+
+    ax.axhline(-np.log10(p_cutoff), linestyle='--', color='grey')
+    if lfc_cutoff != 0:
+        ax.axvline(lfc_cutoff, linestyle='--', color='grey')
+        ax.axvline(-lfc_cutoff, linestyle='--', color='grey')
+    else:
+        ax.axvline(0, linestyle='--', color='grey')
+
+    ax.set_xlabel(r'$\log_2$ Fold Change (LFC)')
+    ax.set_ylabel(r'$-\log_{10}$ FDR (Q)')
+    ax.set_title(analyses)
+
+    plt.tight_layout()
+    plt.show()

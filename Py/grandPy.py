@@ -1811,7 +1811,11 @@ class GrandPy:
 
             # Only take columns that match 'columns', if specified.
             if columns is not None:
-                matching_cols = [col for col in analysis_data.columns if re.search(columns, col)]
+                if regex:
+                    matching_cols = [col for col in analysis_data.columns if
+                                     any(re.search(pat, col) for pat in columns)]
+                else:
+                    matching_cols = [col for col in columns if col in analysis_data.columns]
             else:
                 matching_cols = analysis_data.columns
 
