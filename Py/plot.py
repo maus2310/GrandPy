@@ -96,7 +96,7 @@ def _setup_default_aes(data: GrandPy, aest: dict | None = None) -> dict:
     return aest
 
 
-def _density2d(x, y, n=100, bw_x=None, bw_y=None, margin='n'):
+def _density2d(x, y, n=100, bandwidth_x=None, bandwidth_y=None, margin='n'):
     x = np.asarray(x)
     y = np.asarray(y)
     finite_mask = np.isfinite(x + y)
@@ -115,8 +115,8 @@ def _density2d(x, y, n=100, bw_x=None, bw_y=None, margin='n'):
         h = (np.max(v) - np.min(v)) / 1.34
         return 1.06 * min(np.std(v, ddof=1), h) * len(v) ** (-1 / 5)
 
-    bw_x = bw_x or _bandwidth_nrd(x)
-    bw_y = bw_y or _bandwidth_nrd(y)
+    bandwidth_x = bandwidth_x or _bandwidth_nrd(x)
+    bandwidth_y = bandwidth_y or _bandwidth_nrd(y)
 
     xbins = np.linspace(np.min(x), np.max(x), n)
     ybins = np.linspace(np.min(y), np.max(y), n)
@@ -125,8 +125,8 @@ def _density2d(x, y, n=100, bw_x=None, bw_y=None, margin='n'):
 
     dx = xedges[1] - xedges[0]
     dy = yedges[1] - yedges[0]
-    sigma_x = bw_x / dx
-    sigma_y = bw_y / dy
+    sigma_x = bandwidth_x / dx
+    sigma_y = bandwidth_y / dy
 
     H_smooth = gaussian_filter(H, sigma=[sigma_x, sigma_y])
 
@@ -168,16 +168,17 @@ def plot_scatter(
     x: Optional[str] = None,
     y: Optional[str] = None,
     mode_slot: str | ModeSlot = None,
-    path_for_save: Optional[str] = None,
     remove_outlier: bool = True,
     show_outlier: bool = True,
     size: float = 5,
-    lim: Optional[tuple[float, float]] = None,
-    x_lim: Optional[tuple[float, float]] = None,
-    y_lim: Optional[tuple[float, float]] = None,
+    limit: Optional[tuple[float, float]] = None,
+    x_limit: Optional[tuple[float, float]] = None,
+    y_limit: Optional[tuple[float, float]] = None,
     cross: Optional[bool] = None,
-    diag: Optional[bool | float | tuple] = None,
-    highlight: Optional[Union[list[str], dict[str, list[str]]]] = None
+    diagonal: Optional[bool | float | tuple] = None,
+    highlight: Optional[Union[list[str], dict[str, list[str]]]] = None,
+    path_for_save: Optional[str] = None,
+    analysis: bool = False,
 ):
     """
     ScatterPlot
@@ -198,15 +199,15 @@ def plot_scatter(
         If True, outliers will be plotted in light gray
     path_for_save: str
         Saves the plot as a PNG to the specified directory (must end with \\ or \\\\. e.g. "C:\\\\Users\\\\user\\\\Desktop\\\\")
-    lim: tuple[float, float]
+    limit: tuple[float, float]
         Defines both xlim and ylim if they are not set explicitly
-    x_lim: tuple[float, float]
+    x_limit: tuple[float, float]
         Define the x-axis limits (lower and upper bounds)
-    y_lim: tuple[float, float]
+    y_limit: tuple[float, float]
         Define the y-axis limits (lower and upper bounds)
     size: float
         Size of each point in the scatter plot
-    diag: bool | float | list[float]
+    diagonal: bool | float | list[float]
         If True, draws the identity line (y = x).
         If float, draws one line: y = x + diag.
         If list of floats, draws multiple lines: y = x + offset for each value.
@@ -224,12 +225,18 @@ def plot_scatter(
 
     #Default expressions
     names = list(data.coldata["Name"])
+    analysis_columns = {col for cols in data.analyses(description=True).values() for col in cols}
     x = x or names[0]
     y = y or names[1]
     if x not in names:
-        raise ValueError(f"x is not a valid expression.")
+        if x not in analysis_columns:
+            raise ValueError(f"x is not a valid expression.")
+        else: analysis = True
     if y not in names:
-        raise ValueError(f"y is not a valid expression.")
+        if y not in analysis_columns:
+            raise ValueError(f"y is not a valid expression.")
+        else: analysis = True
+
     if mode_slot is None:
         mode_slot = data.default_slot
 
@@ -237,16 +244,18 @@ def plot_scatter(
 
     if _is_sparse_matrix(raw_matrix):
         df = data.get_analysis_table()
-        print("DFFF",df)
-        print("Use sparse plot")
+        print("DEBUG DF",df)
+        print("DEBUG: Use sparse plot")
+    elif analysis:
+        df = data.get_analysis_table()
+        print("DEBUG: Use analysis plot")
     else:
         df = data.get_table(mode_slots=mode_slot)
-        print("Use dense plot")
+        print("DEBUG: Use dense plot")
 
     if x in df.columns:
         x_vals_all = df[x].to_numpy()
     else:
-        # Fallback: Annahme, dass x ein Zell-/Sample-Name ist
         col_index = list(data.coldata["Name"]).index(x)
         matrix = data._resolve_mode_slot(mode_slot)
         matrix = matrix.toarray() if hasattr(matrix, "toarray") else matrix
@@ -265,49 +274,47 @@ def plot_scatter(
     if np.all(np.isnan(y_vals_all)):
         raise ValueError(f"All Values for '{x}' in slot '{mode_slot}' are NaN. - Plot not possible!")
 
-    if lim:
-        x_lim = x_lim or lim
-        y_lim = y_lim or lim
+    if limit:
+        x_limit = x_limit or limit
+        y_limit = y_limit or limit
 
     # Filter outliers
     mask_keep, auto_x_lim, auto_y_lim = _apply_outlier_filter(x_vals_all, y_vals_all, remove_outlier)
     x_vals, y_vals = x_vals_all[mask_keep], y_vals_all[mask_keep]
-    x_lim = x_lim or auto_x_lim
-    y_lim = y_lim or auto_y_lim
-    print(x_vals, y_vals)
+    x_limit = x_limit or auto_x_lim
+    y_limit = y_limit or auto_y_lim
 
     # Compute Density
-    z = _density2d(x_vals, y_vals, n=100, margin='n')
-    idx = z.argsort()
-    x_vals, y_vals, z = x_vals[idx], y_vals[idx], z[idx]
+    density = _density2d(x_vals, y_vals, n=100, margin='n')
+    idx = density.argsort()
+    x_vals, y_vals, density = x_vals[idx], y_vals[idx], density[idx]
 
-
-    fig, ax = plt.subplots(figsize=(6, 6))
+    fig, ax = plt.subplots(figsize=(10, 6))
 
     # Plot outliers
     if remove_outlier and show_outlier:
-        out_x = x_vals_all[~mask_keep]
-        out_y = y_vals_all[~mask_keep]
+        outlier_x = x_vals_all[~mask_keep]
+        outlier_y = y_vals_all[~mask_keep]
 
         margin = 0.01
-        clipped_x = np.clip(out_x, x_lim[0] + margin, x_lim[1] - margin)
-        clipped_y = np.clip(out_y, y_lim[0] + margin, y_lim[1] - margin)
+        clipped_x = np.clip(outlier_x, x_limit[0] + margin, x_limit[1] - margin)
+        clipped_y = np.clip(outlier_y, y_limit[0] + margin, y_limit[1] - margin)
         ax.scatter(clipped_x, clipped_y, color="grey", s=size+10, alpha=1, label="Outliers")
 
     # Main scatter
-    scatter = ax.scatter(x_vals, y_vals, c=z, s=size, cmap="viridis", alpha=1, rasterized=False)
+    scatter = ax.scatter(x_vals, y_vals, c=density, s=size, cmap="viridis", alpha=1, rasterized=False)
     fig.colorbar(scatter, ax=ax, label="Density")
 
     # Axis labels and title
     ax.set_xlabel(x)
     ax.set_ylabel(y)
     ax.set_title(f"{x} vs {y} ({mode_slot})")
-    if x_lim: ax.set_xlim(x_lim)
-    if y_lim: ax.set_ylim(y_lim)
+    if x_limit: ax.set_xlim(x_limit)
+    if y_limit: ax.set_ylim(y_limit)
 
     # Diagonal
-    if diag:
-        _plot_diagonal(ax, diag, np.linspace(*ax.get_xlim(), 100))
+    if diagonal:
+        _plot_diagonal(ax, diagonal, np.linspace(*ax.get_xlim(), 100))
 
     # Cross lines
     if cross:
@@ -322,8 +329,9 @@ def plot_scatter(
 
     if path_for_save:
         fig.savefig(f"{path_for_save}{x}_{y}_{mode_slot}.png", format="png", dpi=300)
-    plt.show(block=True)
-    plt.close(fig)
+    plt.tight_layout()
+    plt.show()
+    plt.close()
 
 def _transform_no(matrix: np.ndarray) -> np.ndarray:
     return matrix
@@ -400,11 +408,10 @@ def _make_continuous_colors(values, colors=None, breaks=None):
 
         if colors is None:
             colors = ["#FFFFB2", "#FECC5C", "#FD8D3C", "#F03B20", "#BD0026"]
-
-    rev = False
+    reverse = False
     if isinstance(colors, str):
         if colors.startswith("rev"):
-            rev = True
+            reverse = True
             colors = colors[3:]
         try:
             cmap = cm.get_cmap(colors, len(breaks))
@@ -413,7 +420,7 @@ def _make_continuous_colors(values, colors=None, breaks=None):
             cmap = cm.get_cmap("viridis", len(breaks))
             color_list = [mcolors.rgb2hex(cmap(i)) for i in range(cmap.N)]
 
-        if rev:
+        if reverse:
             color_list = color_list[::-1]
 
         colors = color_list
@@ -430,7 +437,7 @@ def plot_heatmap(
     cluster_genes: bool = True,
     cluster_columns: bool = False,
     label_genes: Optional[bool] = None,
-    xlab: Optional[list] = None,
+    xlabels: Optional[list] = None,
     breaks: Optional[list] = None,
     colors: Optional[Union[list, str]] = None,
     title: Optional[str] = None,
@@ -461,8 +468,8 @@ def plot_heatmap(
         selected_columns = data.get_columns(columns)
 
     if is_slot:
-        if len(mode_slots) > 1 and xlab is not None:
-            raise ValueError("Cannot use 'xlab' with multiple slots")
+        if len(mode_slots) > 1 and xlabels is not None:
+            raise ValueError("Cannot use 'xlabels' with multiple slots")
 
         table = data.get_table(mode_slots=mode_slot, genes=genes, columns=selected_columns)
     else:
@@ -502,30 +509,30 @@ def plot_heatmap(
     if na_to is not None:
         mat = np.where(np.isnan(mat), na_to, mat)
 
-    if xlab is not None and len(xlab) == len(sample_names):
-        sample_names = xlab
+    if xlabels is not None and len(xlabels) == len(sample_names):
+        sample_names = xlabels
     if label_genes is None:
         label_genes = len(gene_names) <= 50
 
     df = pd.DataFrame(mat, index=gene_names, columns=sample_names)
-    color_def = _make_continuous_colors(mat, colors=colors, breaks=breaks)
+    color_df = _make_continuous_colors(mat, colors=colors, breaks=breaks)
 
-    breaks = color_def["breaks"]
-    colors = color_def["colors"]
+    breaks = color_df["breaks"]
+    colors = color_df["colors"]
 
-    min_b, max_b = breaks[0], breaks[-1]
-    scaled_breaks = [(b - min_b) / (max_b - min_b) for b in breaks]
+    min_break, max_break = breaks[0], breaks[-1]
+    scaled_breaks = [(b - min_break) / (max_break - min_break) for b in breaks]
     color_list = list(zip(scaled_breaks, colors))
 
     from matplotlib.colors import LinearSegmentedColormap
     from matplotlib.colors import Normalize
     cmap = LinearSegmentedColormap.from_list("custom", color_list)
-    norm = Normalize(vmin=min_b, vmax=max_b)
+    norm = Normalize(vmin=min_break, vmax=max_break)
 
 
     sns.clustermap(
         df,
-        figsize=(8, 6),
+        figsize=(10, 6),
         cmap=cmap,
         norm = norm,
         row_cluster=cluster_genes,
@@ -536,11 +543,10 @@ def plot_heatmap(
     )
 
     if return_matrix:
-        print(df) # TODO gucken wie in R ist Vielleicht dann nur ohne farbe einfach werte in heatmap anzeigen
-        return df
+        print(df)
     if title:
         plt.title(title, y=1.05)
-
+    plt.tight_layout()
     plt.show()
     plt.close()
 
@@ -608,7 +614,7 @@ def plot_pca(
     hue = aest.get("color")
 
 
-    plt.figure(figsize=(8, 6))
+    plt.figure(figsize=(10, 6))
     sns.scatterplot(data=df, x=f"PC{x}", y=f"PC{y}", style=style, hue=hue, s=50)
     plt.xlabel(f"PC{x}: {percent_var[x - 1] * 100:.1f}% variance")
     plt.ylabel(f"PC{y}: {percent_var[y - 1] * 100:.1f}% variance")
@@ -659,7 +665,7 @@ def plot_gene_old_vs_new(
     if style not in plot_df.columns:
         style = None
 
-    fig, ax = plt.subplots(figsize=(6, 6))
+    fig, ax = plt.subplots(figsize=(10, 6))
 
     if log:
         ax.set_xscale("log")
@@ -801,15 +807,11 @@ def plot_gene_total_vs_ntr(
         palette = None
         color_map = {}
 
-    fig, ax = plt.subplots(figsize=(6, 6))
+    fig, ax = plt.subplots(figsize=(10, 6))
 
     if log:
         ax.set_xscale("log")
         ax.xaxis.set_major_formatter(matplotlib.ticker.ScalarFormatter())
-        # xmin = plot_df["total"].min()
-        # xmax = plot_df["total"].max()
-        # ax.set_xlim(left=xmin * 0.9, right=xmax + (xmax/9))
-
 
 
     ax.set_xlabel(f"Total RNA ({slot})")
@@ -938,14 +940,14 @@ def plot_gene_groups_points(
     if group not in plot_df.columns:
         raise ValueError(f"Group column '{group}' not found in coldata!")
 
-    if transform is not None:
+    if transform is not None: #TODO Was tut das? In R: if (!is.null(transform)) df=transform(df)
         plot_df = transform(plot_df)
 
     aest = _setup_default_aes(data, aest)
     hue = aest.get("color")
     style = aest.get("shape")
 
-    fig, ax = plt.subplots(figsize=(8, 6))
+    fig, ax = plt.subplots(figsize=(10, 6))
     group_order = plot_df[group].unique()
     group_to_num = {g: i for i, g in enumerate(group_order)}
     plot_df["_xbase"] = plot_df[group].map(group_to_num)
@@ -1050,14 +1052,14 @@ def plot_gene_groups_points(
     plt.show()
     plt.close()
 
-#Beispielaufruf: plot_gene_groups_bars(sars, "UHMK1", xlab="Condition + '.' + Replicate")
+#Beispielaufruf: plot_gene_groups_bars(sars, "UHMK1", xlabels="Condition + '.' + Replicate")
 def plot_gene_groups_bars(
     data: GrandPy,
     gene: str,
     slot: Optional[str] = None,
     columns: Optional[Union[str, list]] = None,
     show_ci: bool = False,
-    xlab: Optional[Union[str, list]] = None,
+    xlabels: Optional[Union[str, list]] = None,
     transform: Optional[callable] = None
 ):
     if slot is None:
@@ -1068,19 +1070,17 @@ def plot_gene_groups_bars(
 
     if columns is None:
         selected_columns = data.columns
-    # elif isinstance(columns, str):
-    #     selected_columns = list(data.coldata.query(columns).index)
     else:
         selected_columns = data.get_columns(columns)
 
     coldata = data.coldata.loc[selected_columns]
 
-    if isinstance(xlab, list):
-        xlabels = xlab
-    elif isinstance(xlab, str):
+    if isinstance(xlabels, list):
+        xlabels = xlabels
+    elif isinstance(xlabels, str):
         local_vars = {col: coldata[col].astype(str) for col in coldata.columns}
         try:
-            xlabels = eval(xlab, {}, local_vars).tolist()
+            xlabels = eval(xlabels, {}, local_vars).tolist()
         except Exception as e:
             raise ValueError(f"xlab expression could not be evaluated: {e}")
     else:
@@ -1093,7 +1093,7 @@ def plot_gene_groups_bars(
 
     plot_df["xlab"] = xlabels
 
-    if transform is not None:
+    if transform is not None: #TODO Was soll das machen? In R: if (!is.null(transform)) df=transform(df)
         plot_df = transform(plot_df)
 
     x = np.arange(len(plot_df))
@@ -1227,7 +1227,7 @@ def plot_gene_snapshot_timecourse(
     x = "Time_float"
     y = gene
     ylabel = "NTR" if slot == "ntr" else f"{mode.capitalize()} RNA ({slot})"
-    fig, ax = plt.subplots(figsize=(8, 6))
+    fig, ax = plt.subplots(figsize=(10, 6))
 
     if show_ci:
         if "lower" not in data.slots or "upper" not in data.slots:

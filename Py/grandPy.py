@@ -498,8 +498,7 @@ class GrandPy:
     def _analysis_manager(self):
         return AnalysisTool(self._adata)
 
-    @property
-    def analyses(self) -> list[str]:
+    def analyses(self, description: bool = False) -> list[str]:
         """
         Get the names of all stored analyses.
 
@@ -519,7 +518,7 @@ class GrandPy:
         GrandPy.with_analysis:
             Add an analysis to the object. Usually not to be used directly.
         """
-        return self._analysis_manager.analyses()
+        return self._analysis_manager.analyses(description)
 
     def get_analyses(self, pattern: Union[str, int, Sequence[Union[str, int, bool]]] = None, regex: bool = True) -> list[str]:
         """

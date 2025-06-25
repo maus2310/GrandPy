@@ -110,7 +110,7 @@ def _compute_steady_state_half_lives(
     as_analysis=False
 ) -> "GrandPy":
     if time is None:
-        time = data.coldata["Time_hr"]
+        time = data.coldata["Time"]
 
     if isinstance(time, str):
         time = data.coldata[time]
@@ -156,9 +156,9 @@ def _compute_steady_state_half_lives(
             upper_hl = np.minimum(_comp_hl(lower[col].values, col_time), max_hl)
 
             df = pd.DataFrame({
-                f"Half-life.lower.{col}": lower_hl,
-                f"Half-life.MAP.{col}": map_hl,
-                f"Half-life.upper.{col}": upper_hl
+                f"{name}.Half-life.lower.{col}": lower_hl,
+                f"{name}.Half-life.MAP.{col}": map_hl,
+                f"{name}.Half-life.upper.{col}": upper_hl
             }, index=ntrs.index)
             frames.append(df)
 

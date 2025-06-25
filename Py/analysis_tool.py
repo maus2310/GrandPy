@@ -11,8 +11,11 @@ class AnalysisTool:
     def __init__(self, adata: ad.AnnData):
         self._adata = adata
 
-    def analyses(self) -> list[str]:
-        return list(self._adata.uns["analyses"].keys())
+    def analyses(self, description: bool = False):
+        analyses = self._adata.uns["analyses"]
+        if not description:
+            return list(analyses.keys())
+        return {name: df.columns.tolist() for name, df in analyses.items()}
 
     def get_analyses(self, pattern: Union[str, int, Sequence[Union[str, int, bool]]] = None, regex: bool = True) -> list[str]:
         available_analyses = self.analyses()
