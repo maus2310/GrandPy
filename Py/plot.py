@@ -227,7 +227,7 @@ def plot_scatter(
 
     #Default expressions
     names = list(data.coldata["Name"])
-    analysis_columns = {col for cols in data.analyses(description=True).values() for col in cols}
+    analysis_columns = {col for cols in data.get_analyses(description=True).values() for col in cols}
     x = x or names[0]
     y = y or names[1]
     if x not in names:
@@ -1360,7 +1360,7 @@ def plot_vulcano(
     annotate_numbers=False #TODO Default ist True aber noch nicht implementiert
 ):
     if analyses is None:
-        analyses = data.analyses()[0]
+        analyses = data.analyses[0]
     df = data.get_analysis_table(analyses=analyses, regex=False, columns=["LFC", "Q"], with_gene_info=False)
     df.columns = [col.split('.')[-1] for col in df.columns]
     df['neg_log10_Q'] = -np.log10(df['Q'])

@@ -11,17 +11,23 @@ class AnalysisTool:
     def __init__(self, adata: ad.AnnData):
         self._adata = adata
 
-    def analyses(self, description: bool = False):
+    def analyses(self):
         analyses = self._adata.uns["analyses"]
-        if not description:
-            return list(analyses.keys())
-        return {name: df.columns.tolist() for name, df in analyses.items()}
+        return list(analyses.keys())
 
-    def get_analyses(self, pattern: Union[str, int, Sequence[Union[str, int, bool]]] = None, regex: bool = True) -> list[str]:
+    def get_analyses(
+            self,
+            pattern: Union[str, int, Sequence[Union[str, int, bool]]] = None,
+            regex: bool = True,
+            description: bool = False
+    ) -> Union[list[str], dict[str, list[str]]]:
         available_analyses = self.analyses()
 
         if pattern is None:
-            return available_analyses
+            if description:
+                return {name: df.columns.tolist() for name, df in self._adata.uns["analyses"].items()}
+            else:
+                return available_analyses
 
         pattern = _ensure_list(pattern)
 
@@ -38,7 +44,7 @@ class AnalysisTool:
                     return [analysis in available_analyses for analysis in pattern]
 
         checks = check_analyses(pattern, available_analyses, regex)
-        print(checks)
+
         if not all(checks):
             missing = [analysis for analysis, check in zip(pattern, checks) if not check]
             raise ValueError(f"No analysis found for pattern: {', '.join(map(str, missing))}")
@@ -49,6 +55,9 @@ class AnalysisTool:
         result = np.array(available_analyses)[checks].tolist()
 
         result = list(dict.fromkeys(result))
+
+        if description:
+            return {name: df.columns.tolist() if name in result else {} for name, df in self._adata.uns["analyses"].items()}
 
         return result
 

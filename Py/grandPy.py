@@ -1,6 +1,7 @@
 import copy
 import re
 import warnings
+from numbers import Number
 from typing import Any, Union, Sequence, Literal, Mapping, Callable
 import numpy as np
 import pandas as pd
@@ -127,7 +128,7 @@ class GrandPy:
             f"Read from {self._adata.uns['prefix']}\n"
             f"{self._adata.n_obs} genes, {self._adata.n_vars} samples/cells\n"
             f"Available data slots: {self.slots}\n"
-            f"Available analyses: {self.analyses()}\n"
+            f"Available analyses: {self.analyses}\n"
             f"Available plots: {self.plots}\n"
             f"Default data slot: {self.default_slot}\n"
         )
@@ -498,7 +499,8 @@ class GrandPy:
     def _analysis_manager(self):
         return AnalysisTool(self._adata)
 
-    def analyses(self, description: bool = False) -> list[str]:
+    @property
+    def analyses(self) -> list[str]:
         """
         Get the names of all stored analyses.
 
@@ -518,9 +520,9 @@ class GrandPy:
         GrandPy.with_analysis:
             Add an analysis to the object. Usually not to be used directly.
         """
-        return self._analysis_manager.analyses(description)
+        return self._analysis_manager.analyses()
 
-    def get_analyses(self, pattern: Union[str, int, Sequence[Union[str, int, bool]]] = None, regex: bool = True) -> list[str]:
+    def get_analyses(self, pattern: Union[str, int, Sequence[Union[str, int, bool]]] = None, regex: bool = True, description: bool = False) -> list[str]:
         """
         Get the names of analyses. Either by a regex, names, indices, or a boolean mask.
 
@@ -531,6 +533,9 @@ class GrandPy:
 
         regex: bool, default True
             If True, `name` will be interpreted as a regular expression or a list of regular expressions.
+
+        description: bool, default False
+            If True, the names of selected analyses will be returned with their column names.
 
         Returns
         -------
@@ -553,7 +558,7 @@ class GrandPy:
         GrandPy.with_analysis:
             Add an analysis to the object. Usually not to be used directly.
         """
-        return self._analysis_manager.get_analyses(pattern, regex=regex)
+        return self._analysis_manager.get_analyses(pattern, regex=regex, description=description)
 
     def with_analysis(self, name: str, table: pd.DataFrame, by: str = None) -> "GrandPy":
         """
@@ -675,7 +680,7 @@ class GrandPy:
         >>> sars = sars.with_plot(
         ...     "scatter",
         ...     lambda data: plot_scatter(data, x = "Mock.1h.A", y = "SARS.1h.A", mode_slot = "new_count")
-        ... )
+        ...)
         >>> print(sars.plots)
         {'global': ['scatter']}
 
@@ -1013,12 +1018,12 @@ class GrandPy:
         self,
         mode_slot: Union[str, "ModeSlot"] = None,
         *,
-        min_expression = 100,
-        min_columns = None,
-        min_condition = None,
-        use = None,
-        keep = None,
-        return_genes = False
+        min_expression: Number = 100,
+        min_columns: int = None,
+        min_condition: int = None,
+        keep: Union[str, int, Sequence[Union[int, str]]] = None,
+        use: Union[str, int, Sequence[Union[int, str, bool]]] = None,
+        return_genes: bool = False
     ) -> Union["GrandPy", list[int]]:
         """
         Filter genes based on expression/value thresholds.
@@ -1028,7 +1033,7 @@ class GrandPy:
         mode_slot : str or ModeSlot, optional
             Which data slot to use.
 
-        min_expression : float, default 100
+        min_expression : Number, default 100
             Minimum value threshold to consider a gene expressed.
 
         min_columns : int, optional
@@ -1039,12 +1044,12 @@ class GrandPy:
         min_condition : int, optional
             Overrides `min_columns` if set.
 
-        use : list[bool or int or str], optional
-            Only these genes will be kept if provided (boolean mask, indices, or names).
-            Filtering will not be applied to them.
-
-        keep : list[str or int], optional
+        keep : str or int or Sequence[str or int], optional
             Genes to force-keep, regardless of threshold filtering.
+
+        use : str or int or Sequence[bool or int or str], optional
+            Only these genes will be kept if provided (boolean mask, indices, or names).
+            Filtering will not be applied to them. (Basically just subsetting)
 
         return_genes : bool, default False
             If True, return the list of selected gene indices instead of a filtered GrandPy object.
@@ -1071,15 +1076,20 @@ class GrandPy:
         Parameters
         ----------
         analysis : str or list[str], optional
-            Name(s) of the analysis result(s) to evaluate.
+            Names of the analysis results to evaluate.
+
         regex : bool, default True
             If True, treat `analysis` as a regular expression.
+
         criteria : str, optional
             String expression to evaluate significance (e.g. "Q < 0.05 and abs(LFC) >= 1").
+
         as_table : bool, default False
             If True, return full table instead of a list.
+
         use_symbols : bool, default True
             Whether to use gene symbols as rownames.
+
         gene_info : bool, default True
             Whether to include gene info columns in output.
         """
@@ -1452,10 +1462,10 @@ class GrandPy:
         other: GrandPy
             The object to concatenate with the current instance.
 
-        axis: {"gene_info" or 0, "coldata" or 1}, default 1
+        axis: {"gene_info" or 0 or "coldata" or 1}, default 1
             The axis along which to concatenate.
 
-        join: {"inner", "outer"}, default "inner"
+        join: {"inner" or "outer"}, default "inner"
             How to align values when concatenating. If "outer", the union of the other axis is taken. If "inner", the intersection.
 
         merge: {"same" or "unique" or "first" or "only"} or Callable, default "unique"
@@ -1525,6 +1535,9 @@ class GrandPy:
 
         GrandPy.get_data
             Similar to get_data(), but slots are transposed, so gene_info can be concatenated.
+
+        GrandPy.get_analysis_table:
+            Get a DataFrame containing analysis tables.
         """
         if mode_slot is None:
             mode_slot = self.default_slot
@@ -1584,6 +1597,9 @@ class GrandPy:
         --------
         GrandPy.get_table
             Similar to get_data(), but slots are transposed, so gene_info can be concatenated.
+
+        GrandPy.get_analysis_table:
+            Get a DataFrame containing analysis tables.
 
         GrandPy.get_matrix
             Similar to get_data(), but transposed and only gives raw_data without row or column names.
@@ -1684,8 +1700,11 @@ class GrandPy:
         GrandPy.get_data:
             Similar to get_table(), but slots are transposed, so coldata can be concatenated.
 
+        GrandPy.get_analysis_table:
+            Get a DataFrame containing analysis tables.
+
         GrandPy.get_summary_matrix:
-            Return a summarization matrix for averaging or aggregation. Can be provided to get_table() via `summarize`.
+            Get a summarization matrix for averaging or aggregation. Can be provided to get_table() via `summarize`.
 
         GrandPy.get_matrix:
             Similar to get_table(), but gives raw data without row or column names.
