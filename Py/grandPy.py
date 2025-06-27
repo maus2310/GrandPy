@@ -2092,3 +2092,71 @@ class GrandPy:
         from Py.processing import _compute_steady_state_half_lives
 
         return _compute_steady_state_half_lives(self, time, name=name ,columns=columns, max_hl=max_hl, ci_size=ci_size, compute_ci=compute_ci, as_analysis=as_analysis)
+
+    def split(self, by: str = "Condition", verbose: bool = True) -> list:
+        """
+        Split the GrandPy object into a list of GrandPy objects based on a column in coldata.
+
+        Parameters
+        ----------
+        by : str, default "Condition"
+            Column in coldata to split by.
+
+        verbose : bool, default True
+            If True, print each split object with its group name.
+
+        Returns
+        -------
+        list of GrandPy
+            One GrandPy object per unique value in the specified column.
+        """
+        if by not in self.coldata.columns:
+            raise ValueError(f"Column '{by}' not found in coldata.")
+
+        result = []
+        for group in self.coldata[by].unique():
+            mask = self.coldata[by] == group
+            subset = self._adata[:, mask]
+            obj = self._dev_replace(anndata=subset)
+            obj.group = group
+
+            if verbose:
+                print(f"\n${group}")
+                print(obj)
+
+            result.append(obj)
+
+        return result
+
+    @staticmethod
+    def merge(grandpy_objects: list) -> "GrandPy":
+        """
+        Merge a list of GrandPy objects into a single object (concat by columns).
+
+        Parameters
+        ----------
+        grandpy-objects : list[GrandPy]
+
+        Returns
+        -------
+        GrandPy
+            Merged GrandPy object.
+        """
+        if not grandpy_objects:
+            raise ValueError("No GrandPy objects provided to merge.")
+
+        adatas = [obj._adata for obj in grandpy_objects]
+        merged_adata = ad.concat(adatas, axis=1, join="outer", merge="same")
+
+        ref = grandpy_objects[0]
+
+        return ref._dev_replace(
+            anndata=merged_adata,
+            prefix=ref._adata.uns.get("prefix", "Unknown"),
+            gene_info=merged_adata.obs,
+            coldata=merged_adata.var,
+            slots=merged_adata.layers,
+            metadata=ref._adata.uns.get("metadata", {}),
+            analyses=ref._adata.uns.get("analyses", {}),
+            plots=ref._adata.uns.get("plots", {})
+        )
