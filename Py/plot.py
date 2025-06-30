@@ -21,7 +21,7 @@ def _is_sparse_matrix(mat):
     return issparse(mat)
 
 
-# TODO Plots: PlotExpressionTest, PlotAnalyses, VulcanoPlot, MAPlot, PlotTypeDistribution, FormatCorrelation
+# TODO Plots: PlotExpressionTest, PlotAnalyses, MAPlot, PlotTypeDistribution, FormatCorrelation
 
 def _get_plot_limits(vals, override_lim=None):
     """Compute IQR-based limits if not overridden."""
@@ -586,7 +586,7 @@ def plot_pca(
     else:
         slotmat = mat.T
 
-    coldata["condition"] = coldata["Condition"]
+    coldata["condition"] = coldata["Condition"] # TODO das muss noch anders geregelt werden. Wenn man nicht "Condition" im design angegeben hat, sondern Bsp: "Cell" dann geht nix
 
     if do_vst and str(mode_slot).lower() == "count":
         coldata = coldata
