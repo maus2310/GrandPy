@@ -1,10 +1,10 @@
 import warnings
-from typing import Union, Iterable
+from typing import Union, Iterable, Mapping, Callable
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
 
-
+# General Utility functions
 def _to_sparse(matrix: Union[pd.DataFrame, np.ndarray, sp.csr_matrix]) -> sp.csr_matrix:
     """
     Convert the given matrix to a csr_matrix.
@@ -33,7 +33,6 @@ def _to_sparse(matrix: Union[pd.DataFrame, np.ndarray, sp.csr_matrix]) -> sp.csr
             "Matrix could not be converted to a sparse matrix. Use numpy.ndarray or a pandas.DataFrame only containing numbers")
 
     return sparse_matrix
-
 
 def _make_unique(series: pd.Series, warn = True) -> pd.Series:
     """
@@ -69,7 +68,6 @@ def _make_unique(series: pd.Series, warn = True) -> pd.Series:
                 result.append(f"{val}_{counts[val]}")
     return pd.Series(result, index=series.index)
 
-
 def _reindex_by_index_name(df: pd.DataFrame, by: pd.DataFrame) -> pd.DataFrame:
     """
     Sorts the index of a DataFrame by a column from `by`, inferred from the index name of `df`.
@@ -102,7 +100,6 @@ def _reindex_by_index_name(df: pd.DataFrame, by: pd.DataFrame) -> pd.DataFrame:
 
     return sorted_df
 
-
 def _subset_dense_or_sparse(matrix: Union[np.ndarray, sp.csr_matrix], row_indices: list[int], column_indices: list[int]) -> np.ndarray:
     """
     Subsets dense or sparse matrices by given row and column indices.
@@ -133,8 +130,6 @@ def _subset_dense_or_sparse(matrix: Union[np.ndarray, sp.csr_matrix], row_indice
 
     return data_subset.squeeze()
 
-
-
 def _ensure_list(obj):
     if obj is None:
         return []
@@ -143,3 +138,49 @@ def _ensure_list(obj):
     if isinstance(obj, str) or not isinstance(obj, Iterable):
         return [obj]
     return list(obj)
+
+
+# modeling helper function
+def extract_fit_series(
+        fit_result: Union[dict, Mapping[str, dict]],
+        condition: str,
+        name_prefix: str,
+        return_fields: list,
+        return_extra: Callable[[dict], Mapping]
+) -> pd.Series:
+    """
+    Convert kinetic fit results to a pandas Series for a specific condition.
+
+    Parameters
+    ----------
+    fit_result : dict or dict[str, dict]
+        The result of a kinetic model fit, optionally nested by condition.
+    condition : str
+        The condition to extract results for (if fit is per condition).
+    return_fields : list[str]
+        List of fields to include in the output.
+    return_extra : Callable[[dict], dict]
+        A function that returns extra fields as a dictionary.
+
+    Returns
+    -------
+    pd.Series
+        A flattened for one gene.
+    """
+    result = fit_result if condition is None else fit_result.get(condition, {})
+
+    output = {}
+
+    if return_fields is not None:
+        for field in return_fields:
+            prefix = f"{name_prefix}_" if name_prefix else ""
+            output[f"{prefix}{condition}_{field}"] = result.get(field, np.nan)
+
+    if callable(return_extra):
+        extra = return_extra(result)
+        if isinstance(extra, Mapping):
+            output.update(extra)
+        else:
+            raise TypeError("return_extra must return a dict.")
+
+    return pd.Series(output)

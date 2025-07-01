@@ -6,6 +6,7 @@ from matplotlib import cm
 import numpy as np
 import pandas as pd
 from typing import Optional, Union
+import re
 
 from Py.analysis_tool import AnalysisTool
 from Py.grandPy import GrandPy, ModeSlot, _parse_as_mode_slot
@@ -31,6 +32,12 @@ def _get_plot_limits(vals, override_lim=None):
     iqr = q3 - q1
     return q1 - 1.5 * iqr, q3 + 1.5 * iqr
 
+def parse_time_to_float(time_str):
+    match = re.match(r"(\d+(\.\d+)?)h", time_str)
+    if match:
+        return float(match.group(1))
+    else:
+        return 0.0
 
 def _apply_outlier_filter(x_vals, y_vals, remove):
     """Return filtered masks and updated axis limits based on actual min/max."""
@@ -502,6 +509,7 @@ def plot_heatmap(
     sample_names = table.columns.to_list()
 
     if isinstance(transform, str):
+        print(mat)
         transform = transform.lower()
         if transform == "z":
             mat = _transform_z(mat)
@@ -1123,7 +1131,7 @@ def plot_gene_groups_bars(
     plot_df["xlab"] = xlabels
 
     if isinstance(transform, str):
-        mat = plot_df["new", "old"]
+        mat = plot_df[["old", "new"]]
         transform = transform.lower()
         if transform == "z":
             mat = _transform_z(mat)
@@ -1214,13 +1222,6 @@ def plot_gene_snapshot_timecourse(
     size: float = 50,
     dodge: bool = False
 ):
-    import re
-    def parse_time_to_float(time_str):
-        match = re.match(r"(\d+(\.\d+)?)h", time_str)
-        if match:
-            return float(match.group(1))
-        else:
-            return 0.0
 
 
     if mode_slot is None:
@@ -1455,5 +1456,106 @@ def plot_vulcano(
     ax.set_ylabel(r'$-\log_{10}$ FDR (Q)')
     ax.set_title(analyses)
 
+    plt.tight_layout()
+    plt.show()
+
+def f_old_nonequi(t, f0, ks, kd):
+    return f0 * np.exp(-kd * t)
+
+def f_new(t, ks, kd):
+    return ks / kd * (1 - np.exp(-kd * t))
+
+def parse_time_str(t):
+    match = re.match(r"(\d+(?:\.\d+)?)", str(t))
+    return float(match.group(1)) if match else np.nan
+
+def plot_gene_progressive_timecourse(
+    data: GrandPy,
+    gene: str,
+    slot: Optional[str] = None,
+    time: str = "Time.original",
+    show_ci: bool = False,
+    exact_tics: bool = True,
+    rescale: bool = True,
+    size: float = 50
+):
+
+    if slot is None:
+        slot = data.default_slot
+
+    selected_columns = data.columns
+
+    total = data.get_matrix(mode_slot=slot, genes=gene, columns=selected_columns)
+    new = data.get_matrix(mode_slot=ModeSlot("new", slot), genes=gene, columns=selected_columns)
+    old = data.get_matrix(mode_slot=ModeSlot("old", slot), genes=gene, columns=selected_columns)
+
+    timepoints = data.coldata[time].values
+    time_numeric = np.array([parse_time_str(t) for t in timepoints])
+
+    condition = data.coldata["Condition"] if "Condition" in data.coldata.columns else pd.Series([gene]*len(timepoints))
+
+    df = pd.DataFrame({
+        "time": timepoints,
+        "time_numeric": time_numeric,
+        "total": total.flatten(),
+        "new": new.flatten(),
+        "old": old.flatten(),
+        "condition": condition
+    })
+
+    tt = np.linspace(0, df["time_numeric"].max(), 100)
+    fitted = []
+    for cond in df["condition"].unique():
+        f0, ks, kd = 10, 5, 0.5
+        fitted.append(pd.DataFrame({
+            "time_numeric": tt,
+            "Expression": f_old_nonequi(tt, f0, ks, kd),
+            "Type": "old",
+            "condition": cond
+        }))
+        fitted.append(pd.DataFrame({
+            "time_numeric": tt,
+            "Expression": f_new(tt, ks, kd),
+            "Type": "new",
+            "condition": cond
+        }))
+
+    df_fitted = pd.concat(fitted)
+
+    df_long = pd.melt(df, id_vars=["time", "condition"],
+                      value_vars=["total", "new", "old"],
+                      var_name="Type", value_name="Expression")
+
+    g = sns.FacetGrid(
+        df_long,
+        col="condition",
+        sharey=True,
+        sharex=True
+    )
+
+    g.map_dataframe(
+        sns.scatterplot,
+        x="time",
+        y="Expression",
+        hue="Type",
+        palette={"total":"gray", "new":"#e34a33", "old":"#2b8cbe"},
+        s=size
+    )
+
+    g.map_dataframe(
+        sns.lineplot,
+        data=df_fitted,
+        x="time",
+        y="Expression",
+        hue="Type",
+        palette={"total":"grey", "old":"#2b8cbe", "new":"#e34a33"},
+        style="Type",
+        dashes=True,
+        linewidth=1
+    )
+
+    g.set_axis_labels("Time", "Expression")
+    g.set_titles("{col_name}")
+    g.add_legend(title="RNA")
     plt.tight_layout()
     plt.show()
