@@ -21,7 +21,7 @@ def _is_sparse_matrix(mat):
     return issparse(mat)
 
 
-# TODO Plots: PlotExpressionTest, PlotAnalyses, MAPlot, PlotTypeDistribution, FormatCorrelation
+# TODO Plots: PlotExpressionTest, PlotAnalyses, VulcanoPlot, MAPlot, PlotTypeDistribution, FormatCorrelation
 
 def _get_plot_limits(vals, override_lim=None):
     """Compute IQR-based limits if not overridden."""
@@ -89,8 +89,17 @@ def _setup_default_aes(data: GrandPy, aest: dict | None = None) -> dict:
 
     coldata = data.coldata
 
-    if "Condition" in coldata.columns and not any(k in aest for k in ["color", "colour"]):
-        aest["color"] = "Condition"
+    if not any(k in aest for k in ["color", "colour"]):
+        if "Condition" in coldata.columns:
+            aest["color"] = "Condition"
+        elif "Cell" in coldata.columns:
+            aest["color"] = "Cell"
+        else:
+            fallback_col = coldata.columns[1] if len(coldata.columns) >= 2 else coldata.columns[0]
+            warnings.warn(
+                f"Could not find 'Condition' or 'Cell' in coldata — using '{fallback_col}' for color aesthetic, which may be incorrect."
+            )
+            aest["color"] = fallback_col
 
     if "Replicate" in coldata.columns and "shape" not in aest:
         aest["shape"] = "Replicate"
@@ -343,6 +352,7 @@ def _transform_z(matrix: np.ndarray, center: bool = True, scale: bool = True) ->
         return matrix.astype(np.float64)
 
     from scipy.stats import zscore
+    print(matrix)
     return zscore(matrix, axis=1, ddof=1, nan_policy='omit' if (center or scale) else 'propagate')
 
 def _transform_vst(data, selected_columns: list, mode_slot, genes) -> pd.DataFrame:
@@ -360,7 +370,17 @@ def _transform_vst(data, selected_columns: list, mode_slot, genes) -> pd.DataFra
         slotmat = mat.T
 
     slotmat = slotmat.loc[coldata.index]
-    dds = DeseqDataSet(counts=slotmat, metadata=coldata, design_factors="condition")
+    try:
+        dds = DeseqDataSet(counts=slotmat, metadata=coldata, design_factors="Condition")
+    except Exception:
+        try:
+            dds = DeseqDataSet(counts=slotmat, metadata=coldata, design_factors="Cell")
+        except Exception:
+            fallback_col = data.coldata.columns[1] if len(data.coldata.columns) >= 2 else data.coldata.columns[0]
+            warnings.warn(
+                f"Could not find 'Condition' or 'Cell' in coldata — falling back to '{fallback_col}', which may be incorrect."
+            )
+            dds = DeseqDataSet(counts=slotmat, metadata=coldata, design_factors=fallback_col)
     dds.deseq2()
     dds.vst_fit()
     vst_array = dds.vst_transform()
@@ -541,7 +561,8 @@ def plot_heatmap(
         col_cluster=cluster_columns,
         yticklabels=label_genes,
         xticklabels=True,
-        cbar_kws={"label": label}
+        cbar_kws={"label": label},
+
     )
 
     if return_matrix:
@@ -586,13 +607,19 @@ def plot_pca(
     else:
         slotmat = mat.T
 
-    coldata["condition"] = coldata["Condition"] # TODO das muss noch anders geregelt werden. Wenn man nicht "Condition" im design angegeben hat, sondern Bsp: "Cell" dann geht nix
-
     if do_vst and str(mode_slot).lower() == "count":
-        coldata = coldata
-        coldata["condition"] = coldata["Condition"]
+        try:
+            dds = DeseqDataSet(counts=slotmat, metadata=coldata, design_factors="Condition")
+        except Exception:
+            try:
+                dds = DeseqDataSet(counts=slotmat, metadata=coldata, design_factors="Cell")
+            except Exception:
+                fallback_col = data.coldata.columns[1] if len(data.coldata.columns) >= 2 else data.coldata.columns[0]
+                warnings.warn(
+                    f"[GrandPy PCA] Could not find 'Condition' or 'Cell' in coldata — falling back to '{fallback_col}', which may be incorrect."
+                )
+                dds = DeseqDataSet(counts=slotmat, metadata=coldata, design_factors=fallback_col)
 
-        dds = DeseqDataSet(counts=slotmat, metadata=coldata, design_factors="condition")
         dds.deseq2()
         dds.vst_fit()
         vst_array = dds.vst_transform()
@@ -1095,8 +1122,33 @@ def plot_gene_groups_bars(
 
     plot_df["xlab"] = xlabels
 
-    if transform is not None: #TODO Was soll das machen? In R: if (!is.null(transform)) df=transform(df)
-        plot_df = transform(plot_df)
+    if isinstance(transform, str):
+        mat = plot_df["new", "old"]
+        transform = transform.lower()
+        if transform == "z":
+            mat = _transform_z(mat)
+            label = "z score"
+        elif transform in ["no", "none"]:
+            mat = _transform_no(mat)
+            label = " "
+        elif transform == "vst":
+            df_vst = _transform_vst(data, selected_columns, mode_slot=mode_slot, genes=genes)
+
+            if genes is not None:
+                df_vst = df_vst[genes]
+            sample_names = df_vst.index.to_list()
+            gene_names = df_vst.columns.to_list()
+            mat = df_vst.to_numpy()
+            mat = mat.T
+            label = "VST"
+        elif transform == "logfc":
+            if selected_columns is None or len(selected_columns) == 0:
+                raise ValueError("Need columns=... to compute logFC reference")
+            ref_cols = list(range(len(selected_columns)))
+            mat = _transform_logfc(mat, ref_columns=ref_cols)
+            label = "log2 FC"
+        else:
+            raise ValueError(f"Unknown transform: {transform}")
 
     x = np.arange(len(plot_df))
     width = 0.8
