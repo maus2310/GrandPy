@@ -1,15 +1,20 @@
 import tempfile
 import urllib.request
 import shutil
+import gzip
+import re
+import warnings
+from typing import Any, TYPE_CHECKING
+import numpy as np
 import pandas as pd
-from scipy import sparse
+import anndata as ad
+import scipy.sparse as sp
 
 from pathlib import Path
-import gzip
 from scipy.io import mmread
 
-from Py.grandPy import *
 from Py.utils import _to_sparse, _make_unique
+from Py.grandPy import GrandPy
 
 
 # Predefined design variable names for harmonized analysis (mirrors R's Design list)
@@ -870,11 +875,11 @@ def get_table_qc(grand, slot="count"):
     pd.DataFrame with QC-metrics + coldata-columns
     """
 
-    if slot not in grand._adata.layers:
+    if not grand._check_slot(slot):
         raise ValueError(f"Slot '{slot}' not found in grand._adata.layers.")
 
     mat = grand._adata.layers[slot]
-    if sparse.issparse(mat):
+    if sp.issparse(mat):
         mat = mat.toarray()
 
     gene_info = grand.gene_info
