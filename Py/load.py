@@ -36,7 +36,7 @@ SEMANTICS = {
 }
 
 
-def infer_suffixes_from_df(df, known_suffixes=None) -> dict:
+def infer_suffixes_from_df(df, known_suffixes=None, estimator=None) -> dict:
     """
     Automatically tries to recognize slots (count, ntr, alpha, beta, ...) and their suffixes from column names.
 
@@ -55,6 +55,16 @@ def infer_suffixes_from_df(df, known_suffixes=None) -> dict:
     """
 
     if known_suffixes is None:
+        if estimator:
+            suffix_map = {
+                "ntr": f" {estimator} NTR",
+                "alpha": f" {estimator} alpha",
+                "beta": f" {estimator} beta",
+                "shape": f" {estimator} shape"
+            }
+        else:
+            suffix_map = {}
+
         known_suffixes = {
             "count": [" Readcount", " Read count", "Readcount", "Read count"],
             "ntr": [" MAP", " NTR MAP", " Binom NTR MAP", " TbBinom NTR MAP", " TbBinomShape NTR MAP"],
@@ -72,13 +82,6 @@ def infer_suffixes_from_df(df, known_suffixes=None) -> dict:
             if matching:
                 result[slot] = suffix
                 break
-
-    # Regex für count statt known_suffix-Liste:
-    # if "count" not in result:
-    #     for col in df.columns:
-    #         if re.search(r"(?:\s|^)?Read\s?count$", col, re.IGNORECASE):
-    #             result["count"] = " Readcount"
-    #             break
 
     return result
 
@@ -164,19 +167,6 @@ def parse_slots(df, suffixes, sparse, *, strict=True):
         if sample_names is None:
             sample_names = sample_names_this_slot
 
-    # all_sample_names = [s for sample_list in slot_sample_names.values() for s in sample_list]
-    # duplicates = [name for name, count in Counter(all_sample_names).items() if count > 1]
-
-    # if duplicates:
-    #     message = f"Duplicate sample names across slots detected: {duplicates}"
-    #     if strict:
-    #         raise ValueError(message)
-    #     else:
-    #         warnings.warn(message)
-
-    # R erlaubt identische Sample-Namen in mehreren Slots – das ist normal.
-    # Daher keine globale Duplikat-Warnung notwendig.
-    # Wenn überhaupt, dann sollte man pro Slot prüfen, ob Duplikate intern vorliegen (optional).
     pass
 
     return slots, sample_names, slot_sample_names
@@ -270,8 +260,6 @@ def build_coldata(names, design=None):
 
     if design is None:
         raise ValueError("Design must be specified.")
-        # predefined = list(DESIGN_KEYS.values())
-        # design = tuple(predefined[i] if i < len(predefined) else f"Design_{i+1}" for i in range(max_fields))
     elif len(design) < max_fields:
         design += tuple(f"Extra_{i+1}" for i in range(max_fields - len(design)))
 
@@ -293,12 +281,6 @@ def build_coldata(names, design=None):
         coldata["no4sU"] = coldata[no4su_col].isin(["no4sU", "nos4U", "-"])
     else:
         coldata["no4sU"] = False
-
-    # if "Time" in coldata.columns:
-    #     coldata["no4sU"] = coldata["Time"].isin(["no4sU", "nos4U", "-"])
-    #     coldata["Time_hr"] = coldata["Time"].map(parse_time_string)
-    # else:
-    #     coldata["no4sU"] = False
 
     coldata = coldata[["Name"] + [c for c in coldata.columns if c != "Name"]]
     return apply_design_semantics(coldata)
@@ -354,7 +336,6 @@ def pad_slots(slots, sparse, coldata, slot_sample_names) -> dict:
                 else:
                     col = col.ravel()
             else:
-                warn_key = (slot_name, sample)
                 # Sample fehlt im Slot - hier muss dann 'gepadded' werden
                 is_no4su = False
                 if "no4sU" in coldata.columns:
@@ -557,7 +538,7 @@ def is_sparse_file(path) -> bool:
 
     return has_matrix and has_barcodes and has_features
 
-def read_dense(file_path, default_slot="count", design=None, *, classification_genes=None, classification_genes_label="Viral", classify_genes_func=None):
+def read_dense(file_path, default_slot="count", design=None, *, classification_genes=None, classification_genes_label="Viral", classify_genes_func=None, estimator=None):
     """
     Reads a GRAND-SLAM TSV file as dense (NumPy) matrices and returns a GrandPy object.
 
@@ -581,6 +562,9 @@ def read_dense(file_path, default_slot="count", design=None, *, classification_g
     classify_genes_func : callable, optional
         Custom function to classify gene types. Overrides `classification_genes`.
 
+    estimator : str, optional
+        Is responsible for which value (e.g. MAP, Mean, TbBinom, ...) is used for NTR, alpha, beta, etc.
+
     Returns
     -------
     GrandPy
@@ -589,10 +573,10 @@ def read_dense(file_path, default_slot="count", design=None, *, classification_g
 
     return _read(file_path, sparse=False, default_slot=default_slot, design=design,
                  classification_genes=classification_genes, classification_genes_label=classification_genes_label,
-                 classify_genes_func=classify_genes_func)
+                 classify_genes_func=classify_genes_func, estimator=estimator)
 
 
-def read_sparse(folder_path, default_slot="count", design=None, classification_genes=None, classification_genes_label="Viral", classify_genes_func=None, pseudobulk=None, targets=None):
+def read_sparse(folder_path, default_slot="count", design=None, classification_genes=None, classification_genes_label="Viral", classify_genes_func=None, pseudobulk=None, targets=None, estimator=None):
     """
     Reads a GRAND-SLAM sparse dataset from a directory.
 
@@ -627,7 +611,7 @@ def read_sparse(folder_path, default_slot="count", design=None, classification_g
     return _read(Path(folder_path), sparse=True, default_slot=default_slot, design=design,
                  classification_genes=classification_genes, classification_genes_label=classification_genes_label,
                  classify_genes_func=classify_genes_func,
-                 pseudobulk=pseudobulk, targets=targets)
+                 pseudobulk=pseudobulk, targets=targets, estimator=estimator)
 
 def read_grand(prefix, pseudobulk=None, targets=None, **kwargs):
     """
@@ -685,8 +669,6 @@ def read_grand(prefix, pseudobulk=None, targets=None, **kwargs):
     except Exception as e:
         print(f"Unexpected error: {e}")
 
-    return None
-
 
 def find_existing_file(path: Path, base_name: str, extensions=(".gz", "", ".tsv", ".tsv.gz")):
     """
@@ -702,7 +684,7 @@ def find_existing_file(path: Path, base_name: str, extensions=(".gz", "", ".tsv"
 
 def _read(file_path, sparse, default_slot, design,
           classification_genes, classification_genes_label,
-          classify_genes_func=None, pseudobulk=None, targets=None):
+          classify_genes_func=None, pseudobulk=None, targets=None, estimator=None):
     """
     Reads GRAND-SLAM TSV or Matrix Market file and creates a GrandPy object.
 
@@ -811,7 +793,7 @@ def _read(file_path, sparse, default_slot, design,
         df = pd.read_csv(file_path, sep="\t", compression="infer")
         prefix = Path(file_path).stem
 
-        slot_suffixes = infer_suffixes_from_df(df)
+        slot_suffixes = infer_suffixes_from_df(df, estimator=estimator)
         slots, sample_names, slot_sample_names = parse_slots(df, slot_suffixes, sparse, strict=False)
         # strict=False, obwohl default=True ist, denn sonst wird ein Fehler geworfen, dass Duplicates bei dem sample names existieren - dies ist bei sars_R gerade der Fall
 
@@ -908,16 +890,16 @@ def get_table_qc(grand, slot="count"):
 
 # grand_obj = read_grand("https://zenodo.org/record/5834034/files/sars.tsv.gz", design=("Condition", "Time", "Replicate"))
 # print(grand_obj)
-
+#
 # sars = read_grand("data/sars_R.tsv", design=("Condition", "Time", "Replicate"))
 # print(sars) # funktioniert
-
+#
 # sparse_data = read_grand("test-datasets/test_sparse.targets", design=("Time", "Replicate"))
 # print(sparse_data) # funktioniert
-
+#
 # grand_sparse = read_grand("test-datasets/test_sc_sparse.targets", design=("Condition", "Time", "Replicate"))
 # print(sparse)
-
+#
 # sc_dense = read_grand("test-datasets/test_sc_dense.targets", design=("Time", "Replicate"))
 # print(sc_dense)
 
