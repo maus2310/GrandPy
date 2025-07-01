@@ -282,7 +282,7 @@ def build_coldata(names, design=None):
     coldata["Name"] = coldata.index
 
     for col in coldata.columns:
-        if col.lower() in {"time", "duration.rsu"}:
+        if any(key in col.lower() for key in ["time", "duration", "dur.4sU", "duration.4sU"]):
             coldata[f"{col}.original"] = coldata[col]
             coldata[col] = coldata[col].map(parse_time_string)
 
@@ -293,12 +293,6 @@ def build_coldata(names, design=None):
         coldata["no4sU"] = coldata[no4su_col].isin(["no4sU", "nos4U", "-"])
     else:
         coldata["no4sU"] = False
-
-    # if "Time" in coldata.columns:
-    #     coldata["no4sU"] = coldata["Time"].isin(["no4sU", "nos4U", "-"])
-    #     coldata["Time_hr"] = coldata["Time"].map(parse_time_string)
-    # else:
-    #     coldata["no4sU"] = False
 
     coldata = coldata[["Name"] + [c for c in coldata.columns if c != "Name"]]
     return apply_design_semantics(coldata)
