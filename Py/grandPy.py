@@ -13,6 +13,7 @@ from Py.plot_tool import PlotTool, Plot
 from Py.analysis_tool import AnalysisTool
 from Py.diffexp import get_summary_matrix
 from Py.processing import filter_genes
+from Py.modeling import fit_kinetics
 from Py.utils import _ensure_list, _make_unique, _reindex_by_index_name, _subset_dense_or_sparse
 
 
@@ -749,7 +750,6 @@ class GrandPy:
         GrandPy.plot_global
             Executes a stored global plot function.
         """
-        print(self._adata.uns["plots"]["gene"][name])
         return self._adata.uns["plots"]["gene"][name](self, gene)
 
     def plot_global(self, name: str):
@@ -876,14 +876,11 @@ class GrandPy:
         list[int]
             A list containing the specified indices.
         """
-        gene_info = self._adata.obs
+        gene_info = self.gene_info
         n = len(gene_info)
 
         if genes is None:
             return list(range(n))
-
-        if "Gene" not in gene_info or "Symbol" not in gene_info:
-            raise ValueError("gene_info must contain 'Gene' and 'Symbol' columns.")
 
         gene_col = gene_info["Gene"].astype(str)
         symbol_col = gene_info["Symbol"].astype(str)
@@ -893,6 +890,12 @@ class GrandPy:
         if any(pd.isna(genes)):
             warnings.warn("NaN values removed from gene input.")
             genes = [g for g in genes if pd.notna(g)]
+
+        # Regex matching (only works with str input)
+        if regex:
+            pattern = genes[0]
+            mask = gene_col.str.contains(pattern, regex=True) | symbol_col.str.contains(pattern, regex=True)
+            return list(np.flatnonzero(mask))
 
         # Boolean mask
         if all(isinstance(g, (bool, np.bool_)) for g in genes):
@@ -905,12 +908,6 @@ class GrandPy:
             if not all(0 <= g < n for g in genes):
                 raise IndexError("One or more gene indices out of bounds.")
             return genes
-
-        # Regex matching (only works with str input)
-        if regex:
-            pattern = genes[0] if isinstance(genes, list) else genes
-            mask = gene_col.str.contains(pattern, regex=True) | symbol_col.str.contains(pattern, regex=True)
-            return list(np.flatnonzero(mask))
 
         # Matching by Gene/Symbol string
         genes_str = pd.Series(genes, dtype=str)
@@ -970,11 +967,11 @@ class GrandPy:
         """
         return self.gene_info["Symbol"].tolist()
 
-    def get_genes(self, genes: Union[str, int, Sequence[Union[str, int, bool]]] = None, *, use_gene_symbols: bool = True, regex: bool = False) -> list[str]:
+    def get_genes(self, genes: Union[str, int, Sequence[Union[str, int, bool]]] = None, *, get_gene_symbols: bool = True, regex: bool = False) -> list[str]:
         """
         Get gene names or symbols.
 
-        Either by their index, their name, a boolean mask, or a regex.
+        Either by their index, their symbol, their ensamble id, a boolean mask, or a regex.
 
         If no genes are specified, all genes are returned.
 
@@ -982,7 +979,7 @@ class GrandPy:
         ----------
         genes: str or int or Sequence[str or int or bool], optional
             Genes to be retrieved.
-        use_gene_symbols: bool, default True
+        get_gene_symbols: bool, default True
             If True, gene symbols will be returned. Otherwise, gene names will be returned.
         regex: bool, default False
             If True, `genes` will be interpreted as a regular expression.
@@ -1000,7 +997,7 @@ class GrandPy:
         GrandPy.get_index
             Get the index of gene names/symbols.
         """
-        if use_gene_symbols:
+        if get_gene_symbols:
             if genes is None:
                 return self.genes
 
@@ -1120,7 +1117,6 @@ class GrandPy:
 
             classes = set(result.dtypes)
             if len(classes) != 1:
-                print(result, classes)
                 raise ValueError("Output contains mixed data types (logical and numeric).")
 
             dtype = list(classes)[0]
@@ -1184,6 +1180,7 @@ class GrandPy:
         """
         return self.coldata['Condition'].tolist()
 
+    # TODO: with_condition fixen für den Fall, das Condition anders heißt
     def with_condition(self, value: Union[str, Sequence[str], pd.Series, Mapping]) -> "GrandPy":
         """
         Set new values for all samples/cells in the coldata.
@@ -1228,7 +1225,7 @@ class GrandPy:
 
         These names are used as the column names of the data slots and the row names of the coldata.
         """
-        return self.coldata["Name"].tolist()
+        return self.coldata.index.tolist()
 
     def get_columns(self, columns: Union[str, int, Sequence[Union[str, int, bool]]] = None, *, reorder: bool = False) -> list[str]:
         """
@@ -1560,6 +1557,7 @@ class GrandPy:
             *,
             with_coldata: bool = True,
             name_genes_by: str = "Symbol",
+            by_rows: bool = False,
             ntr_nan: bool = False
     ) -> pd.DataFrame:
         """
@@ -1583,6 +1581,10 @@ class GrandPy:
 
         name_genes_by: str, default "Symbol"
             A column in the gene_info DataFrame to be used as the name of the genes.
+
+        by_rows: bool, default False
+            If True, add rows if there are multiple genes or mode_slots.
+            Otehrwise, add columns
 
         ntr_nan: bool, default False
             If True, ntr values for no4sU will be set to NaN.
@@ -1620,25 +1622,46 @@ class GrandPy:
 
         result_df = pd.DataFrame()
 
-        for slot_name in mode_slots:
-            all_data = self._resolve_mode_slot(slot_name, ntr_nan=ntr_nan).T
+        if not by_rows:
+            for slot_name in mode_slots:
+                all_data = self._resolve_mode_slot(slot_name, ntr_nan=ntr_nan).T
+                data_subset = _subset_dense_or_sparse(all_data, row_indices, column_indices)
 
-            data_subset = _subset_dense_or_sparse(all_data, row_indices, column_indices)
+                if len(mode_slots) > 1:
+                    local_column_names = [f"{name}_{slot_name}" for name in column_names]
+                else:
+                    local_column_names = column_names
 
-            if len(mode_slots) > 1:
-                local_column_names = [name + "_" + slot_name.__str__() for name in column_names]
-            else:
-                local_column_names = column_names
+                processed_data = pd.DataFrame(data_subset, index=row_names, columns=local_column_names)
+                result_df = pd.concat([result_df, processed_data], axis=1)
 
-            processed_data = pd.DataFrame(data_subset, index=row_names, columns=local_column_names)
+            if with_coldata:
+                result_df = pd.concat([coldata.iloc[row_indices], result_df], axis=1)
 
-            result_df = pd.concat([result_df, processed_data], axis=1)
+            return result_df
 
+        else:
+            for slot_name in mode_slots:
+                all_data = self._resolve_mode_slot(slot_name, ntr_nan=ntr_nan).T
+                data_subset = _subset_dense_or_sparse(all_data, row_indices, column_indices)
 
-        if with_coldata:
-            result_df = pd.concat([coldata.iloc[row_indices], result_df], axis=1)
+                df = pd.DataFrame(data_subset, index=row_names, columns=column_names)
+                df = df.reset_index().melt(id_vars="index", var_name=name_genes_by, value_name="Value")
+                df["Slot"] = slot_name
+                df.rename(columns={"index": "Name"}, inplace=True)
 
-        return result_df
+                result_df = pd.concat([result_df, df], axis=1)
+
+            if with_coldata:
+                result_df = coldata.reset_index().merge(
+                    result_df,
+                    on="Name",
+                    how="left"
+                )
+
+            result_df = result_df.set_index(["Name"])
+
+            return result_df
 
     def get_table(
             self,
@@ -2093,6 +2116,8 @@ class GrandPy:
 
         return _compute_steady_state_half_lives(self, time, name=name ,columns=columns, max_hl=max_hl, ci_size=ci_size, compute_ci=compute_ci, as_analysis=as_analysis)
 
+    #o1 = dense[:,dense.coldata["Condition"] == "Mock"]
+    # o2 = dense[:,dense.coldata["Condition"] == "SARS"]
     def split(self, by: str = "Condition", verbose: bool = True) -> list:
         """
         Split the GrandPy object into a list of GrandPy objects based on a column in coldata.
@@ -2128,35 +2153,79 @@ class GrandPy:
 
         return result
 
-    @staticmethod
-    def merge(grandpy_objects: list) -> "GrandPy":
-        """
-        Merge a list of GrandPy objects into a single object (concat by columns).
 
-        Parameters
-        ----------
-        grandpy-objects : list[GrandPy]
+# TODO: merge doc string schreiben
+def merge(
+        objects: Union["GrandPy", Sequence["GrandPy"]],
+        *,
+        axis: Literal["gene_info", 0, "coldata", 1] = 1,
+        join: Literal["inner", "outer"] = "inner",
+        merge: Union[Literal["same", "unique", "first", "only"], Callable] = "unique",
+) -> "GrandPy":
+    """
+    Concatenates the other object with the current instance along a given axis.
 
-        Returns
-        -------
-        GrandPy
-            Merged GrandPy object.
-        """
-        if not grandpy_objects:
-            raise ValueError("No GrandPy objects provided to merge.")
+    Merges metadata and plots using 'unique'.
 
-        adatas = [obj._adata for obj in grandpy_objects]
-        merged_adata = ad.concat(adatas, axis=1, join="outer", merge="same")
+    Analyses will be merged, if their names are identical. Otherwise, they are dropped.
 
-        ref = grandpy_objects[0]
+    Parameters
+    ----------
+    other: GrandPy
+        The object to concatenate with the current instance.
 
-        return ref._dev_replace(
-            anndata=merged_adata,
-            prefix=ref._adata.uns.get("prefix", "Unknown"),
-            gene_info=merged_adata.obs,
-            coldata=merged_adata.var,
-            slots=merged_adata.layers,
-            metadata=ref._adata.uns.get("metadata", {}),
-            analyses=ref._adata.uns.get("analyses", {}),
-            plots=ref._adata.uns.get("plots", {})
-        )
+    axis: {"gene_info" or 0 or "coldata" or 1}, default 1
+        The axis along which to concatenate.
+
+    join: {"inner" or "outer"}, default "inner"
+        How to align values when concatenating. If "outer", the union of the other axis is taken. If "inner", the intersection.
+
+    merge: {"same" or "unique" or "first" or "only"} or Callable, default "unique"
+        How elements not aligned to the axis being concatenated along are selected.
+        Currently implemented strategies include:
+
+        * `None`: No elements are kept.
+        * `"same"`: Elements that are the same in each of the objects.
+        * `"unique"`: Elements for which there is only one possible value.
+        * `"first"`: The first element seen at each from each position.
+        * `"only"`: Elements that show up in only one of the objects.
+
+    Returns
+    -------
+    GrandPy
+        A new concatenated GrandPy object.
+    """
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="(Observation|Variable) names are not unique.*",
+                                category=UserWarning, module="anndata")
+
+        if axis == 0 or axis == "gene_info":
+            axis = "var"
+            analysis_axis = 0
+        elif axis == 1 or axis == "coldata":
+            axis = "obs"
+            analysis_axis = 1
+        else:
+            raise ValueError(f"axis must be either 0, 'gene_info' or 1, 'coldata' not {axis}.")
+
+        adatas = [obj._adata for obj in objects]
+
+        new_adata = ad.concat(adatas, axis=axis, join=join, merge=merge, uns_merge="unique")
+
+    analysis_dicts = [obj._adata.uns.get("analyses", {}) for obj in objects]
+    all_analysis_keys = set().union(*[d.keys() for d in analysis_dicts])
+
+    merged_analyses = {}
+    for key in all_analysis_keys:
+        dfs = [d[key] for d in analysis_dicts if key in d]
+        try:
+            merged_df = pd.concat(dfs, axis=analysis_axis, join=join)
+            merged_analyses[key] = merged_df
+        except Exception as e:
+            continue
+
+    new_adata.uns["analyses"] = merged_analyses
+
+
+    return GrandPy(prefix=new_adata.uns.get("prefix"), gene_info=new_adata.obs, coldata=new_adata.var,
+                   slots=new_adata.layers, metadata=new_adata.uns.get("metadata"), plots=new_adata.uns.get("plots"))

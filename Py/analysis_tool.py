@@ -4,7 +4,8 @@ from typing import Union, Sequence
 import anndata as ad
 import numpy as np
 import pandas as pd
-from Py.utils import _ensure_list, _make_unique
+
+from Py.utils import _ensure_list, _make_unique, _reindex_by_index_name
 
 
 class AnalysisTool:
@@ -70,14 +71,10 @@ class AnalysisTool:
             warnings.warn(f"An analyses named {name} already exists! It will be overwritten.")
 
         if by is not None:
-            table = table.set_index(by)
-            table.index.name = None
+            table = table.set_index(by, drop=False, verify_integrity=False)
 
-        if re.search("^ENS", table.index[0]) is not None:
-            table = table.reindex(self._adata.obs["Gene"])
-        else:
-            table.index = _make_unique(pd.Series(table.index), warn=False)
-            table = table.reindex(self._adata.obs.index)
+        table.index = _make_unique(pd.Series(table.index), warn=False)
+        table = _reindex_by_index_name(table, self._adata.obs)
 
         new_analyses[name] = table
 
