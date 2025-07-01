@@ -1,10 +1,83 @@
 import warnings
-from typing import Union, Iterable, Mapping, Callable
+from typing import Union, Iterable, Mapping, Callable, Literal, Sequence
 import numpy as np
 import pandas as pd
+import anndata as ad
 import scipy.sparse as sp
 
-# General Utility functions
+# General public utility functions
+def concat(
+        objects: Sequence["GrandPy"],
+        *,
+        axis: Literal["gene_info", 0, "coldata", 1] = 1,
+        join: Literal["inner", "outer"] = "inner",
+        merge: Union[Literal["same", "unique", "first", "only"], Callable] = "unique",
+) -> "GrandPy":
+    """
+    Concatenates all given objects along a given axis. Uses `unique` for metadata and plots.
+
+    Analyses will be concatenated, if their names are identical. Otherwise, they are dropped.
+
+    Parameters
+    ----------
+    objects : Sequence[GrandPy]
+        The GrandPy objects to be concatenated.
+
+    axis: {"gene_info" or 0 or "coldata" or 1}, default 1
+        The axis along which to concatenate.
+
+    join: {"inner" or "outer"}, default "inner"
+        How to align values when concatenating. If "outer", the union of the other axis is taken. If "inner", the intersection.
+
+    merge: {"same" or "unique" or "first" or "only"} or Callable, default "unique"
+        How elements not aligned to the axis being concatenated along are selected.
+        Currently implemented strategies include:
+
+        * `None`: No elements are kept.
+        * `"same"`: Elements that are the same in each of the objects.
+        * `"unique"`: Elements for which there is only one possible value.
+        * `"first"`: The first element seen at each from each position.
+        * `"only"`: Elements that show up in only one of the objects.
+
+    Returns
+    -------
+    GrandPy
+        A new concatenated GrandPy object.
+    """
+    from collections import Counter
+
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="(Observation|Variable) names are not unique.*",
+                                category=UserWarning, module="anndata")
+
+        if axis == 0 or axis == "gene_info":
+            axis = "var"
+            analysis_axis = 1
+        elif axis == 1 or axis == "coldata":
+            axis = "obs"
+            analysis_axis = 0
+        else:
+            raise ValueError(f"axis must be either 0, 'gene_info' or 1, 'coldata' not {axis}.")
+
+        adatas = [obj._adata for obj in objects]
+        new_adata = ad.concat(adatas, axis=axis, join=join, merge=merge, uns_merge="unique")
+
+    merged_analyses = {}
+
+    if all(obj.analyses is not None for obj in objects):
+        analyses = [a for obj in objects for a in obj.analyses]
+        duplikates = [item for item, count in Counter(analyses).items() if count > 1]
+
+        for duplikate in duplikates:
+            dfs = [obj.get_analysis_table(duplikate, with_gene_info=False) for obj in objects]
+            merged_df = pd.concat(dfs, axis=analysis_axis, join=join)
+            merged_analyses[duplikate] = merged_df
+
+    new_adata.uns["analyses"] = merged_analyses
+
+    return objects[0]._dev_replace(anndata=new_adata)
+
+# General private utility functions
 def _to_sparse(matrix: Union[pd.DataFrame, np.ndarray, sp.csr_matrix]) -> sp.csr_matrix:
     """
     Convert the given matrix to a csr_matrix.
@@ -141,7 +214,7 @@ def _ensure_list(obj):
 
 
 # modeling helper function
-def extract_fit_series(
+def _extract_fit_series(
         fit_result: Union[dict, Mapping[str, dict]],
         condition: str,
         name_prefix: str,
