@@ -4,10 +4,10 @@ import shutil
 import gzip
 import re
 import warnings
-from typing import Any, TYPE_CHECKING
+from typing import Any
+
 import numpy as np
 import pandas as pd
-import anndata as ad
 import scipy.sparse as sp
 
 from pathlib import Path
@@ -41,7 +41,7 @@ SEMANTICS = {
 }
 
 
-def infer_suffixes_from_df(df, known_suffixes=None, estimator=None) -> dict:
+def infer_suffixes_from_df(df, known_suffixes=None, estimator=None, sparse=False) -> dict:
     """
     Automatically tries to recognize slots (count, ntr, alpha, beta, ...) and their suffixes from column names.
 
@@ -53,32 +53,43 @@ def infer_suffixes_from_df(df, known_suffixes=None, estimator=None) -> dict:
     known_suffixes : dict[str, list[str]]
         Optional: known suffix suggestions for known slots (e.g. taken from grandR)
 
+    estimator : str, optional
+        If specified, will restrict slot recognition to suffixes associated with this estimator
+        (e.g. "MAP" -> " MAP NTR", " MAP alpha", etc.)
+
+    sparse : bool, default=False
+        If True, only estimator-based slots (ntr, alpha, beta, shape) will be considered
+
     Returns
     -------
     dict[str, str]
         Slot names with recognized (single) suffix
     """
-
     if known_suffixes is None:
         if estimator:
             suffix_map = {
-                "ntr": f" {estimator} NTR",
-                "alpha": f" {estimator} alpha",
-                "beta": f" {estimator} beta",
-                "shape": f" {estimator} shape"
+                "ntr":   [f" {estimator} NTR"],
+                "alpha": [f" {estimator} alpha"],
+                "beta":  [f" {estimator} beta"],
+                "shape": [f" {estimator} shape"]
             }
         else:
-            suffix_map = {}
+            suffix_map = {
+                "ntr":   [" MAP", " NTR MAP", " Binom NTR MAP", " TbBinom NTR MAP", " TbBinomShape NTR MAP"],
+                "alpha": [" alpha", " Binom alpha", " TbBinom alpha", " TbBinomShape alpha"],
+                "beta":  [" beta", " Binom beta", " TbBinom beta", " TbBinomShape beta"],
+                "shape": [" shape"]
+            }
 
-        known_suffixes = {
-            "count": [" Readcount", " Read count", "Readcount", "Read count"],
-            "ntr": [" MAP", " NTR MAP", " Binom NTR MAP", " TbBinom NTR MAP", " TbBinomShape NTR MAP"],
-            "alpha": [" alpha", " Binom alpha", " TbBinom alpha", " TbBinomShape alpha"],
-            "beta": [" beta", " Binom beta", " TbBinom beta", " TbBinomShape beta"],
-            "shape": [" shape"],
-            "ll": [" ll"],
-            "llr": [" llr"]
-        }
+        if not sparse:
+            # Only add these slots for dense input
+            suffix_map.update({
+                "count": [" Readcount", " Read count", "Readcount", "Read count"],
+                "ll": [" ll"],
+                "llr": [" llr"]
+            })
+
+        known_suffixes = suffix_map
 
     result = {}
     for slot, suffix_list in known_suffixes.items():
@@ -122,7 +133,7 @@ def remove_suffixes(name, suffixes):
         return name  # no suffix matched
 
 
-def parse_slots(df, suffixes, sparse, *, strict=True):
+def parse_slots(df, suffixes, sparse):
     """
     Extracts expression matrices from the input DataFrame based on known slot suffixes.
 
@@ -137,17 +148,14 @@ def parse_slots(df, suffixes, sparse, *, strict=True):
     sparse : bool
         Whether to return the matrices in sparse format.
 
-    strict : bool, default=True
-        If True, raises an error if **the same sample appears in multiple slots (e.g., 'count', 'alpha')**.
-        This is usually expected behavior in GRAND-SLAM, so 'strict=False' is recommended.
-
     Returns
     -------
-    tuple
-        A tuple containing:
-        - dict[str, np.ndarray or sp.csr_matrix]: data matrices per slot,
-        - list[str]: inferred sample names common across slots,
-        - dict[str, list[str]]: slot-specific sample names
+    slots : dict[str, ndarray | csr_matrix]
+        Expression matrices keyed by slot.
+    sample_names : list[str]
+        Unique sample names present in **at least one** slot.
+    slot_sample_names : dict[str, list[str]]
+        Per-slot sample names (before padding).
     """
 
     slots = {}
@@ -171,8 +179,6 @@ def parse_slots(df, suffixes, sparse, *, strict=True):
 
         if sample_names is None:
             sample_names = sample_names_this_slot
-
-    pass
 
     return slots, sample_names, slot_sample_names
 
@@ -321,7 +327,6 @@ def pad_slots(slots, sparse, coldata, slot_sample_names) -> dict:
 
     # Liste aller erwarteten Samples aus coldata:
     all_samples = coldata["Name"].tolist()
-    warned_once = set()
 
     for slot_name, matrix in slots.items():
         # Liste der Samples, die im aktuellen Slot tatsächlich vorhanden sind
@@ -342,7 +347,6 @@ def pad_slots(slots, sparse, coldata, slot_sample_names) -> dict:
                     col = col.ravel()
             else:
                 # Sample fehlt im Slot - hier muss dann 'gepadded' werden
-                is_no4su = False
                 if "no4sU" in coldata.columns:
                     try:
                         is_no4su = bool(coldata.loc[sample, "no4sU"])
@@ -452,7 +456,7 @@ def classify_genes(gene_info: pd.DataFrame,
     return gene_type.astype("category")
 
 
-def resolve_prefix_path(prefix, pseudobulk=None, targets=None):
+def resolve_prefix_path(prefix, pseudobulk=None, targets=None) -> Path:
     """
     Resolves the actual data file path based on GRAND-SLAM prefix and optional parameters.
 
@@ -471,6 +475,18 @@ def resolve_prefix_path(prefix, pseudobulk=None, targets=None):
         Resolved Path to the 'data.tsv.gz' file.
     """
     base = Path(prefix)
+
+    if base.is_file():
+        return base
+
+    nested_dir = base / "data.tsv"
+    if nested_dir.is_dir():
+        inner = nested_dir / "data.tsv"
+        if inner.exists():
+            return inner
+        inner_gz = nested_dir / "data.tsv.gz"
+        if inner_gz.exists():
+            return inner_gz
 
     # <prefix>.pseudobulk.<targets>.<pseudobulk>
     if pseudobulk and targets:
@@ -498,14 +514,13 @@ def resolve_prefix_path(prefix, pseudobulk=None, targets=None):
                 if path.exists():
                     return path
 
-    # <prefix>/data.tsv.gz
-    path = base / "data.tsv.gz"
-    if path.exists():
-        return path
-
-    # direct file path
-    if base.is_file() and base.name.endswith((".tsv", ".tsv.gz")):
-        return base
+    # <prefix>/data.tsv.gz or *tsv(.gz)-file
+    direct_dense = base / "data.tsv"
+    if direct_dense.exists():
+        return direct_dense
+    direct_dense_gz = base / "data.tsv.gz"
+    if direct_dense_gz.exists():
+        return direct_dense_gz
 
     raise FileNotFoundError(
         f"No valid 'data.tsv.gz' found.\n"
@@ -543,7 +558,7 @@ def is_sparse_file(path) -> bool:
 
     return has_matrix and has_barcodes and has_features
 
-def read_dense(file_path, default_slot="count", design=None, *, classification_genes=None, classification_genes_label="Viral", classify_genes_func=None, estimator=None):
+def read_dense(file_path, default_slot="count", design=None, *, classification_genes=None, classification_genes_label="Unknown", classify_genes_func=None, estimator=None):
     """
     Reads a GRAND-SLAM TSV file as dense (NumPy) matrices and returns a GrandPy object.
 
@@ -561,7 +576,7 @@ def read_dense(file_path, default_slot="count", design=None, *, classification_g
     classification_genes : list[str], optional
         List of gene symbols considered viral, to be assigned a custom type.
 
-    classification_genes_label : str, default="Viral"
+    classification_genes_label : str, default="Unknown"
         Type label to assign to the genes listed in `classification_genes`.
 
     classify_genes_func : callable, optional
@@ -581,7 +596,7 @@ def read_dense(file_path, default_slot="count", design=None, *, classification_g
                  classify_genes_func=classify_genes_func, estimator=estimator)
 
 
-def read_sparse(folder_path, default_slot="count", design=None, classification_genes=None, classification_genes_label="Viral", classify_genes_func=None, pseudobulk=None, targets=None, estimator=None): # TODO nicht "viral" bei classify genes
+def read_sparse(folder_path, default_slot="count", design=None, classification_genes=None, classification_genes_label="Unknown", classify_genes_func=None, pseudobulk=None, targets=None, estimator=None): # TODO nicht "viral" bei classify genes
     """
     Reads a GRAND-SLAM sparse dataset from a directory.
 
@@ -599,14 +614,16 @@ def read_sparse(folder_path, default_slot="count", design=None, classification_g
     classification_genes : list[str], optional
         List of gene symbols considered viral, to be assigned a custom type.
 
-    classification_genes_label : str
-        The Default is set to "Viral".
+    classification_genes_label : str, default "Unknown"
+        Gene-type label applied to classification_genes.
 
     classify_genes_func : callable, optional
 
-    pseudobulk : callable, optional
+    pseudobulk : str, optional
+        Pseudobulk identifier used in folder naming (matches *grandR* convention).
 
-    targets : list[str], optional
+    targets : str, optional
+        Target identifier (e.g. viral genome) encoded in folder name.
 
     Returns
     -------
@@ -651,7 +668,9 @@ def read_grand(prefix, pseudobulk=None, targets=None, **kwargs):
                 with urllib.request.urlopen(prefix) as response, open(local_file, 'wb') as out_file:
                     shutil.copyfileobj(response, out_file)
 
-                return read_grand(local_file, pseudobulk=pseudobulk, targets=targets, **kwargs)
+                result = read_grand(local_file, pseudobulk=pseudobulk, targets=targets, **kwargs)
+                print(f"Temporary file {local_file.name} was deleted after loading.")
+                return result
 
         path = Path(prefix)
 
@@ -725,15 +744,21 @@ def _read(file_path, sparse, default_slot, design,
     if sparse:
         base = path
 
-        matrix_path = find_existing_file(base, "matrix.mtx", extensions=(".gz", ""))
-        features_path = find_existing_file(base, "features", extensions=(".tsv.gz", ".tsv", ""))
-        barcodes_path = find_existing_file(base, "barcodes", extensions=(".tsv.gz", ".tsv", ""))
+        matrix_path = find_existing_file(base, "matrix.mtx", (".gz", ""))
+        features_path = find_existing_file(base, "features", (".tsv.gz", ".tsv", ""))
+        barcodes_path = find_existing_file(base, "barcodes", (".tsv.gz", ".tsv", ""))
 
-        with open(matrix_path, "rt") if matrix_path.suffix != ".gz" else gzip.open(matrix_path, "rt") as file:
-            count_matrix = mmread(file).tocsr()
+        with open(matrix_path, "rt") if matrix_path.suffix != ".gz" else gzip.open(matrix_path, "rt") as f:
+            count_matrix = mmread(f).tocsr()
 
         features = pd.read_csv(features_path, sep="\t", header=None, compression="infer")
-        barcodes = pd.read_csv(barcodes_path, header=None, compression="infer")[0].tolist()
+        features.iloc[:, 0] = features.iloc[:, 0].astype(str)
+        features.iloc[:, 1] = features.iloc[:, 1].astype(str)
+        barcodes = (
+            pd.read_csv(barcodes_path, header=None, compression="infer")[0]
+            .astype(str)
+            .tolist()
+        )
 
         if features.shape[1] == 4:
             features["Length"] = 1
@@ -761,10 +786,16 @@ def _read(file_path, sparse, default_slot, design,
             filename = mtx_file.name
             basename = filename.replace(".mtx", "").replace(".gz", "")
 
+            # matrix.mtx = count
             if basename == "matrix":
-                slot = default_slot
+                slot = "count"
             else:
                 slot = basename.split(".")[-1].lower()
+
+            # estimator wird angegeben -> nur Slots laden, die diesen im Namen enthalten
+            if estimator and slot != "count":
+                if estimator.lower() not in basename.lower():
+                    continue
 
             try:
                 with open(mtx_file, "rt") if mtx_file.suffix != ".gz" else gzip.open(mtx_file, "rt") as file:
@@ -772,8 +803,16 @@ def _read(file_path, sparse, default_slot, design,
                 slots[slot] = mat
                 slot_sample_names[slot] = barcodes
             except Exception as e:
-                warnings.warn(f"Slot {slot}: Datei beschädigt – {filename} wird übersprungen ({e})")
+                warnings.warn(f"Slot {slot}: Corrupted File! – {filename} has been skipped ({e})")
                 continue
+
+        if not slots:
+            raise ValueError(f"No valid slots found in {base}.")
+
+        if default_slot not in slots:
+            fallback_slot = next(iter(slots))
+            warnings.warn(f"Default slot '{default_slot}' is missing – fallback to '{fallback_slot}'.")
+            default_slot = fallback_slot
 
         slots = pad_slots(slots, sparse=True, coldata=coldata, slot_sample_names=slot_sample_names)
 
@@ -798,9 +837,18 @@ def _read(file_path, sparse, default_slot, design,
         df = pd.read_csv(file_path, sep="\t", compression="infer")
         prefix = Path(file_path).stem
 
-        slot_suffixes = infer_suffixes_from_df(df, estimator=estimator)
-        slots, sample_names, slot_sample_names = parse_slots(df, slot_suffixes, sparse, strict=False)
-        # strict=False, obwohl default=True ist, denn sonst wird ein Fehler geworfen, dass Duplicates bei dem sample names existieren - dies ist bei sars_R gerade der Fall
+        slot_suffixes = infer_suffixes_from_df(df, estimator=estimator, sparse=False)
+        slots, sample_names, slot_sample_names = parse_slots(df, slot_suffixes, sparse)
+
+        if "count" in slot_sample_names:
+            sample_names = slot_sample_names["count"]
+        else:
+            from itertools import chain
+            seen = set()
+            sample_names = [
+                s for s in chain.from_iterable(slot_sample_names.values())
+                if not (s in seen or seen.add(s))
+            ]
 
         if default_slot not in slots:
             raise ValueError(
@@ -809,7 +857,14 @@ def _read(file_path, sparse, default_slot, design,
             )
 
         if "ntr" not in slots:
-            warnings.warn("Slot 'ntr' is missing.", UserWarning)
+            if "alpha" in slots and "beta" in slots:
+                with np.errstate(divide='ignore', invalid='ignore'):
+                    ntr = slots["alpha"] / (slots["alpha"] + slots["beta"])
+                if sparse:
+                    ntr = _to_sparse(ntr)
+                slots["ntr"] = ntr
+            else:
+                warnings.warn("Slot 'ntr' is missing.", UserWarning)
 
         if classify_genes_func is None:
             if classification_genes:
@@ -844,17 +899,19 @@ def get_table_qc(grand, slot="count"):
     """
     Returns a QC table per sample with detected genes, totals, statistics and optional percentages per gene type.
 
-    Parameter
-    ---------
+    Parameters
+    ----------
     grand : GrandPy-object
-        grandpy-object
+        A fully initialised GrandPy object.
 
-    slot : str
-        Slot (e.g. "count", "ntr", ...)
+    slot : str, default "count"
+        Data slot on which QC statistics are computed.
 
     Returns
     -------
-    pd.DataFrame with QC-metrics + coldata-columns
+    pandas.DataFrame
+        One row per sample with basic stats (detected genes, mean, ...) and
+        fractions per gene type; all columns from grand.coldata are appended.
     """
 
     if not grand._check_slot(slot):
@@ -891,22 +948,3 @@ def get_table_qc(grand, slot="count"):
     df = df.merge(coldata, on="Name", how="left")
 
     return df
-
-
-# grand_obj = read_grand("https://zenodo.org/record/5834034/files/sars.tsv.gz", design=("Condition", "Time", "Replicate"))
-# print(grand_obj)
-#
-# sars = read_grand("data/sars_R.tsv", design=("Condition", "Time", "Replicate"))
-# print(sars) # funktioniert
-#
-# sparse_data = read_grand("test-datasets/test_sparse.targets", design=("Time", "Replicate"))
-# print(sparse_data) # funktioniert
-#
-# grand_sparse = read_grand("test-datasets/test_sc_sparse.targets", design=("Condition", "Time", "Replicate"))
-# print(sparse)
-#
-# sc_dense = read_grand("test-datasets/test_sc_dense.targets", design=("Time", "Replicate"))
-# print(sc_dense)
-
-# qc = get_table_qc(grand_obj, slot="count")
-# print(qc.head())

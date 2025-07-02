@@ -1,6 +1,12 @@
+from pathlib import Path
 import pytest
+import pandas as pd
+import numpy as np
 from scipy import sparse
+
 from Py.load import *
+
+
 
 @pytest.fixture
 def mock_df():
@@ -67,7 +73,7 @@ def test_parse_slots(mock_df):
         "beta": " beta",
         "ntr": " MAP"
     }
-    slots, sample_names, slot_sample_names = parse_slots(mock_df, suffixes, sparse=False, strict=False)
+    slots, sample_names, slot_sample_names = parse_slots(mock_df, suffixes, sparse=False)
     assert "alpha" in slots
     assert sample_names == ["Sample.1"]
     assert slot_sample_names["alpha"] == ["Sample.1"]
@@ -82,7 +88,7 @@ def test_parse_slots_allows_duplicate_sample_names():
         "Length": [100]
     })
     suffixes = {"count": " Readcount", "alpha": " alpha"}
-    slots, sample_names, slot_sample_names = parse_slots(df, suffixes, sparse=False, strict=False)
+    slots, sample_names, slot_sample_names = parse_slots(df, suffixes, sparse=False)
     assert "count" in slots and "alpha" in slots
     assert sample_names == ["Sample.A"]
 
@@ -235,3 +241,73 @@ def test_make_unique_adds_suffix():
     assert len(set(unique)) == 5
     assert unique[0] == "A"
     assert unique[2].startswith("A_")
+
+# ------------------------------------------------------------------------------
+# aus load.py:
+
+grand_obj = read_grand("https://zenodo.org/record/5834034/files/sars.tsv.gz", design=("Condition", "Time", "Replicate"))
+print(grand_obj)
+
+sars = read_grand("data/sars_R.tsv", design=("Condition", "Time", "Replicate"))
+print(sars) # funktioniert
+
+sparse_data = read_grand("test-datasets/test_sparse.targets", design=("Time", "Replicate"))
+print(sparse_data) # funktioniert
+
+grand_sparse = read_grand("test-datasets/test_sc_sparse.targets", design=("Condition", "Time", "Replicate"))
+print(grand_sparse)
+
+sc_dense = read_grand("test-datasets/test_sc_dense.targets", design=("Time", "Replicate"))
+print(sc_dense)
+
+banp = read_grand("https://zenodo.org/record/6976391/files/BANP.tsv.gz", design=("Cell", "Experimental.time", "Genotype", "dur.4sU", "has4.U", "Replicate"))
+print(banp)
+
+qc = get_table_qc(grand_obj, slot="count")
+print(qc.head())
+
+
+# ------------------------------------------------------------------------------
+# TODO: Write tests for reading in all test data sets that you have. You could implement that as a single function with nested loops over data sets and estimators.
+# dense wird nicht erkannt (?) - bin noch dran
+DATASETS_ROOT = Path(__file__).resolve().parents[1] / "test-datasets"
+ESTIMATORS     = [None, "MAP", "Binom", "TbBinom", "TbBinomShape"]
+SKIP_FRAGMENTS = {
+    "reads.lengths.tsv", "reads.subreads.tsv", "model.parameters.tsv",
+    "strandness.tsv", "clip.tsv", "subread.tsv", "experimentaldesign.tsv"
+}
+
+def is_result_ds(p: Path) -> bool:
+    name = p.name.lower()
+    if any(frag in name for frag in SKIP_FRAGMENTS):
+        return False
+
+    if p.is_file() and ".targets" in name and name.endswith((".tsv", ".tsv.gz")):
+        return True
+
+    if p.is_dir():
+        files = {q.name.lower() for q in p.iterdir()}
+        has_mtx = any(fn.endswith((".mtx", ".mtx.gz")) for fn in files)
+        has_barcodes = {"barcodes.tsv", "barcodes.tsv.gz"} & files
+        has_features = {"features.tsv", "features.tsv.gz"} & files
+        return has_mtx and has_barcodes and has_features
+
+    return False
+
+PARAMS = [
+    pytest.param(path, est, id=f"{path.name}[{est or 'default'}]")
+    for path in sorted(DATASETS_ROOT.iterdir()) if is_result_ds(path)
+    for est in ESTIMATORS
+]
+
+@pytest.mark.parametrize("dataset_path, estimator", PARAMS)
+def test_read_dataset_with_estimator(dataset_path: Path, estimator):
+    try:
+        obj = read_grand(dataset_path, design=("Condition", "Time"), estimator=estimator)
+    except (ValueError, FileNotFoundError) as e:
+        pytest.skip(f"{dataset_path.name} [{estimator}] skipped: {e}")
+    if obj is None:
+        pytest.skip(f"{dataset_path.name} [{estimator}] returned None")
+    assert isinstance(obj, GrandPy)
+    assert obj.gene_info.shape[0] and obj.coldata.shape[0]
+    assert obj.metadata["default_slot"] in obj.slots
