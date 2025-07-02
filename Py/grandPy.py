@@ -14,7 +14,7 @@ from Py.analysis_tool import AnalysisTool
 from Py.diffexp import get_summary_matrix
 from Py.processing import filter_genes
 from Py.modeling import fit_kinetics
-from Py.utils import _ensure_list, _make_unique, _reindex_by_index_name, _subset_dense_or_sparse
+from Py.utils import _ensure_list, _make_unique, _reindex_by_index_name, _subset_dense_or_sparse, concat
 
 
 class GrandPy:
@@ -1441,7 +1441,7 @@ class GrandPy:
 
         return self._dev_replace(gene_info=new_gene_info, coldata=new_coldata, slots=new_layers, analyses=new_analyses)
 
-    def concat(
+    def merge(
             self,
             other: "GrandPy",
             *,
@@ -1450,20 +1450,20 @@ class GrandPy:
             merge: Union[Literal["same", "unique", "first", "only"], Callable] = "unique",
     ) -> "GrandPy":
         """
-        Concatenates the other object with the current instance along a given axis.
+        Merge the other object with the current instance along a given axis. Uses `unique` for merging metadata and plots.
 
-        Merges metadata and plots using 'unique'. All Analyses are dropped.
+        Analyses are merged if their names in both objects are identical. Otherwise, they are dropped.
 
         Parameters
         ----------
         other: GrandPy
-            The object to concatenate with the current instance.
+            The object to merge with the current instance.
 
         axis: {"gene_info" or 0 or "coldata" or 1}, default 1
-            The axis along which to concatenate.
+            The axis along which to merge.
 
         join: {"inner" or "outer"}, default "inner"
-            How to align values when concatenating. If "outer", the union of the other axis is taken. If "inner", the intersection.
+            How to align values when merging. If "outer", the union of the other axis is taken. If "inner", the intersection.
 
         merge: {"same" or "unique" or "first" or "only"} or Callable, default "unique"
             How elements not aligned to the axis being concatenated along are selected.
@@ -1478,22 +1478,11 @@ class GrandPy:
         Returns
         -------
         GrandPy
-            A new concatenated GrandPy object.
+            A new merged GrandPy object.
         """
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", message="(Observation|Variable) names are not unique.*",
-                                    category=UserWarning, module="anndata")
+        objects = [self, other]
 
-            if axis == 0 or axis == "gene_info":
-                axis = "var"
-            elif axis == 1 or axis == "coldata":
-                axis = "obs"
-            else:
-                raise ValueError(f"axis must be either 0, 'gene_info' or 1, 'coldata' not {axis}.")
-
-            new_adata = ad.concat([self._adata, other._adata], axis=axis, join=join, merge=merge, uns_merge="unique")
-
-        return self._dev_replace(anndata=new_adata).with_dropped_analyses()
+        return concat(objects, axis=axis, join=join, merge=merge)
 
 
     def get_matrix(
@@ -2102,6 +2091,7 @@ class GrandPy:
         # ΔBIC: subtract min BIC per gene
         delta_bic_df = bic_df.subtract(bic_df.min(axis=1), axis=0)
         delta_bic_df.columns = [f"{col}.dBIC" for col in delta_bic_df.columns]
+        delta_bic_df.index.name = "Symbol"
 
         return self.with_analysis(name=name, table=delta_bic_df)
 
@@ -2153,79 +2143,7 @@ class GrandPy:
 
         return result
 
+    def normalize(self, genes = None, name: str = "norm", slot: str = "count", set_to_default = True, size_factors = None, return_size_factors = False):
+        from Py.processing import _normalize
 
-# TODO: merge doc string schreiben
-def merge(
-        objects: Union["GrandPy", Sequence["GrandPy"]],
-        *,
-        axis: Literal["gene_info", 0, "coldata", 1] = 1,
-        join: Literal["inner", "outer"] = "inner",
-        merge: Union[Literal["same", "unique", "first", "only"], Callable] = "unique",
-) -> "GrandPy":
-    """
-    Concatenates the other object with the current instance along a given axis.
-
-    Merges metadata and plots using 'unique'.
-
-    Analyses will be merged, if their names are identical. Otherwise, they are dropped.
-
-    Parameters
-    ----------
-    other: GrandPy
-        The object to concatenate with the current instance.
-
-    axis: {"gene_info" or 0 or "coldata" or 1}, default 1
-        The axis along which to concatenate.
-
-    join: {"inner" or "outer"}, default "inner"
-        How to align values when concatenating. If "outer", the union of the other axis is taken. If "inner", the intersection.
-
-    merge: {"same" or "unique" or "first" or "only"} or Callable, default "unique"
-        How elements not aligned to the axis being concatenated along are selected.
-        Currently implemented strategies include:
-
-        * `None`: No elements are kept.
-        * `"same"`: Elements that are the same in each of the objects.
-        * `"unique"`: Elements for which there is only one possible value.
-        * `"first"`: The first element seen at each from each position.
-        * `"only"`: Elements that show up in only one of the objects.
-
-    Returns
-    -------
-    GrandPy
-        A new concatenated GrandPy object.
-    """
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", message="(Observation|Variable) names are not unique.*",
-                                category=UserWarning, module="anndata")
-
-        if axis == 0 or axis == "gene_info":
-            axis = "var"
-            analysis_axis = 0
-        elif axis == 1 or axis == "coldata":
-            axis = "obs"
-            analysis_axis = 1
-        else:
-            raise ValueError(f"axis must be either 0, 'gene_info' or 1, 'coldata' not {axis}.")
-
-        adatas = [obj._adata for obj in objects]
-
-        new_adata = ad.concat(adatas, axis=axis, join=join, merge=merge, uns_merge="unique")
-
-    analysis_dicts = [obj._adata.uns.get("analyses", {}) for obj in objects]
-    all_analysis_keys = set().union(*[d.keys() for d in analysis_dicts])
-
-    merged_analyses = {}
-    for key in all_analysis_keys:
-        dfs = [d[key] for d in analysis_dicts if key in d]
-        try:
-            merged_df = pd.concat(dfs, axis=analysis_axis, join=join)
-            merged_analyses[key] = merged_df
-        except Exception as e:
-            continue
-
-    new_adata.uns["analyses"] = merged_analyses
-
-
-    return GrandPy(prefix=new_adata.uns.get("prefix"), gene_info=new_adata.obs, coldata=new_adata.var,
-                   slots=new_adata.layers, metadata=new_adata.uns.get("metadata"), plots=new_adata.uns.get("plots"))
+        return _normalize(self, genes=genes, name=name, slot=slot, set_to_default=set_to_default, size_factors=size_factors, return_size_factors=return_size_factors)

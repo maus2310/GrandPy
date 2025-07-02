@@ -114,55 +114,40 @@ def _setup_default_aes(data: GrandPy, aest: dict | None = None) -> dict:
     return aest
 
 
-def _density2d(x, y, n=100, bandwidth_x=None, bandwidth_y=None, margin='n'):
+def _density2d(x, y, n=100, margin='n'):
     x = np.asarray(x)
     y = np.asarray(y)
-    finite_mask = np.isfinite(x + y)
-    if not np.any(finite_mask):
+    xy = np.vstack([x, y])
+
+    mask = np.isfinite(x + y)
+    if not np.any(mask):
         return np.full_like(x, np.nan, dtype=float)
 
-    x = x[finite_mask]
-    y = y[finite_mask]
+    # small spread for modeslot = "ntr"
+    if np.all(x[mask] == x[mask][0]):
+        x[mask] = np.array([x[mask][0] - 0.5, x[mask][0] + 0.5] + [x[mask][0]] * (np.sum(mask) - 2))
+    if np.all(y[mask] == y[mask][0]):
+        y[mask] = np.array([y[mask][0] - 0.5, y[mask][0] + 0.5] + [y[mask][0]] * (np.sum(mask) - 2))
 
-    if np.all(x == x[0]):
-        x = np.array([x[0] - 0.5, x[0] + 0.5])
-    if np.all(y == y[0]):
-        y = np.array([y[0] - 0.5, y[0] + 0.5])
+    xy = np.vstack([x, y])
 
-    def _bandwidth_nrd(v):
-        h = (np.max(v) - np.min(v)) / 1.34
-        return 1.06 * min(np.std(v, ddof=1), h) * len(v) ** (-1 / 5)
+    kde = gaussian_kde(xy[:, mask])
 
-    bandwidth_x = bandwidth_x or _bandwidth_nrd(x)
-    bandwidth_y = bandwidth_y or _bandwidth_nrd(y)
-
-    xbins = np.linspace(np.min(x), np.max(x), n)
-    ybins = np.linspace(np.min(y), np.max(y), n)
-
-    H, xedges, yedges = np.histogram2d(x, y, bins=[xbins, ybins])
-
-    dx = xedges[1] - xedges[0]
-    dy = yedges[1] - yedges[0]
-    sigma_x = bandwidth_x / dx
-    sigma_y = bandwidth_y / dy
-
-    H_smooth = gaussian_filter(H, sigma=[sigma_x, sigma_y])
+    density = np.full(x.shape, np.nan)
+    density[mask] = kde(xy[:, mask])
 
     if margin == 'x':
-        H_smooth = H_smooth / np.max(H_smooth, axis=1, keepdims=True)
+        for xi in np.unique(x[mask]):
+            sel = (x == xi)
+            density[sel] /= np.nanmax(density[sel])
     elif margin == 'y':
-        H_smooth = H_smooth / np.max(H_smooth, axis=0, keepdims=True)
+        for yi in np.unique(y[mask]):
+            sel = (y == yi)
+            density[sel] /= np.nanmax(density[sel])
     else:
-        H_smooth /= np.max(H_smooth)
+        density /= np.nanmax(density)
 
-    from scipy.interpolate import RegularGridInterpolator
-    interp = RegularGridInterpolator((xbins[:-1], ybins[:-1]), H_smooth.T, bounds_error=False, fill_value=0)
-
-    result = np.full(len(finite_mask), np.nan)
-    result[finite_mask] = interp(np.vstack([x, y]).T)
-    result /= np.nanmax(result)
-
-    return result
+    return density
 
 # parameter die noch fehlen:
     # 1. analysis
@@ -320,7 +305,7 @@ def plot_scatter(
         ax.scatter(clipped_x, clipped_y, color="grey", s=size+10, alpha=1, label="Outliers")
 
     # Main scatter
-    scatter = ax.scatter(x_vals, y_vals, c=density, s=size, cmap="viridis", alpha=1, rasterized=False)
+    scatter = ax.scatter(x_vals, y_vals, c=density, s=size, cmap="viridis", alpha=1, rasterized=True, antialiased=True)
     fig.colorbar(scatter, ax=ax, label="Density")
 
     # Axis labels and title
@@ -350,6 +335,7 @@ def plot_scatter(
     plt.tight_layout()
     plt.show()
     plt.close()
+
 
 def _transform_no(matrix: np.ndarray) -> np.ndarray:
     return matrix
@@ -620,7 +606,7 @@ def plot_pca(
             dds = DeseqDataSet(counts=slotmat, metadata=coldata, design_factors="Condition")
         except Exception:
             try:
-                dds = DeseqDataSet(counts=slotmat, metadata=coldata, design_factors="Cell")
+                dds = DeseqDataSet(counts=slotmat, metadata=coldata, design_factors="Cell") # TODO Condition ist nicht Cell
             except Exception:
                 fallback_col = data.coldata.columns[1] if len(data.coldata.columns) >= 2 else data.coldata.columns[0]
                 warnings.warn(
