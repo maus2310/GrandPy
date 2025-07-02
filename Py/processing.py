@@ -2,7 +2,8 @@ from scipy.stats import beta
 import numpy as np
 from math import log
 import pandas as pd
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING, Union, Sequence
+import warnings
 
 if TYPE_CHECKING:
     from Py.grandPy import GrandPy
@@ -185,6 +186,7 @@ def filter_genes(
     keep=None,
     return_genes=False
 ) -> Union["GrandPy", list[str]]:
+
     if use is not None and keep is not None:
         raise ValueError("Do not specify both use and keep!")
 
@@ -221,3 +223,67 @@ def filter_genes(
     return data._apply(
         function_gene_info=lambda t: t.iloc[gene_idx, :]
     )
+
+#funktioniert grundlegend, hat aber einen Fehler von ca +- 1% (gegenüber R) size_factor etc. funktioniert aber.
+def _normalize(
+    data: "GrandPy",
+    genes: Union[str, int, Sequence[Union[str, int, bool]]] = None,
+    name: str = "norm",
+    slot: str = "count",
+    set_to_default: bool = True,
+    size_factors: np.ndarray = None,
+    return_size_factors: bool = False
+) -> Union["GrandPy", np.ndarray]:
+    """
+    DESeq2-ähnliche Normalisierung einer Slot-Matrix durch Size Factors.
+
+    Parameters
+    ----------
+    data : GrandPy
+        Das GrandPy-Objekt.
+    genes : list[str] oder bool-Maske, optional
+        Gene zur Berechnung der Size Factors. Default: alle.
+    name : str
+        Name des neuen Slots.
+    slot : str
+        Slot zur Normalisierung, z.B. "count".
+    set_to_default : bool
+        Ob der neue Slot als default gesetzt wird.
+    size_factors : np.ndarray, optional
+        Falls gegeben, verwende diese Size Factors direkt.
+    return_size_factors : bool
+        Wenn True, gib die Size Factors zurück.
+
+    Returns
+    -------
+    GrandPy oder np.ndarray
+        Normalisiertes GrandPy-Objekt oder Size Factors.
+    """
+
+    matrix_for_size = data.get_matrix(slot, genes=genes)
+
+    if size_factors is None:
+        if matrix_for_size.ndim == 1:
+            matrix_for_size = matrix_for_size[np.newaxis, :]
+
+        log_mat = np.log(matrix_for_size)
+        log_geomeans = np.mean(log_mat, axis=1)  # entspricht rowMeans(log(mat))
+
+        # Größe des Arrays
+        n_cols = matrix_for_size.shape[1]
+        size_factors = np.zeros(n_cols)
+
+        for i in range(n_cols):
+            counts = matrix_for_size[:, i]
+            valid = np.isfinite(log_geomeans) & (counts > 0)
+            diffs = np.log(counts[valid]) - log_geomeans[valid]
+            size_factors[i] = np.exp(np.median(diffs))
+
+    if return_size_factors:
+        return size_factors
+
+    matrix_for_normalization = data.get_matrix(slot)
+
+    normalized_matrix = matrix_for_normalization / size_factors
+
+    return data.with_slot(name, normalized_matrix, set_to_default=set_to_default)

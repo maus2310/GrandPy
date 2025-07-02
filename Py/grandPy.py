@@ -2142,3 +2142,8 @@ class GrandPy:
             result.append(obj)
 
         return result
+
+    def normalize(self, genes = None, name: str = "norm", slot: str = "count", set_to_default = True, size_factors = None, return_size_factors = False):
+        from Py.processing import _normalize
+
+        return _normalize(self, genes=genes, name=name, slot=slot, set_to_default=set_to_default, size_factors=size_factors, return_size_factors=return_size_factors)
