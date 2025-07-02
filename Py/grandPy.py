@@ -2147,3 +2147,8 @@ class GrandPy:
         from Py.processing import _normalize
 
         return _normalize(self, genes=genes, name=name, slot=slot, set_to_default=set_to_default, size_factors=size_factors, return_size_factors=return_size_factors)
+
+    def normalize_fpkm(self, genes = None, name: str = "norm", slot: str = "count", set_to_default = True, total_len = None):
+        from Py.processing import _normalize_fpkm
+
+        return _normalize_fpkm(self, genes=genes, name=name, slot=slot, set_to_default=set_to_default, total_len = total_len)

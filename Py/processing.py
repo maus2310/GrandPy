@@ -1,3 +1,4 @@
+from numbers import Number
 from scipy.stats import beta
 import numpy as np
 from math import log
@@ -33,7 +34,7 @@ def _comp_tpm(cmat: np.ndarray, lengths: np.ndarray, subset: np.ndarray = None) 
     tpm = rpk / scale
     return tpm
 
-def _comp_fpkm(cmat: np.ndarray, lengths: np.ndarray, subset: np.ndarray = None) -> np.ndarray:
+def _comp_fpkm(cmat: np.ndarray, lengths: np.ndarray, subset: Sequence[Union[Number, str]] = None) -> np.ndarray:
     """Computes FPKM from count matrix and transcript lengths"""
     if subset is not None:
         scale = np.nansum(cmat[subset, :], axis=0) / 1e6
@@ -42,12 +43,12 @@ def _comp_fpkm(cmat: np.ndarray, lengths: np.ndarray, subset: np.ndarray = None)
 
     rpm = cmat / scale
 
-    lengths = lengths.copy()
-    zerolen = lengths == 0
-    lengths[zerolen] = 1
+    lengths = np.asarray(lengths)  # ← fix für pandas Series
+    zero_len = lengths == 0
+    lengths[zero_len] = 1
 
     fpkm = rpm / (lengths[:, np.newaxis] / 1000)
-    fpkm[zerolen, :] = np.nan
+    fpkm[zero_len, :] = np.nan
 
     return fpkm
 
@@ -287,3 +288,22 @@ def _normalize(
     normalized_matrix = matrix_for_normalization / size_factors
 
     return data.with_slot(name, normalized_matrix, set_to_default=set_to_default)
+
+def _normalize_fpkm(
+    data: "GrandPy",
+    genes: Union[str, int, Sequence[Union[str, int, bool]]] = None,
+    name: str = "fpkm",
+    slot: str = "count",
+    set_to_default: bool = True,
+    total_len = None ):
+
+    if total_len is None:
+        total_len = data.gene_info["Length"]
+
+    genes = data.get_index(genes)
+    mat_for_fpkm = data.get_matrix(slot, genes=genes)
+    mask = np.zeros(len(mat_for_fpkm), dtype=bool)
+    mask[genes] = True
+    final_mat = _comp_fpkm(cmat = mat_for_fpkm, lengths=total_len, subset = mask)
+
+    return data.with_slot(name, final_mat, set_to_default=set_to_default)
