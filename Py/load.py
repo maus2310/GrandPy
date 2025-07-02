@@ -581,7 +581,7 @@ def read_dense(file_path, default_slot="count", design=None, *, classification_g
                  classify_genes_func=classify_genes_func, estimator=estimator)
 
 
-def read_sparse(folder_path, default_slot="count", design=None, classification_genes=None, classification_genes_label="Viral", classify_genes_func=None, pseudobulk=None, targets=None, estimator=None):
+def read_sparse(folder_path, default_slot="count", design=None, classification_genes=None, classification_genes_label="Viral", classify_genes_func=None, pseudobulk=None, targets=None, estimator=None): # TODO nicht "viral" bei classify genes
     """
     Reads a GRAND-SLAM sparse dataset from a directory.
 
