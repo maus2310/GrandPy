@@ -22,7 +22,7 @@ def _is_sparse_matrix(mat):
     return issparse(mat)
 
 
-# TODO Plots: PlotExpressionTest, PlotAnalyses, VulcanoPlot, MAPlot, PlotTypeDistribution, FormatCorrelation
+# TODO Plots: PlotExpressionTest, PlotAnalyses, MAPlot, PlotTypeDistribution, FormatCorrelation
 
 def _get_plot_limits(vals, override_lim=None):
     """Compute IQR-based limits if not overridden."""
@@ -99,14 +99,8 @@ def _setup_default_aes(data: GrandPy, aest: dict | None = None) -> dict:
     if not any(k in aest for k in ["color", "colour"]):
         if "Condition" in coldata.columns:
             aest["color"] = "Condition"
-        elif "Cell" in coldata.columns:
-            aest["color"] = "Cell"
         else:
-            fallback_col = coldata.columns[1] if len(coldata.columns) >= 2 else coldata.columns[0]
-            warnings.warn(
-                f"Could not find 'Condition' or 'Cell' in coldata — using '{fallback_col}' for color aesthetic, which may be incorrect."
-            )
-            aest["color"] = fallback_col
+            warnings.warn("Column 'Condition' not found in coldata. Please add a 'Condition' column to get the right colors.")
 
     if "Replicate" in coldata.columns and "shape" not in aest:
         aest["shape"] = "Replicate"
@@ -226,6 +220,7 @@ def plot_scatter(
         The function creates and optionally saves a matplotlib plot.
     """
 
+    #TODO default wert mit analyse und default ohne usw besser lösen gerade braucht man eine analysis = ... damit er einen analysen plot macht sonst nimmt er auch nachdem man eine anylase mit sars = sars.fitkinetics() macht auch get table und nicht getanalysistable
     #Default expressions
     names = list(data.coldata["Name"])
     analysis_columns = {col for cols in data.get_analyses(description=True).values() for col in cols}
@@ -250,7 +245,7 @@ def plot_scatter(
         print("DEBUG DF",df)
         print("DEBUG: Use sparse plot")
     elif analysis:
-        df = data.get_analysis_table()
+        df = data.get_analysis_table(with_gene_info=False)
         print("DEBUG: Use analysis plot")
     else:
         df = data.get_table(mode_slots=mode_slot)
@@ -258,20 +253,27 @@ def plot_scatter(
 
     if x in df.columns:
         x_vals_all = df[x].to_numpy()
+    elif analysis:
+        print("DEBUG: Default columns für analysis fehlen noch")
+        x_vals_all = df.T.iloc[0].to_numpy()
     else:
         col_index = list(data.coldata["Name"]).index(x)
         matrix = data._resolve_mode_slot(mode_slot)
         matrix = matrix.toarray() if hasattr(matrix, "toarray") else matrix
         x_vals_all = matrix[:, col_index]
+    print("DEBUG", x_vals_all)
 
     if y in df.columns:
         y_vals_all = df[y].to_numpy()
+    elif analysis:
+        print("DEBUG: Default columns für analysis fehlen noch")
+        y_vals_all = df.T.iloc[1].to_numpy()
     else:
         col_index = list(data.coldata["Name"]).index(y)
         matrix = data._resolve_mode_slot(mode_slot)
         matrix = matrix.toarray() if hasattr(matrix, "toarray") else matrix
         y_vals_all = matrix[:, col_index]
-
+    print("DEBUG", y_vals_all)
     if np.all(np.isnan(x_vals_all)):
         raise ValueError(f"All Values for '{x}' in slot '{mode_slot}' are NaN. - Plot not possible!")
     if np.all(np.isnan(y_vals_all)):
@@ -365,15 +367,10 @@ def _transform_vst(data, selected_columns: list, mode_slot, genes) -> pd.DataFra
     slotmat = slotmat.loc[coldata.index]
     try:
         dds = DeseqDataSet(counts=slotmat, metadata=coldata, design_factors="Condition")
+
     except Exception:
-        try:
-            dds = DeseqDataSet(counts=slotmat, metadata=coldata, design_factors="Cell")
-        except Exception:
-            fallback_col = data.coldata.columns[1] if len(data.coldata.columns) >= 2 else data.coldata.columns[0]
-            warnings.warn(
-                f"Could not find 'Condition' or 'Cell' in coldata — falling back to '{fallback_col}', which may be incorrect."
-            )
-            dds = DeseqDataSet(counts=slotmat, metadata=coldata, design_factors=fallback_col)
+        warnings.warn("Column 'Condition' not found in coldata. Please add a 'Condition' column to use this function.")
+
     dds.deseq2()
     dds.vst_fit()
     vst_array = dds.vst_transform()
@@ -604,15 +601,10 @@ def plot_pca(
     if do_vst and str(mode_slot).lower() == "count":
         try:
             dds = DeseqDataSet(counts=slotmat, metadata=coldata, design_factors="Condition")
+
         except Exception:
-            try:
-                dds = DeseqDataSet(counts=slotmat, metadata=coldata, design_factors="Cell") # TODO Condition ist nicht Cell
-            except Exception:
-                fallback_col = data.coldata.columns[1] if len(data.coldata.columns) >= 2 else data.coldata.columns[0]
-                warnings.warn(
-                    f"[GrandPy PCA] Could not find 'Condition' or 'Cell' in coldata — falling back to '{fallback_col}', which may be incorrect."
-                )
-                dds = DeseqDataSet(counts=slotmat, metadata=coldata, design_factors=fallback_col)
+            warnings.warn(
+                "Column 'Condition' not found in coldata. Please add a 'Condition' column to use this function.")
 
         dds.deseq2()
         dds.vst_fit()
@@ -1545,3 +1537,5 @@ def plot_gene_progressive_timecourse(
     g.add_legend(title="RNA")
     plt.tight_layout()
     plt.show()
+
+
