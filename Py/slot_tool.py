@@ -1,9 +1,11 @@
 import warnings
-from typing import Literal, Union, Sequence
+from typing import Literal, Union, Sequence, Any
 import anndata as ad
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
+from numpy import ndarray
+from scipy.sparse import csr_matrix
 
 
 class ModeSlot:
@@ -83,10 +85,13 @@ class SlotTool:
         return self._adata.layers[slot].copy()
 
     def with_slot(self, name: str, new_slot: Union[np.ndarray, pd.DataFrame, sp.csr_matrix, list], *,
-                  set_to_default=False) -> ad.AnnData:
-        new_adata = self._adata.copy()
+                  set_to_default=False) -> tuple[dict[str, Union[ndarray, csr_matrix]], dict[str, Any]]:
+        new_slots = self.slot_data()
+        # rows and columns are not modified so there is no need to copy
+        rows = self._adata.obs.index
+        columns = self._adata.var.index
 
-        if name in new_adata.layers.keys():
+        if name in new_slots.keys():
             warnings.warn(f"Slot '{name}' already exists. It will be overwritten.")
 
         def validate_and_convert_new_data(matrix: Union[pd.DataFrame, sp.csr_matrix, np.ndarray]
@@ -96,15 +101,7 @@ class SlotTool:
                 from Py.utils import _make_unique
 
                 matrix.index = _make_unique(pd.Series(matrix.index))
-                matrix = matrix.reindex(index=self._adata.obs.index, columns=self._adata.var.index)
-
-                # Row and column names of the new matrix must be equal to the existing ones.
-                for i in range(self._adata.n_obs):
-                    if matrix.index[i] != self._adata.obs.index[i]:
-                        warnings.warn(f"Row name mismatch for slot '{name}' at index {i}")
-                for i in range(self._adata.n_vars):
-                    if matrix.columns[i] != self._adata.var["Name"].iloc[i]:
-                        warnings.warn(f"Column name mismatch for slot '{name}' at index {i}")
+                matrix = matrix.reindex(index=rows, columns=columns)
 
                 matrix = matrix.values
 
@@ -114,45 +111,36 @@ class SlotTool:
 
             # If dense, but not ndarray → to ndarray
             if not self._is_sparse and not isinstance(matrix, np.ndarray):
-                try:
-                    matrix = np.array(matrix)
-                except:
-                    raise TypeError("Matrix must be ndarray, DataFrame, or scipy sparse matrix")
+                matrix = np.array(matrix)
 
             return matrix
 
         new_slot = validate_and_convert_new_data(new_slot)
 
-        new_slots = self.slot_data()
         new_slots[name] = new_slot
-        new_adata.layers = new_slots
 
+        new_metadata = self._adata.uns.get('metadata', {}).copy()
         if set_to_default:
-            new_metadata = self._adata.uns.get('metadata', {}).copy()
             new_metadata['default_slot'] = name
-            new_adata.uns['metadata'] = new_metadata
 
-        return new_adata
+        return new_slots, new_metadata
 
-    def with_dropped_slots(self, slots_to_remove: Sequence[str]) -> ad.AnnData:
-        new_adata = self._adata.copy()
+    def with_dropped_slots(self,slots_to_remove: Sequence[str]
+            ) -> tuple[dict[str, Union[ndarray, csr_matrix]], dict[str, Any]]:
+        current_slots = self.slot_data()
 
-        current_slots = self.slots()
         remaining = [s for s in current_slots if s not in slots_to_remove]
 
         if not remaining:
             raise ValueError("Cannot drop all slots - at least one must remain.")
 
-        new_slots = self.slot_data()
-        new_slots = {k: new_slots[k] for k in remaining}
-        new_adata.layers = new_slots
+        new_slots = {k: current_slots[k] for k in remaining}
 
-        if new_adata.uns["metadata"]["default_slot"] in slots_to_remove:
-            new_metadata = new_adata.uns.get('metadata', {}).copy()
+        new_metadata = self._adata.uns.get('metadata', {}).copy()
+        if self._adata.uns["metadata"]["default_slot"] in slots_to_remove:
             new_metadata['default_slot'] = remaining[0]
-            new_adata.uns['metadata'] = new_metadata
 
-        return new_adata
+        return new_slots, new_metadata
 
     def check_slot(self, slot: str, *, allow_ntr: bool = True) -> bool:
         if isinstance(slot, ModeSlot):
