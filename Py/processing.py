@@ -225,7 +225,7 @@ def filter_genes(
         function_gene_info=lambda t: t.iloc[gene_idx, :]
     )
 
-#funktioniert grundlegend, hat aber einen Fehler von ca +- 1% (gegenüber R) size_factor etc. funktioniert aber.
+# TODO: normalize hat Probleme, wenn Nullwerte in den Daten sind(sars.tsv).
 def _normalize(
     data: "GrandPy",
     genes: Union[str, int, Sequence[Union[str, int, bool]]] = None,
@@ -268,7 +268,7 @@ def _normalize(
             matrix_for_size = matrix_for_size[np.newaxis, :]
 
         log_mat = np.log(matrix_for_size)
-        log_geomeans = np.mean(log_mat, axis=1)  # entspricht rowMeans(log(mat))
+        log_geomeans = np.mean(log_mat, axis=1)
 
         # Größe des Arrays
         n_cols = matrix_for_size.shape[1]
