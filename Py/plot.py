@@ -143,10 +143,10 @@ def _density2d(x, y, n=100, margin='n'):
 
     return density
 
+# TODO Log noch weiter testen
 # parameter die noch fehlen:
-    # 1. analysis
     # 2. xcol/ycol
-    # 3. log, log_x, log_y
+    # 3. log_x, log_y
     # 4. axis, axis_x, axis_y
     # 5. lim
     # 6. filter
@@ -164,6 +164,7 @@ def plot_scatter(
     data: GrandPy,
     x: Optional[str] = None,
     y: Optional[str] = None,
+    log: bool = False,
     mode_slot: str | ModeSlot = None,
     remove_outlier: bool = True,
     show_outlier: bool = True,
@@ -175,7 +176,7 @@ def plot_scatter(
     diagonal: Optional[bool | float | tuple] = None,
     highlight: Optional[Union[list[str], dict[str, list[str]]]] = None,
     path_for_save: Optional[str] = None,
-    analysis: bool = False
+    analysis: str = None,
 ):
     """
     ScatterPlot
@@ -188,6 +189,8 @@ def plot_scatter(
         An expression to compute the x value or a character corresponding to a sample (or cell) name or a fully qualified analysis result name
     y: str
         An expression to compute the y value or a character corresponding to a sample (or cell) name or a fully qualified analysis result name
+    log: bool
+        Whether to plot the logarithmic scale
     mode_slot: str | ModeSlot
         Specifies which data slot to use (e.g., "count", "norm")
     remove_outlier: bool
@@ -220,29 +223,34 @@ def plot_scatter(
         The function creates and optionally saves a matplotlib plot.
     """
 
-    #TODO default wert mit analyse und default ohne usw besser lösen gerade braucht man eine analysis = ... damit er einen analysen plot macht sonst nimmt er auch nachdem man eine anylase mit sars = sars.fitkinetics() macht auch get table und nicht getanalysistable
-    #Default expressions
-    names = list(data.coldata["Name"])
-    analysis_columns = {col for cols in data.get_analyses(description=True).values() for col in cols}
+    if data.analyses:
+        if analysis is None:
+            analysis = data.analyses[0]
+        else:
+            analysis = analysis
+        names = data.get_analysis_table(with_gene_info=False).keys().tolist()
+    else:
+        names = list(data.coldata["Name"])
+    print("Names:", names)
+    print("Analysis:", analysis)
     x = x or names[0]
     y = y or names[1]
     if x not in names:
-        if x not in analysis_columns:
-            raise ValueError(f"x is not a valid expression.")
-        else: analysis = True
+        raise ValueError(f"x is not a valid expression.")
     if y not in names:
-        if y not in analysis_columns:
-            raise ValueError(f"y is not a valid expression.")
-        else: analysis = True
+        raise ValueError(f"y is not a valid expression.")
 
     if mode_slot is None:
         mode_slot = data.default_slot
 
     raw_matrix = data._resolve_mode_slot(mode_slot)
-
+    print("Mode Slot:", mode_slot)
+    print("Raw Matrix:", raw_matrix)
+    print("x", x)
+    print("y", y)
     if _is_sparse_matrix(raw_matrix):
         df = data.get_analysis_table()
-        print("DEBUG DF",df)
+        print("DEBUG DF", df)
         print("DEBUG: Use sparse plot")
     elif analysis:
         df = data.get_analysis_table(with_gene_info=False)
@@ -254,7 +262,6 @@ def plot_scatter(
     if x in df.columns:
         x_vals_all = df[x].to_numpy()
     elif analysis:
-        print("DEBUG: Default columns für analysis fehlen noch")
         x_vals_all = df.T.iloc[0].to_numpy()
     else:
         col_index = list(data.coldata["Name"]).index(x)
@@ -266,7 +273,6 @@ def plot_scatter(
     if y in df.columns:
         y_vals_all = df[y].to_numpy()
     elif analysis:
-        print("DEBUG: Default columns für analysis fehlen noch")
         y_vals_all = df.T.iloc[1].to_numpy()
     else:
         col_index = list(data.coldata["Name"]).index(y)
@@ -283,11 +289,35 @@ def plot_scatter(
         x_limit = x_limit or limit
         y_limit = y_limit or limit
 
-    # Filter outliers
-    mask_keep, auto_x_lim, auto_y_lim = _apply_outlier_filter(x_vals_all, y_vals_all, remove_outlier)
-    x_vals, y_vals = x_vals_all[mask_keep], y_vals_all[mask_keep]
-    x_limit = x_limit or auto_x_lim
-    y_limit = y_limit or auto_y_lim
+    if log:
+        mask_pos = (x_vals_all > 0) & (y_vals_all > 0)
+        if not np.any(mask_pos):
+            raise ValueError("No positive values. Log transform not possible!")
+        x_vals_log = np.log10(x_vals_all[mask_pos])
+        y_vals_log = np.log10(y_vals_all[mask_pos])
+
+        mask_keep, auto_x_lim, auto_y_lim = _apply_outlier_filter(x_vals_log, y_vals_log, remove_outlier)
+
+        x_vals = x_vals_log[mask_keep]
+        y_vals = y_vals_log[mask_keep]
+
+        outlier_x = x_vals_log[~mask_keep]
+        outlier_y = y_vals_log[~mask_keep]
+
+        x_limit = x_limit or auto_x_lim
+        y_limit = y_limit or auto_y_lim
+
+    else:
+        mask_keep, auto_x_lim, auto_y_lim = _apply_outlier_filter(x_vals_all, y_vals_all, remove_outlier)
+
+        x_vals = x_vals_all[mask_keep]
+        y_vals = y_vals_all[mask_keep]
+
+        outlier_x = x_vals_all[~mask_keep]
+        outlier_y = y_vals_all[~mask_keep]
+
+        x_limit = x_limit or auto_x_lim
+        y_limit = y_limit or auto_y_lim
 
     # Compute Density
     density = _density2d(x_vals, y_vals, n=100, margin='n')
@@ -298,13 +328,10 @@ def plot_scatter(
 
     # Plot outliers
     if remove_outlier and show_outlier:
-        outlier_x = x_vals_all[~mask_keep]
-        outlier_y = y_vals_all[~mask_keep]
-
         margin = 0.01
         clipped_x = np.clip(outlier_x, x_limit[0] + margin, x_limit[1] - margin)
         clipped_y = np.clip(outlier_y, y_limit[0] + margin, y_limit[1] - margin)
-        ax.scatter(clipped_x, clipped_y, color="grey", s=size+10, alpha=1, label="Outliers")
+        ax.scatter(clipped_x, clipped_y, color="grey", s=size + 10, alpha=1, label="Outliers")
 
     # Main scatter
     scatter = ax.scatter(x_vals, y_vals, c=density, s=size, cmap="viridis", alpha=1, rasterized=True, antialiased=True)
@@ -314,8 +341,11 @@ def plot_scatter(
     ax.set_xlabel(x)
     ax.set_ylabel(y)
     ax.set_title(f"{x} vs {y} ({mode_slot})")
-    if x_limit: ax.set_xlim(x_limit)
-    if y_limit: ax.set_ylim(y_limit)
+
+    if x_limit:
+        ax.set_xlim(x_limit)
+    if y_limit:
+        ax.set_ylim(y_limit)
 
     # Diagonal
     if diagonal:
@@ -1539,3 +1569,57 @@ def plot_gene_progressive_timecourse(
     plt.show()
 
 
+#TODO noch nicht einmal getestet
+def plot_ma(
+    data: GrandPy,
+    analysis: Optional[str] = None,
+    p_cutoff: float = 0.05,
+    lfc_cutoff: float = 1.0,
+    annotate_numbers: bool = True,
+    path_for_save: Optional[str] = None
+):
+    if analysis is None:
+        analysis = data.analyses[0]
+
+    df = data.get_analysis_table(
+        analyses=analysis,
+        regex=False,
+        columns=["M", "LFC", "Q"],
+        with_gene_info=False
+    )
+
+    if "Q" not in df.columns:
+        df["Q"] = 1.0
+    df["Q"] = df["Q"].fillna(1.0)
+
+    x_vals = df["M"].to_numpy() + 1
+    y_vals = df["LFC"].to_numpy()
+    q_vals = df["Q"].to_numpy()
+
+    colors = np.where(q_vals < p_cutoff, "black", "gray")
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.scatter(x_vals, y_vals, c=colors, s=10, alpha=0.7)
+
+    ax.set_xscale("log")
+    ax.set_xlabel("Total expression")
+    ax.set_ylabel(r"$\log_2$ Fold Change (LFC)")
+    ax.set_title(analysis)
+
+    if lfc_cutoff != 0:
+        ax.axhline(y=lfc_cutoff, linestyle="--", color="gray")
+        ax.axhline(y=-lfc_cutoff, linestyle="--", color="gray")
+    else:
+        ax.axhline(y=0, linestyle="--", color="gray")
+
+    if annotate_numbers:
+        up = np.sum((y_vals > lfc_cutoff) & (q_vals < p_cutoff))
+        down = np.sum((y_vals < -lfc_cutoff) & (q_vals < p_cutoff))
+        ax.annotate(f"n={up}", xy=(x_vals.max(), y_vals.max()), xycoords="data",
+                    ha="right", va="top")
+        ax.annotate(f"n={down}", xy=(x_vals.max(), y_vals.min()), xycoords="data",
+                    ha="right", va="bottom")
+
+    plt.tight_layout()
+    plt.show()
+    plt.close()
