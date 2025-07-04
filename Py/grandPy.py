@@ -2102,6 +2102,11 @@ class GrandPy:
 
         return _normalize_tpm(self, genes=genes, name=name, slot=slot, set_to_default=set_to_default, total_len=total_len)
 
+    def normalize_rpm(self, genes= None, name: str = "norm", slot: str = "count", set_to_default = True, factor = 1e6):
+        from Py.processing import _normalize_rpm
+
+        return _normalize_rpm(self, genes=genes, name=name, slot=slot, factor=factor)
+
     # ----- modeling functions -----
     def fit_kinetics(
             self,
