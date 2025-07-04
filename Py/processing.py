@@ -267,15 +267,17 @@ def _normalize(
         if matrix_for_size.ndim == 1:
             matrix_for_size = matrix_for_size[np.newaxis, :]
 
-        log_mat = np.log(matrix_for_size)
+        jitter = 1e-8
+        safe_matrix = np.where(matrix_for_size == 0, jitter, matrix_for_size)
+        log_mat = np.log(safe_matrix)
         log_geomeans = np.mean(log_mat, axis=1)
 
         # Größe des Arrays
-        n_cols = matrix_for_size.shape[1]
+        n_cols = safe_matrix.shape[1]
         size_factors = np.zeros(n_cols)
 
         for i in range(n_cols):
-            counts = matrix_for_size[:, i]
+            counts = safe_matrix[:, i]
             valid = np.isfinite(log_geomeans) & (counts > 0)
             diffs = np.log(counts[valid]) - log_geomeans[valid]
             size_factors[i] = np.exp(np.median(diffs))
