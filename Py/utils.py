@@ -1,9 +1,13 @@
 import warnings
-from typing import Union, Iterable, Mapping, Callable, Literal, Sequence
+from typing import Union, Iterable, Callable, Literal, Sequence, TYPE_CHECKING
 import numpy as np
 import pandas as pd
 import anndata as ad
 import scipy.sparse as sp
+from pandas import DataFrame
+
+if TYPE_CHECKING:
+    from grandPy import GrandPy
 
 # General public utility functions
 def concat(
@@ -76,6 +80,7 @@ def concat(
     new_adata.uns["analyses"] = merged_analyses
 
     return objects[0]._dev_replace(anndata=new_adata)
+
 
 # General private utility functions
 def _to_sparse(matrix: Union[pd.DataFrame, np.ndarray, sp.csr_matrix]) -> sp.csr_matrix:
@@ -173,11 +178,14 @@ def _reindex_by_index_name(df: pd.DataFrame, by: pd.DataFrame) -> pd.DataFrame:
 
     return sorted_df
 
-def _subset_dense_or_sparse(matrix: Union[np.ndarray, sp.csr_matrix], row_indices: list[int], column_indices: list[int]) -> np.ndarray:
+def _subset_dense_or_sparse(
+    matrix: Union[np.ndarray, sp.csr_matrix],
+    row_indices: list[int],
+    column_indices: list[int],
+    force_numpy: bool = True
+) -> Union[np.ndarray, sp.csr_matrix]:
     """
     Subsets dense or sparse matrices by given row and column indices.
-
-    Not optimal for sparse matrices, as they are converted to np.ndarray.
 
     Parameters
     ----------
@@ -190,18 +198,21 @@ def _subset_dense_or_sparse(matrix: Union[np.ndarray, sp.csr_matrix], row_indice
     column_indices: list[int]
         The column indices to subset by.
 
+    force_numpy: bool, default=True
+        If True, the result is always returned as a np.ndarray.
+        Otherwise, the result retains the type of the input (sparse or dense).
+
     Returns
     -------
-    np.ndarray
-        The subsetted matrix.
+    np.ndarray or sp.csr_matrix
+        The subsetted matrix, in the desired format.
     """
     if sp.issparse(matrix):
-        # matrix = matrix.tocsr()
-        data_subset = matrix[np.ix_(row_indices, column_indices)].toarray()
+        subset = matrix[np.ix_(row_indices, column_indices)]
+        return subset.toarray().squeeze() if force_numpy else subset
     else:
-        data_subset = matrix[np.ix_(row_indices, column_indices)]
-
-    return data_subset.squeeze()
+        subset = matrix[np.ix_(row_indices, column_indices)]
+        return subset.squeeze()
 
 def _ensure_list(obj):
     if obj is None:
@@ -213,38 +224,50 @@ def _ensure_list(obj):
     return list(obj)
 
 
-# Not used anymore
+def _get_kinetics_data(
+            self,
+            fit_type: Literal["nlls", "ntr", "chase"] = "nlls",
+            *,
+            slot: str = None,
+            genes: Union[str, Sequence[str]] = None,
+            name_prefix: Union[str, None] = None,
+            time: Union[np.ndarray, pd.Series, list] = None,
+            ci_size: float = 0.95,
+            return_fields: Union[str, Sequence[str]] = None,
+            show_progress: bool = True,
+            **kwargs
+    ) -> dict[str, DataFrame]:
+    """
+    This function is almost the same as `GrandPy.fit_kinetics`.
+    The only difference is that it returns the kinetics data instead of the fitted model.
+    """
+    from Py.slot_tool import ModeSlot
+    from Py.modeling import fit_kinetics
 
-# # modeling helper function
-# def _extract_fit_series(
-#         fit_result: Union[dict, Mapping[str, dict]],
-#         condition: str,
-#         name_prefix: str,
-#         return_fields: list
-# ) -> pd.Series:
-#     """
-#     Convert kinetic fit results to a pandas Series for a specific condition.
-#
-#     Parameters
-#     ----------
-#     fit_result : dict or dict[str, dict]
-#         The result of a kinetic model fit, optionally nested by condition.
-#     condition : str
-#         The condition to extract results for (if fit is per condition).
-#     return_fields : list[str]
-#         List of fields to include in the output.
-#
-#     Returns
-#     -------
-#     pd.Series
-#         A flattened Series for one gene.
-#     """
-#     result = fit_result if condition is None else fit_result.get(condition, {})
-#
-#     output = {}
-#
-#     if return_fields is not None:
-#         for field in return_fields:
-#             output[f"{name_prefix}{condition}_{field}"] = result.get(field, np.nan)
-#
-#     return pd.Series(output)
+    if slot is None:
+        slot = self.default_slot
+    if return_fields is None:
+        return_fields = ["Synthesis", "Half-life"]
+    return_fields = _ensure_list(return_fields)
+
+    name_prefix = f"{name_prefix}_" if name_prefix else ""
+
+    condition_vector = self.coldata["Condition"].values
+
+    time = np.array(time) if time is not None else self.coldata["Time"].values
+
+    new_slot = "ntr" if fit_type == "chase" else ModeSlot("new", slot)
+    new_mat = np.atleast_2d(self.get_matrix(mode_slot=new_slot, genes=genes))
+    old_mat = np.atleast_2d(self.get_matrix(mode_slot=ModeSlot("old", slot), genes=genes))
+
+    genes_to_fit = self.get_genes(genes)
+
+    slot_data = self.get_matrix(slot) if fit_type == "chase" else None
+    slot_names = np.array(self._adata.var_names) if fit_type == "chase" else None
+
+    kinetics = fit_kinetics(fit_type=fit_type, cond_vec=condition_vector, new_mat=new_mat, old_mat=old_mat,
+                            genes=genes_to_fit, name_prefix=name_prefix, time=time, slot_data=slot_data,
+                            slot_names=slot_names, ci_size=ci_size, return_fields=return_fields,
+                            show_progress=show_progress, **kwargs)
+
+    return kinetics

@@ -1,20 +1,10 @@
-from typing import Any, Union, Sequence, Literal, Mapping, Callable, TYPE_CHECKING
+from typing import Any, Union, Sequence, Literal, TYPE_CHECKING
 import numpy as np
 import pandas as pd
-import anndata as ad
-import scipy.sparse as sp
 from scipy.stats import t
 from functools import cached_property
 from dataclasses import dataclass
 from scipy.optimize import least_squares, OptimizeResult
-
-
-from Py.slot_tool import ModeSlot
-
-
-if TYPE_CHECKING:
-    from Py.grandPy import GrandPy
-
 
 @np.vectorize
 def f_old_equi(t, s, d):
@@ -54,6 +44,41 @@ def make_res_jac(t_old, v_old, t_new, v_new, chase: bool):
 
 @dataclass
 class FitResult:
+    """
+    Container for the result of a kinetic parameter fit.
+
+    This object stores fitted synthesis and degradation rates, predicted values, residuals,
+    diagnostics like RMSE or log-likelihood, and confidence intervals.
+
+    Attributes
+    ----------
+    t_old, v_old : np.ndarray
+        Time points and observed values for old RNA.
+
+    t_new, v_new : np.ndarray
+        Time points and observed values for new RNA.
+
+    chase : bool
+        Whether the fit was done in chase mode (no v_old data).
+
+    slot_total : float or None
+        Total expression used in chase mode for back-calculation.
+
+    opt_result : OptimizeResult
+        The result object returned by `scipy.optimize.least_squares`.
+
+    ci_size : float
+        Size of the confidence interval for parameter estimation.
+
+    Notes
+    -----
+    All derived quantities like predictions, residuals, or confidence intervals are computed as
+    cached properties and lazily evaluated.
+
+    See Also
+    --------
+    fit_kinetics_gene_least_squares : Function to generate this object.
+    """
     t_old: np.ndarray = np.nan
     v_old: np.ndarray = np.nan
     t_new: np.ndarray = np.nan
@@ -233,7 +258,6 @@ class FitResult:
 
 
 
-
 def fit_kinetics_gene_least_squares(
     t_new: np.ndarray,
     v_new: np.ndarray,
@@ -245,8 +269,56 @@ def fit_kinetics_gene_least_squares(
     chase: bool = False,
     slot_data: np.ndarray = None,
     slot_names: np.ndarray = None,
-    gene: str = None
+    gene: Union[str, int, Sequence[Union[str, int, bool]]] = None
 ) -> FitResult:
+    """
+   Fit synthesis and degradation rates to old/new RNA data for a single gene using non-linear least squares.
+
+   This function implements a least-squares optimization to infer kinetic parameters from time-resolved data.
+   Optionally supports "chase" mode for experiments where labeled RNA is decaying.
+
+   Parameters
+   ----------
+   t_new : np.ndarray
+       Time points corresponding to the new (nascent) RNA values.
+
+   v_new : np.ndarray
+       Observed values of new RNA.
+
+   t_old : np.ndarray
+       Time points corresponding to the old RNA values.
+
+   v_old : np.ndarray
+       Observed values of old RNA.
+
+   ci_size : float, optional
+       Confidence interval level (between 0 and 1), by default 0.95.
+
+   maxiter : int, optional
+       Maximum number of optimization iterations, by default 250.
+
+   chase : bool, optional
+       Whether to perform the fit in "chase" mode (only v_new is used), by default False.
+
+   slot_data : np.ndarray, optional
+       Optional total expression values used to estimate initial concentration in chase mode.
+
+   slot_names : np.ndarray, optional
+       Gene names corresponding to `slot_data`.
+
+   gene : str or int or Sequence[str or int or bool], optional
+       The gene symbol currently being fit. Either by their index, their symbol, their ensamble id, or a boolean mask.
+
+   Returns
+   -------
+   FitResult
+       A container object holding fitted parameters, residuals, confidence intervals, and diagnostics.
+
+   See Also
+   --------
+   FitResult
+       Object encapsulating result and post-fit statistics.
+   """
 
     if t_new.size + t_old.size == 0:
         return FitResult(ci_size=ci_size)
@@ -283,109 +355,126 @@ def fit_kinetics_gene_least_squares(
         opt_result=result, ci_size=ci_size
     )
 
+def fit_kinetics_gene_least_squares_chase(
+        t_new: np.ndarray,
+        v_new: np.ndarray,
+        t_old: np.ndarray,
+        v_old: np.ndarray,
+        *,
+        ci_size: float = 0.95,
+        maxiter: int = 250,
+        slot_data: np.ndarray = None,
+        slot_names: np.ndarray = None,
+        gene: Union[str, int, Sequence[Union[str, int, bool]]] = None
+) -> FitResult:
+    """
+    This function only exists due to parallelization issues.
+    """
+    return fit_kinetics_gene_least_squares(t_new=t_new, v_new=v_new, t_old=t_old, v_old=v_old, ci_size=ci_size,
+                                           maxiter=maxiter, chase=True, slot_data=slot_data, slot_names=slot_names, gene=gene)
+
 
 def fit_kinetics(
-    data: "GrandPy",
-    fit_type: Literal["nlls", "chase"] = "nlls",
+    fit_type: Literal["nlls", "ntr", "chase"] = "nlls",
     *,
-    slot: str = None,
-    genes: Union[str, Sequence[str]] = None,
+    cond_vec: np.ndarray = None,
+    new_mat: np.ndarray = None,
+    old_mat: np.ndarray = None,
+    genes: Union[str, int, Sequence[Union[str, int, bool]]] = None,
     name_prefix: Union[str, None] = None,
     time: Union[np.ndarray, pd.Series, list] = None,
+    slot_data: np.ndarray = None,
+    slot_names: np.ndarray = None,
     ci_size: float = 0.95,
     return_fields: Sequence[str] = None,
+    show_progress: bool = True,
     **kwargs
-) -> "GrandPy":
-    name_prefix = f"{name_prefix}_" if name_prefix else ""
-    genes_to_fit = data.get_genes(genes)
+) -> dict[str, pd.DataFrame]:
+    from concurrent.futures import ProcessPoolExecutor, as_completed
+    if show_progress:
+        from tqdm import tqdm
 
     # choose fit function
     fit_func = {
         "nlls": fit_kinetics_gene_least_squares,
-        "chase": lambda **kw: fit_kinetics_gene_least_squares(**kw, chase=True)
-    }.get(fit_type.lower())
+        "chase": fit_kinetics_gene_least_squares_chase
+    }.get(fit_type)
     if fit_func is None:
         raise ValueError(f"Unknown fit type: {fit_type}")
 
-    full_time = np.array(time) if time is not None else data.coldata["Time"].values
-    cond_vec = data.coldata["Condition"].values
     unique_conditions = np.unique(cond_vec)
 
-    # load all matrices once
-    new_slot = "ntr" if fit_type == "chase" else ModeSlot("new", slot)
-    new_mat = np.atleast_2d(data.get_matrix(mode_slot=new_slot, genes=genes_to_fit))
-    old_mat = np.atleast_2d(data.get_matrix(mode_slot=ModeSlot("old", slot), genes=genes_to_fit))
-
-    # optional chase data
-    slot_data = data.get_matrix(slot) if fit_type == "chase" else None
-    slot_names = np.array(data._adata.var_names) if fit_type == "chase" else None
+    result = {}
 
     for cond in unique_conditions:
         idx = np.where(cond_vec == cond)[0]
-        t_cond = full_time[idx]
+        t_cond = time[idx]
         new_cond = new_mat[:, idx]
         old_cond = old_mat[:, idx]
 
-        # accumulate results
-        rows = []
-        symbols = []
-        for gene_index, gene in enumerate(genes_to_fit):
-            new_vals = new_cond[gene_index, :]
-            old_vals = old_cond[gene_index, :]
+        jobs = []
+        with ProcessPoolExecutor() as executor:
+            for gene_index, gene in enumerate(genes):
+                new_vals = new_cond[gene_index, :]
+                old_vals = old_cond[gene_index, :]
 
-            res = fit_func(
-                t_new=t_cond,
-                v_new=new_vals,
-                t_old=t_cond,
-                v_old=old_vals,
-                ci_size=ci_size,
-                gene=gene,
-                slot_data=slot_data,
-                slot_names=slot_names,
-                **kwargs
-            )
-            series = res.to_series(condition=cond, prefix=name_prefix, fields=return_fields)
-            rows.append(series.values)
-            symbols.append(gene)
+                job = executor.submit(
+                    fit_func,
+                    t_new=t_cond,
+                    v_new=new_vals,
+                    t_old=t_cond,
+                    v_old=old_vals,
+                    ci_size=ci_size,
+                    gene=gene,
+                    slot_data=slot_data,
+                    slot_names=slot_names,
+                    **kwargs
+                )
+                jobs.append((gene, job))
+
+            rows = []
+            symbols = []
+
+            if show_progress:
+                for gene, future in tqdm(jobs, desc=f"Fitting {cond}", total=len(jobs)):
+                    res = future.result()
+                    series = res.to_series(condition=cond, prefix=name_prefix, fields=return_fields)
+                    rows.append(series.values)
+                    symbols.append(gene)
+            else:
+                for gene, future in jobs:
+                    res = future.result()
+                    series = res.to_series(condition=cond, prefix=name_prefix, fields=return_fields)
+                    rows.append(series.values)
+                    symbols.append(gene)
 
         df = pd.DataFrame(np.vstack(rows), index=symbols, columns=series.index)
         df.index.name = "Symbol"
-        data = data.with_analysis(name=f"{name_prefix}kinetics_{cond}", table=df)
+        result[f"{name_prefix}kinetics_{cond}"] = df
 
-    return data
+    return result
 
-# Eine Paralellisierte Version des for-loops
+
+
+# Non parallel version of the for loop. Faster for less genes (ca. <1500), but a lot slower for a large amount of genes.
+
+# rows = []
+# symbols = []
+# for gene_index, gene in enumerate(genes_to_fit):
+#     new_vals = new_cond[gene_index, :]
+#     old_vals = old_cond[gene_index, :]
 #
-# from concurrent.futures import ProcessPoolExecutor, as_completed
-#
-# jobs = []
-#         with ProcessPoolExecutor() as executor:
-#             for gene_index, gene in enumerate(genes_to_fit):
-#                 new_vals = new_cond[gene_index, :]
-#                 old_vals = old_cond[gene_index, :]
-#
-#                 job = executor.submit(
-#                     fit_func,
-#                     t_new=t_cond,
-#                     v_new=new_vals,
-#                     t_old=t_cond,
-#                     v_old=old_vals,
-#                     ci_size=ci_size,
-#                     gene=gene,
-#                     slot_data=slot_data,
-#                     slot_names=slot_names,
-#                     **kwargs
-#                 )
-#                 jobs.append((gene, job))
-#
-#             rows = []
-#             symbols = []
-#             for gene, future in jobs:
-#                 res = future.result()
-#                 series = res.to_series(condition=cond, prefix=name_prefix, fields=return_fields)
-#                 rows.append(series.values)
-#                 symbols.append(gene)
-#
-#         df = pd.DataFrame(np.vstack(rows), index=symbols, columns=series.index)
-#         df.index.name = "Symbol"
-#         data = data.with_analysis(name=f"{name_prefix}kinetics_{cond}", table=df)
+#     res = fit_func(
+#         t_new=t_cond,
+#         v_new=new_vals,
+#         t_old=t_cond,
+#         v_old=old_vals,
+#         ci_size=ci_size,
+#         gene=gene,
+#         slot_data=slot_data,
+#         slot_names=slot_names,
+#         **kwargs
+#     )
+#     series = res.to_series(condition=cond, prefix=name_prefix, fields=return_fields)
+#     rows.append(series.values)
+#     symbols.append(gene)
