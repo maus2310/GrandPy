@@ -1,4 +1,4 @@
-from typing import Any, Union, Sequence, Literal, TYPE_CHECKING
+from typing import Any, Union, Sequence, Literal, TYPE_CHECKING, Mapping
 import numpy as np
 import pandas as pd
 from scipy.stats import t
@@ -14,7 +14,7 @@ def f_old_equi(t, s, d):
 def f_new(t, s, d):
     return s / d * (1 - np.exp(-d * t))
 
-def make_res_jac(t_old, v_old, t_new, v_new, chase: bool):
+def make_res_jac_equi(t_old, v_old, t_new, v_new, chase: bool):
     def res_fun(par):
         s, d = par
         ro = np.zeros_like(v_old) if chase else v_old - f_old_equi(t_old, s, d)
@@ -41,6 +41,36 @@ def make_res_jac(t_old, v_old, t_new, v_new, chase: bool):
                           np.concatenate([j_old_d, j_new_d])]).T
     return res_fun, jac
 
+def make_res_jac_nonequi(t_old, v_old, t_new, v_new):
+    def res_fun(par):
+        s, d, f0 = par
+        pred_old = f0 * np.exp(-d * t_old)
+        pred_new = s / d * (1 - np.exp(-d * t_new))
+        return np.concatenate([v_old - pred_old, v_new - pred_new])
+
+    def jac(par):
+        s, d, f0 = par
+        exp_o = np.exp(-d * t_old)
+        exp_n = np.exp(-d * t_new)
+
+        # r_old derivatives
+        j_old_s = np.zeros_like(t_old)
+        j_old_d = f0 * t_old * exp_o
+        j_old_f0 = -exp_o
+
+        # r_new derivatives
+        j_new_s = -(1 - exp_n) / d
+        j_new_d = s / d**2 * (1 - exp_n) - s / d * t_new * exp_n
+        j_new_f0 = np.zeros_like(t_new)
+
+        J = np.vstack([
+            np.concatenate([j_old_s, j_new_s]),
+            np.concatenate([j_old_d, j_new_d]),
+            np.concatenate([j_old_f0, j_new_f0])
+        ]).T
+        return J
+
+    return res_fun, jac
 
 @dataclass
 class FitResult:
@@ -70,6 +100,9 @@ class FitResult:
     ci_size : float
         Size of the confidence interval for parameter estimation.
 
+    steady_state : bool
+        Wether to use steady for a condition.
+
     Notes
     -----
     All derived quantities like predictions, residuals, or confidence intervals are computed as
@@ -87,6 +120,7 @@ class FitResult:
     slot_total: float = None
     opt_result: OptimizeResult = None
     ci_size: float = 0.95
+    steady_state: Union[bool, Mapping[str, bool]] = True
 
     # --- Core Parameters ---
     @cached_property
@@ -115,13 +149,13 @@ class FitResult:
     def pred_old(self) -> np.ndarray:
         if self.chase:
             return np.zeros_like(self.t_old)
-        return self.synthesis * self.inv_deg * self.exp_old
+        return self.synthesis * self.inv_deg * np.exp(-self.degradation * self.t_old)
 
     @cached_property
     def pred_new(self) -> np.ndarray:
         if self.chase:
-            return self.synthesis * self.inv_deg * self.exp_new
-        return self.synthesis * self.inv_deg * (1 - self.exp_new)
+            return self.synthesis * self.inv_deg * np.exp(-self.degradation * self.t_new)
+        return self.synthesis * self.inv_deg * (1 - np.exp(-self.degradation * self.t_new))
 
     # --- Residuals ---
     @cached_property
@@ -181,21 +215,31 @@ class FitResult:
 
     @cached_property
     def f0(self) -> float:
-        return self.total_expr if self.degradation > 0 else np.nan
+        if self.opt_result is None:
+            return np.nan
+        if self.steady_state:
+            return self.synthesis / self.degradation if self.degradation > 0 else np.nan
+        if len(self.opt_result.x) >= 3:
+            return self.opt_result.x[2]
+        return np.nan
 
     @cached_property
     def ci_bounds(self) -> tuple[np.ndarray, np.ndarray]:
         if self.opt_result is None or self.opt_result.jac is None:
             return np.full(2, np.nan), np.full(2, np.nan)
+
         try:
             J = self.opt_result.jac
-            dof = len(self.v_old) + len(self.v_new) - len(self.opt_result.x)
+            if J.shape[1] > 2:
+                J = J[:, :2]
+            dof = len(self.v_old) + len(self.v_new) - J.shape[1]
+            if dof <= 0:
+                return np.full(2, np.nan), np.full(2, np.nan)
             cov = np.linalg.pinv(J.T @ J)
             se = np.sqrt(np.diag(cov))
-            alpha = 1 - self.ci_size
-            tval = t.ppf(1 - alpha / 2, df=dof)
-            lower = self.opt_result.x - tval * se
-            upper = self.opt_result.x + tval * se
+            tval = t.ppf(1 - (1 - self.ci_size) / 2, df=dof)
+            lower = self.opt_result.x[:2] - tval * se
+            upper = self.opt_result.x[:2] + tval * se
             return lower, upper
         except Exception:
             return np.full(2, np.nan), np.full(2, np.nan)
@@ -267,6 +311,7 @@ def fit_kinetics_gene_least_squares(
     ci_size: float = 0.95,
     maxiter: int = 250,
     chase: bool = False,
+    steady_state: bool = None,
     slot_data: np.ndarray = None,
     slot_names: np.ndarray = None,
     gene: Union[str, int, Sequence[Union[str, int, bool]]] = None
@@ -300,6 +345,9 @@ def fit_kinetics_gene_least_squares(
    chase : bool, optional
        Whether to perform the fit in "chase" mode (only v_new is used), by default False.
 
+    steady_state : bool, optional
+        Wheter to use steady for a condition.
+
    slot_data : np.ndarray, optional
        Optional total expression values used to estimate initial concentration in chase mode.
 
@@ -323,26 +371,29 @@ def fit_kinetics_gene_least_squares(
     if t_new.size + t_old.size == 0:
         return FitResult(ci_size=ci_size)
 
-    res_fun, jac = make_res_jac(t_old, v_old, t_new, v_new, chase)
-
-    # Initial guess
-    mean_new = np.mean(v_new)
-    mean_old = np.mean(v_old)
-    s0 = (mean_new + mean_old) * 0.5
-    d0 = 0.1 if mean_new > 0 else 0.01
-    x0 = [s0, d0]
+    if steady_state:
+        res_fun, jac = make_res_jac_equi(t_old, v_old, t_new, v_new, chase)
+        x0 = [np.mean(v_old), 0.1]
+        bounds = ([0, 1e-4], [np.inf, np.inf])
+    else:
+        res_fun, jac = make_res_jac_nonequi(t_old, v_old, t_new, v_new)
+        s0 = np.maximum(np.max(v_new[t_new > 0] / t_new[t_new > 0]), 0.1)
+        d0 = 0.1
+        f00 = np.mean(v_old[t_old == 0]) if np.any(t_old == 0) else np.mean(v_old)
+        x0 = [s0, d0, f00]
+        bounds = ([0, 1e-4, 0], [np.inf, np.inf, np.inf])
 
     result = least_squares(
         res_fun,
         x0=x0,
         jac=jac,
-        bounds=([0, 1e-4], [np.inf, np.inf]),
+        bounds=bounds,
         max_nfev=maxiter
     )
     if not result.success or result.nfev >= maxiter:
         return FitResult(ci_size=ci_size)
 
-    # Optional slot total
+    # Optional slot total for chase
     lvl_val = None
     if chase and slot_data is not None and slot_names is not None:
         idx = slot_names == gene
@@ -352,7 +403,8 @@ def fit_kinetics_gene_least_squares(
         t_old=t_old, v_old=v_old,
         t_new=t_new, v_new=v_new,
         chase=chase, slot_total=lvl_val,
-        opt_result=result, ci_size=ci_size
+        opt_result=result, ci_size=ci_size,
+        steady_state=steady_state
     )
 
 def fit_kinetics_gene_least_squares_chase(
@@ -363,6 +415,7 @@ def fit_kinetics_gene_least_squares_chase(
         *,
         ci_size: float = 0.95,
         maxiter: int = 250,
+        steady_state: bool = None,
         slot_data: np.ndarray = None,
         slot_names: np.ndarray = None,
         gene: Union[str, int, Sequence[Union[str, int, bool]]] = None
@@ -371,7 +424,8 @@ def fit_kinetics_gene_least_squares_chase(
     This function only exists due to parallelization issues.
     """
     return fit_kinetics_gene_least_squares(t_new=t_new, v_new=v_new, t_old=t_old, v_old=v_old, ci_size=ci_size,
-                                           maxiter=maxiter, chase=True, slot_data=slot_data, slot_names=slot_names, gene=gene)
+                                           maxiter=maxiter, chase=True, slot_data=slot_data, slot_names=slot_names,
+                                           steady_state=steady_state, gene=gene)
 
 
 def fit_kinetics(
@@ -387,6 +441,7 @@ def fit_kinetics(
     slot_names: np.ndarray = None,
     ci_size: float = 0.95,
     return_fields: Sequence[str] = None,
+    steady_state: Union[bool, Mapping[str, bool]] = True,
     show_progress: bool = True,
     **kwargs
 ) -> dict[str, pd.DataFrame]:
@@ -394,7 +449,13 @@ def fit_kinetics(
     if show_progress:
         from tqdm import tqdm
 
-    # choose fit function
+    # An arbitrary threshold, where paralalization is probably slower.
+    if len(genes) <= 1500:
+        parallel = False
+    else:
+        parallel = True
+
+    # choose a fit function
     fit_func = {
         "nlls": fit_kinetics_gene_least_squares,
         "chase": fit_kinetics_gene_least_squares_chase
@@ -404,6 +465,9 @@ def fit_kinetics(
 
     unique_conditions = np.unique(cond_vec)
 
+    if isinstance(steady_state, bool):
+        steady_state = {cond: steady_state for cond in unique_conditions}
+
     result = {}
 
     for cond in unique_conditions:
@@ -411,39 +475,88 @@ def fit_kinetics(
         t_cond = time[idx]
         new_cond = new_mat[:, idx]
         old_cond = old_mat[:, idx]
+        condition_steady_state = steady_state[cond]
 
-        jobs = []
-        with ProcessPoolExecutor() as executor:
-            for gene_index, gene in enumerate(genes):
-                new_vals = new_cond[gene_index, :]
-                old_vals = old_cond[gene_index, :]
+        if parallel:
+            jobs = []
+            with ProcessPoolExecutor() as executor:
+                for gene_index, gene in enumerate(genes):
+                    new_vals = new_cond[gene_index, :]
+                    old_vals = old_cond[gene_index, :]
 
-                job = executor.submit(
-                    fit_func,
-                    t_new=t_cond,
-                    v_new=new_vals,
-                    t_old=t_cond,
-                    v_old=old_vals,
-                    ci_size=ci_size,
-                    gene=gene,
-                    slot_data=slot_data,
-                    slot_names=slot_names,
-                    **kwargs
-                )
-                jobs.append((gene, job))
+                    job = executor.submit(
+                        fit_func,
+                        t_new=t_cond,
+                        v_new=new_vals,
+                        t_old=t_cond,
+                        v_old=old_vals,
+                        ci_size=ci_size,
+                        gene=gene,
+                        slot_data=slot_data,
+                        slot_names=slot_names,
+                        steady_state=condition_steady_state,
+                        **kwargs
+                    )
+                    jobs.append((gene, job))
 
+                rows = []
+                symbols = []
+
+                if show_progress:
+                    for gene, future in tqdm(jobs, desc=f"Fitting {cond}", total=len(jobs)):
+                        res = future.result()
+                        series = res.to_series(condition=cond, prefix=name_prefix, fields=return_fields)
+                        rows.append(series.values)
+                        symbols.append(gene)
+                else:
+                    for gene, future in jobs:
+                        res = future.result()
+                        series = res.to_series(condition=cond, prefix=name_prefix, fields=return_fields)
+                        rows.append(series.values)
+                        symbols.append(gene)
+
+        else:
             rows = []
             symbols = []
 
             if show_progress:
-                for gene, future in tqdm(jobs, desc=f"Fitting {cond}", total=len(jobs)):
-                    res = future.result()
+                for gene_index, gene in tqdm(enumerate(genes), total=len(genes), desc="Fitting Genes"):
+                    new_vals = new_cond[gene_index, :]
+                    old_vals = old_cond[gene_index, :]
+
+                    res = fit_func(
+                        t_new=t_cond,
+                        v_new=new_vals,
+                        t_old=t_cond,
+                        v_old=old_vals,
+                        ci_size=ci_size,
+                        gene=gene,
+                        slot_data=slot_data,
+                        slot_names=slot_names,
+                        steady_state=condition_steady_state,
+                        **kwargs
+                    )
                     series = res.to_series(condition=cond, prefix=name_prefix, fields=return_fields)
                     rows.append(series.values)
                     symbols.append(gene)
+
             else:
-                for gene, future in jobs:
-                    res = future.result()
+                for gene_index, gene in enumerate(genes):
+                    new_vals = new_cond[gene_index, :]
+                    old_vals = old_cond[gene_index, :]
+
+                    res = fit_func(
+                        t_new=t_cond,
+                        v_new=new_vals,
+                        t_old=t_cond,
+                        v_old=old_vals,
+                        ci_size=ci_size,
+                        gene=gene,
+                        slot_data=slot_data,
+                        slot_names=slot_names,
+                        steady_state=condition_steady_state,
+                        **kwargs
+                    )
                     series = res.to_series(condition=cond, prefix=name_prefix, fields=return_fields)
                     rows.append(series.values)
                     symbols.append(gene)
