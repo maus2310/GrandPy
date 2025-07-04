@@ -2097,6 +2097,10 @@ class GrandPy:
 
         return _normalize_fpkm(self, genes=genes, name=name, slot=slot, set_to_default=set_to_default, total_len = total_len)
 
+    def normalize_tpm(self, genes=None, name: str = "tpm", slot: str = "count", set_to_default=True, total_len=None):
+        from Py.processing import _normalize_tpm
+
+        return _normalize_tpm(self, genes=genes, name=name, slot=slot, set_to_default=set_to_default, total_len=total_len)
 
     # ----- modeling functions -----
     def fit_kinetics(
