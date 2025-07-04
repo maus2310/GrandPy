@@ -285,7 +285,7 @@ class GrandPy:
         )
 
 
-    # Basic properties and methods.
+    # ----- Basic properties and methods -----
     @property
     def title(self) -> str:
         """
@@ -344,7 +344,7 @@ class GrandPy:
         return self._dev_replace(metadata=new_metadata)
 
 
-    # All slot methods.
+    # ----- All slot methods ------
     @property
     def _slot_manager(self) -> SlotTool:
         return SlotTool(self._adata, self._is_sparse)
@@ -504,7 +504,7 @@ class GrandPy:
         return self._dev_replace(slots=new_slots)
 
 
-    # All analysis methods.
+    # ----- All analysis methods -----
     @property
     def _analysis_manager(self):
         return AnalysisTool(self._adata)
@@ -640,7 +640,7 @@ class GrandPy:
         return self._dev_replace(analyses=new_analyses)
 
 
-    # All plot methods.
+    # ----- All plot methods -----
     @property
     def _plot_manager(self):
         return PlotTool(self._adata)
@@ -814,7 +814,7 @@ class GrandPy:
 
 
 
-    # Remaining methods. Mostly methods relating to coldata, gene_info or metadata.
+    # ----- Remaining methods relating to coldata, gene_info or metadata -----
     @property
     def metadata(self) -> dict[str, Any]:
         """
@@ -1509,6 +1509,34 @@ class GrandPy:
 
         return concat(objects, axis=axis, join=join, merge=merge)
 
+    def split(self, by: str = "Condition") -> list:
+        """
+        Split the GrandPy object into a list of GrandPy objects based on a column in coldata.
+
+        Parameters
+        ----------
+        by : str, default "Condition"
+            Column in coldata to split by.
+
+        Returns
+        -------
+        list of GrandPy
+            One GrandPy object per unique value in the specified column.
+        """
+        if by not in self.coldata.columns:
+            raise ValueError(f"Column '{by}' not found in coldata.")
+
+        result = []
+        for group in self.coldata[by].unique():
+            mask = self.coldata[by] == group
+            subset = self._adata[:, mask]
+            obj = self._dev_replace(anndata=subset)
+            obj.group = group
+
+            result.append(obj)
+
+        return result
+
 
     def get_matrix(
             self,
@@ -2048,87 +2076,7 @@ class GrandPy:
         return format_ref_output(df["__group__"], group_to_refs, as_dict)
 
 
-    # TODO. deseq2_bic überarbeiten
-    # Noch fehlerhaft und unvollständig (u.a. Spalten wirken vertauscht) und EXTREM langsam (130 sec for sars.tsv)
-    def deseq2_bic(
-            self,
-            name: str = "BIC",
-            mode: Literal["new", "n", "old", "o", "total", "t"] = "total",
-            formulas: dict = None,
-            no4su: bool = False,
-            columns: Union[str, Sequence[str], Sequence[bool]] = None,
-    ) -> "GrandPy":
-        """
-
-        Parameters
-        ----------
-        name: str
-            Name of the analysis.
-        mode: {"new" or "n" or "old" or "o" or "total" or "t"}, default "total"
-            Data slot to use (e.g., 'total').
-        formulas: dict, optional
-            Dictionary of {model_name: formula_string}, e.g. {"full": "counts ~ Condition", "null": "counts ~ 1"}.
-        no4su: bool, default False
-            Whether to exclude 4sU-treated samples.
-        columns: str or Sequence[str or bool], optional
-            Manually selected sample filter.
-
-        Returns
-        -------
-        GrandPy
-            New object with the ΔBIC table added.
-        """
-        from statsmodels.formula.api import glm
-        from statsmodels.genmod.families import NegativeBinomial
-
-
-        if formulas is None:
-            formulas = {"Condition": "counts ~ Condition", "Background": "counts ~ 1"}
-
-        coldata = self.coldata
-
-        # Filter samples
-        if columns is None:
-            if no4su:
-                mask = ~coldata["no4sU"]
-                columns = coldata.index[mask].tolist()
-            else:
-                columns = coldata.index.tolist()
-        else:
-            columns = [col for col in _ensure_list(columns) if col in coldata.index]
-
-        coldata = coldata.loc[columns].copy()
-
-        count_df = self.get_data(mode_slots=ModeSlot(mode, "count"), columns=columns, with_coldata=False)
-
-        bic_per_model = {}
-
-        for model_name, formula in formulas.items():
-            bic_values = []
-            for gene in count_df.columns:
-                try:
-                    df = coldata
-                    df["counts"] = count_df[gene].values
-
-                    model = glm(formula=formula, data=df, family=NegativeBinomial(alpha=1.0)).fit()
-                    bic_values.append(model.bic_llf)
-
-                except Exception as e:
-                    warnings.warn(f"Skipping gene {gene} due to error: {e}")
-                    bic_values.append(np.nan)
-
-            bic_per_model[model_name] = bic_values
-
-        bic_df = pd.DataFrame(bic_per_model, index=count_df.columns)
-
-        # ΔBIC: subtract min BIC per gene
-        delta_bic_df = bic_df.subtract(bic_df.min(axis=1), axis=0)
-        delta_bic_df.columns = [f"{col}.dBIC" for col in delta_bic_df.columns]
-        delta_bic_df.index.name = "Symbol"
-        #
-        return self.with_analysis(name=name, table=delta_bic_df)
-
-
+    # ----- Processing functions -----
     def compute_ntr_ci(self, ci_size: float = 0.95, name_lower: str = "lower", name_upper: str = "upper")-> "GrandPy":
         from Py.processing import _compute_ntr_ci
 
@@ -2138,43 +2086,6 @@ class GrandPy:
         from Py.processing import _compute_steady_state_half_lives
 
         return _compute_steady_state_half_lives(self, time, name=name ,columns=columns, max_hl=max_hl, ci_size=ci_size, compute_ci=compute_ci, as_analysis=as_analysis)
-
-    #o1 = dense[:,dense.coldata["Condition"] == "Mock"]
-    # o2 = dense[:,dense.coldata["Condition"] == "SARS"]
-    def split(self, by: str = "Condition", verbose: bool = True) -> list:
-        """
-        Split the GrandPy object into a list of GrandPy objects based on a column in coldata.
-
-        Parameters
-        ----------
-        by : str, default "Condition"
-            Column in coldata to split by.
-
-        verbose : bool, default True
-            If True, print each split object with its group name.
-
-        Returns
-        -------
-        list of GrandPy
-            One GrandPy object per unique value in the specified column.
-        """
-        if by not in self.coldata.columns:
-            raise ValueError(f"Column '{by}' not found in coldata.")
-
-        result = []
-        for group in self.coldata[by].unique():
-            mask = self.coldata[by] == group
-            subset = self._adata[:, mask]
-            obj = self._dev_replace(anndata=subset)
-            obj.group = group
-
-            if verbose:
-                print(f"\n${group}")
-                print(obj)
-
-            result.append(obj)
-
-        return result
 
     def normalize(self, genes = None, name: str = "norm", slot: str = "count", set_to_default = True, size_factors = None, return_size_factors = False):
         from Py.processing import _normalize
@@ -2186,6 +2097,8 @@ class GrandPy:
 
         return _normalize_fpkm(self, genes=genes, name=name, slot=slot, set_to_default=set_to_default, total_len = total_len)
 
+
+    # ----- modeling functions -----
     def fit_kinetics(
             self,
             fit_type: Literal["nlls", "ntr", "chase"] = "nlls",
@@ -2272,7 +2185,7 @@ class GrandPy:
 
         name_prefix = f"{name_prefix}_" if name_prefix else ""
 
-        # Compute all necessary functions on self now so it doesn't have to be passed on (not necessary, stylistic choice)
+        # Compute all necessary functions on self now so it doesn't have to be passed on (not necessary, but seems to help performance)
         condition_vector = self.coldata["Condition"].values
 
         time = np.array(time) if time is not None else self.coldata["Time"].values
@@ -2292,9 +2205,92 @@ class GrandPy:
                                 slot_names=slot_names, ci_size=ci_size, return_fields=return_fields,
                                 show_progress=show_progress, **kwargs)
 
-        # with_analysis is responsible for the copying here, so this should not mutate self
+        # with_analysis should copy here, so this shouldn't mutate self
         new_gp = self
         for name, analysis in kinetics.items():
             new_gp = new_gp.with_analysis(name, analysis)
 
         return new_gp
+
+
+
+
+
+    # TODO. deseq2_bic überarbeiten
+    # Noch fehlerhaft und unvollständig (u.a. Spalten wirken vertauscht) und EXTREM langsam (130 sec for sars.tsv)
+    def deseq2_bic(
+            self,
+            name: str = "BIC",
+            mode: Literal["new", "n", "old", "o", "total", "t"] = "total",
+            formulas: dict = None,
+            no4su: bool = False,
+            columns: Union[str, Sequence[str], Sequence[bool]] = None,
+    ) -> "GrandPy":
+        """
+
+        Parameters
+        ----------
+        name: str
+            Name of the analysis.
+        mode: {"new" or "n" or "old" or "o" or "total" or "t"}, default "total"
+            Data slot to use (e.g., 'total').
+        formulas: dict, optional
+            Dictionary of {model_name: formula_string}, e.g. {"full": "counts ~ Condition", "null": "counts ~ 1"}.
+        no4su: bool, default False
+            Whether to exclude 4sU-treated samples.
+        columns: str or Sequence[str or bool], optional
+            Manually selected sample filter.
+
+        Returns
+        -------
+        GrandPy
+            New object with the ΔBIC table added.
+        """
+        from statsmodels.formula.api import glm
+        from statsmodels.genmod.families import NegativeBinomial
+
+        if formulas is None:
+            formulas = {"Condition": "counts ~ Condition", "Background": "counts ~ 1"}
+
+        coldata = self.coldata
+
+        # Filter samples
+        if columns is None:
+            if no4su:
+                mask = ~coldata["no4sU"]
+                columns = coldata.index[mask].tolist()
+            else:
+                columns = coldata.index.tolist()
+        else:
+            columns = [col for col in _ensure_list(columns) if col in coldata.index]
+
+        coldata = coldata.loc[columns].copy()
+
+        count_df = self.get_data(mode_slots=ModeSlot(mode, "count"), columns=columns, with_coldata=False)
+
+        bic_per_model = {}
+
+        for model_name, formula in formulas.items():
+            bic_values = []
+            for gene in count_df.columns:
+                try:
+                    df = coldata
+                    df["counts"] = count_df[gene].values
+
+                    model = glm(formula=formula, data=df, family=NegativeBinomial(alpha=1.0)).fit()
+                    bic_values.append(model.bic_llf)
+
+                except Exception as e:
+                    warnings.warn(f"Skipping gene {gene} due to error: {e}")
+                    bic_values.append(np.nan)
+
+            bic_per_model[model_name] = bic_values
+
+        bic_df = pd.DataFrame(bic_per_model, index=count_df.columns)
+
+        # ΔBIC: subtract min BIC per gene
+        delta_bic_df = bic_df.subtract(bic_df.min(axis=1), axis=0)
+        delta_bic_df.columns = [f"{col}.dBIC" for col in delta_bic_df.columns]
+        delta_bic_df.index.name = "Symbol"
+        #
+        return self.with_analysis(name=name, table=delta_bic_df)
