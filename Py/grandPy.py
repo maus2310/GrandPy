@@ -12,8 +12,8 @@ from Py.slot_tool import SlotTool, ModeSlot, _parse_as_mode_slot
 from Py.plot_tool import PlotTool, Plot
 from Py.analysis_tool import AnalysisTool
 from Py.diffexp import get_summary_matrix
-from Py.processing import filter_genes
 from Py.modeling import fit_kinetics
+from Py.processing import filter_genes
 from Py.utils import _ensure_list, _make_unique, _reindex_by_index_name, _subset_dense_or_sparse, concat
 
 
@@ -1514,12 +1514,13 @@ class GrandPy:
             self,
             mode_slot: Union[str, ModeSlot] = None,
             genes: Union[str, int, Sequence[Union[str, int]]] = None,
-            columns: Union[str, int, Sequence[Union[str, int]]] = None
+            columns: Union[str, int, Sequence[Union[str, int]]] = None,
+            force_numpy: bool = True
     ) -> Union[np.ndarray, sp.csr_matrix]:
         """
         Get the raw data from a data slot, without row or column names.
 
-        This function is mostly not needed, as get_table(), get_data() or apply() are usually better suited.
+        This function is mostly not needed, as get_table() or get_data() are usually better suited.
 
         Parameters
         ----------
@@ -1533,6 +1534,10 @@ class GrandPy:
 
         columns: str or int or Sequence[str or int]
             The samples/cells to be retrieved. Either by names, indices, or a boolean mask.
+
+        force_numpy: bool, default True
+            If True, return will always be a numpy ndarray, regardless of the type of the slots.
+            Otherwise, return the data in their actual type.
 
         Returns
         -------
@@ -1558,11 +1563,10 @@ class GrandPy:
         row_indices = self.get_index(genes)
         column_indices = [self._adata.var.index.get_loc(column) for column in self.get_columns(columns)]
 
-        data_subset = _subset_dense_or_sparse(data, row_indices, column_indices)
+        data_subset = _subset_dense_or_sparse(data, row_indices, column_indices, force_numpy=force_numpy)
 
         return data_subset
 
-    # TODO get_data() um die fehlenden Parameter aus R erweitern. (by.rows)
     def get_data(
             self,
             mode_slots: Union[str, ModeSlot, Sequence[Union[str, ModeSlot]]] = None,
@@ -1685,7 +1689,7 @@ class GrandPy:
             columns: Union[str, int, Sequence[Union[str, int]]] = None,
             *,
             with_gene_info: bool = False,
-            name_genes_by = "Symbol",
+            name_genes_by: str = "Symbol",
             summarize: pd.DataFrame = None,
             prefix: str = None,
             ntr_nan: bool = False,
@@ -2182,10 +2186,9 @@ class GrandPy:
 
         return _normalize_fpkm(self, genes=genes, name=name, slot=slot, set_to_default=set_to_default, total_len = total_len)
 
-    # TODO: Optimize fit_kinetics further, use ci_size
     def fit_kinetics(
             self,
-            fit_type: Literal["nlls", "ntr", "lm", "chase"] = "nlls",
+            fit_type: Literal["nlls", "ntr", "chase"] = "nlls",
             *,
             slot: str = None,
             genes: Union[str, Sequence[str]] = None,
@@ -2193,12 +2196,105 @@ class GrandPy:
             time: Union[np.ndarray, pd.Series, list] = None,
             ci_size: float = 0.95,
             return_fields: Union[str, Sequence[str]] = None,
+            show_progress: bool = True,
             **kwargs
     ) -> "GrandPy":
+        """
+        Fit kinetics for one or more genes using least-squares or chase-based modeling.
+
+        For each condition in the dataset, this function extracts old and new RNA data, applies a per-gene
+        kinetic model fit, and stores the results as analysis tables in the GrandPy object.
+
+        Parameters
+        ----------
+        fit_type: {'nlls' or 'ntr' or 'chase'}, default 'nlls'
+            Type of fit to perform.
+
+            - `"nlls"`: full synthesis/degradation model.
+            - `"ntr"`:
+            - `"chase"`: decay-only fitting.
+
+        slot: str, optional
+            Name of the data slot to use for old/new separation.
+
+        genes: Union[str or int or Sequence[str or int or bool], optional
+            Gene(s) to fit. Uses all by default. Specified either by their index, their symbol, their ensamble id, or a boolean mask.
+
+        name_prefix: str, optional
+            Optional prefix for naming the analysis tables.
+
+        time: array-like, optional
+            Vector of time points. If not provided, inferred from `data.coldata["Time"]`.
+
+        ci_size: float, optional
+            Confidence interval size to use in each fit, by default 0.95.
+
+        return_fields: str or Sequence[str], default ["Synthesis", "Half-life"]
+            Names of result fields to extract from each fit. The following options are available:
+
+            - `"Synthesis"`: Estimated synthesis rate (s).
+            - `"Degradation"`: Estimated degradation rate (d).
+            - `"Half-life"`: Calculated half-life (log(2) / d).
+            - `"log_likelihood"`: Log-likelihood of the fit.
+            - `"f0"`: Initial transcript abundance (approximation).
+            - `"total"`: Total RNA abundance (v_old + v_new or slot_total).
+            - `"conf_lower"`: Lower bounds of confidence intervals for s, d, and half-life.
+            - `"conf_upper"`: Upper bounds of confidence intervals for s, d, and half-life.
+            - `"rmse"`: Root mean square error over all timepoints.
+
+            Only for fit_type = "nlls" or "chase":
+
+            - `"rmse_old"`: RMSE for old RNA timepoints.
+            - `"rmse_new"`: RMSE for new RNA timepoints.
+            - `"residuals"`: Dictionary of raw and relative residuals.
+
+        show_progress: bool, default True
+            If True, a progress bar will be displayed.
+
+        **kwargs: dict
+            Additional keyword arguments passed to the per-gene fitting function.
+
+            for fit_type = "nlls" or "chase":
+
+            - maxiter : Maximum number of optimization iterations, by default 250.
+
+        Returns
+        -------
+        GrandPy
+            A new GrandPy object with analysis results added per condition.
+        """
+        # Preprocess the parameters
         if slot is None:
             slot = self.default_slot
         if return_fields is None:
             return_fields = ["Synthesis", "Half-life"]
         return_fields = _ensure_list(return_fields)
 
-        return fit_kinetics(data=self, fit_type=fit_type, slot=slot, genes=genes, name_prefix=name_prefix, time=time, ci_size=ci_size, return_fields=return_fields, **kwargs)
+        name_prefix = f"{name_prefix}_" if name_prefix else ""
+
+        # Compute all necessary functions on self now so it doesn't have to be passed on (not necessary, stylistic choice)
+        condition_vector = self.coldata["Condition"].values
+
+        time = np.array(time) if time is not None else self.coldata["Time"].values
+
+        new_slot = "ntr" if fit_type == "chase" else ModeSlot("new", slot)
+        new_mat = np.atleast_2d(self.get_matrix(mode_slot=new_slot, genes=genes))
+        old_mat = np.atleast_2d(self.get_matrix(mode_slot=ModeSlot("old", slot), genes=genes))
+
+        genes_to_fit = self.get_genes(genes)
+
+        # Optional data only for chase
+        slot_data = self.get_matrix(slot) if fit_type == "chase" else None
+        slot_names = np.array(self._adata.var_names) if fit_type == "chase" else None
+
+        kinetics = fit_kinetics(fit_type=fit_type, cond_vec=condition_vector, new_mat=new_mat, old_mat=old_mat,
+                                genes=genes_to_fit, name_prefix=name_prefix, time=time, slot_data=slot_data,
+                                slot_names=slot_names, ci_size=ci_size, return_fields=return_fields,
+                                show_progress=show_progress, **kwargs)
+
+        # with_analysis is responsible for the copying here, so this should not mutate self
+        new_gp = self
+        for name, analysis in kinetics.items():
+            new_gp = new_gp.with_analysis(name, analysis)
+
+        return new_gp
