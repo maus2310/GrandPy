@@ -213,47 +213,38 @@ def _ensure_list(obj):
     return list(obj)
 
 
-# modeling helper function
-def _extract_fit_series(
-        fit_result: Union[dict, Mapping[str, dict]],
-        condition: str,
-        name_prefix: str,
-        return_fields: list,
-        return_extra: Callable[[dict], Mapping]
-) -> pd.Series:
-    """
-    Convert kinetic fit results to a pandas Series for a specific condition.
+# Not used anymore
 
-    Parameters
-    ----------
-    fit_result : dict or dict[str, dict]
-        The result of a kinetic model fit, optionally nested by condition.
-    condition : str
-        The condition to extract results for (if fit is per condition).
-    return_fields : list[str]
-        List of fields to include in the output.
-    return_extra : Callable[[dict], dict]
-        A function that returns extra fields as a dictionary.
-
-    Returns
-    -------
-    pd.Series
-        A flattened for one gene.
-    """
-    result = fit_result if condition is None else fit_result.get(condition, {})
-
-    output = {}
-
-    if return_fields is not None:
-        for field in return_fields:
-            prefix = f"{name_prefix}_" if name_prefix else ""
-            output[f"{prefix}{condition}_{field}"] = result.get(field, np.nan)
-
-    if callable(return_extra):
-        extra = return_extra(result)
-        if isinstance(extra, Mapping):
-            output.update(extra)
-        else:
-            raise TypeError("return_extra must return a dict.")
-
-    return pd.Series(output)
+# # modeling helper function
+# def _extract_fit_series(
+#         fit_result: Union[dict, Mapping[str, dict]],
+#         condition: str,
+#         name_prefix: str,
+#         return_fields: list
+# ) -> pd.Series:
+#     """
+#     Convert kinetic fit results to a pandas Series for a specific condition.
+#
+#     Parameters
+#     ----------
+#     fit_result : dict or dict[str, dict]
+#         The result of a kinetic model fit, optionally nested by condition.
+#     condition : str
+#         The condition to extract results for (if fit is per condition).
+#     return_fields : list[str]
+#         List of fields to include in the output.
+#
+#     Returns
+#     -------
+#     pd.Series
+#         A flattened Series for one gene.
+#     """
+#     result = fit_result if condition is None else fit_result.get(condition, {})
+#
+#     output = {}
+#
+#     if return_fields is not None:
+#         for field in return_fields:
+#             output[f"{name_prefix}{condition}_{field}"] = result.get(field, np.nan)
+#
+#     return pd.Series(output)

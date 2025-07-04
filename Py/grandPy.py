@@ -82,7 +82,7 @@ class GrandPy:
             analyses: dict[str, pd.DataFrame] = None,
             plots: dict[str, dict[str, Plot]] = None
     ):
-
+        # Enforce that necessary things exist
         if gene_info is None:
             raise ValueError("GrandPy object must have gene_info.")
         if coldata is None:
@@ -103,6 +103,7 @@ class GrandPy:
         self._initialize_slots(slots)
         self._initialize_uns_data(prefix, metadata, analyses, plots)
         self._ensure_no4sU_column()
+        self._ensure_condition_column()
 
     def _initialize_slots(self, slots=None):
         for key, matrix in slots.items():
@@ -119,8 +120,16 @@ class GrandPy:
 
     def _ensure_no4sU_column(self):
         if 'no4sU' not in self._adata.var.columns:
-            warnings.warn("No no4sU entry in coldata, assuming all samples/cells as 4sU treated!")
+            warnings.warn("No 'no4sU' entry in coldata, assuming all samples/cells as 4sU treated! "
+                          "If the column is supposed to already exist, consider renaming it (see GrandPy.with_coldata())")
             self._adata.var["no4sU"] = False
+
+    def _ensure_condition_column(self):
+        if 'Condition' not in self._adata.var.columns:
+            warnings.warn("No 'Condition' entry in coldata, assuming all samples/cells as 'Control'! "
+                          "Consider changing it (see GrandPy.with_condition()) or "
+                          "renaming an existing column if it should already exist. (see GrandPy.with_coldata())")
+            self._adata.var["Condition"] = "Control"
 
 
     def __str__(self):
@@ -418,9 +427,9 @@ class GrandPy:
         """
         slots_to_remove = _ensure_list(slots_to_remove)
 
-        new_adata = self._slot_manager.with_dropped_slots(slots_to_remove)
+        new_slots, new_metadata = self._slot_manager.with_dropped_slots(slots_to_remove)
 
-        return self._dev_replace(anndata = new_adata)
+        return self._dev_replace(slots=new_slots, metadata=new_metadata)
 
     def with_slot(self, name: str, new_slot: Union[np.ndarray, pd.DataFrame, sp.csr_matrix, list], *, set_to_default = False) -> "GrandPy":
         """
@@ -436,7 +445,7 @@ class GrandPy:
         name: str
             Name of the new slot.
 
-        new_slot: Union[np.ndarray, pd.DataFrame, sp.csr_matrix]
+        new_slot: np.ndarray or pd.DataFrame or sp.csr_matrix
             The data to be added as a new slot.
 
         set_to_default: bool, default False
@@ -447,9 +456,9 @@ class GrandPy:
         GrandPy
             A new GrandPy object with the new slot added.
         """
-        new_adata = self._slot_manager.with_slot(name, new_slot, set_to_default=set_to_default)
+        new_slots, new_metadata = self._slot_manager.with_slot(name, new_slot, set_to_default=set_to_default)
 
-        return self._dev_replace(anndata = new_adata)
+        return self._dev_replace(slots=new_slots, metadata=new_metadata)
 
     def with_ntr_slot(self, as_ntr: str, save_ntr_as: str = None) -> "GrandPy":
         """
@@ -844,7 +853,14 @@ class GrandPy:
         new_gene_info = self.gene_info
 
         if isinstance(value, Mapping):
-            new_gene_info.loc[value.keys(), column] = list(value.values())
+            if isinstance(value, Mapping):
+                if all(v in new_gene_info[column].values for v in value.keys()):
+                    for match_value, new_val in value.items():
+                        new_gene_info.loc[new_gene_info[column] == match_value, column] = new_val
+                else:
+                    for row_index, new_value in value.items():
+                        if row_index in new_gene_info.index:
+                            new_gene_info.at[row_index, column] = new_value
             return self._dev_replace(gene_info = new_gene_info)
 
         if isinstance(value, pd.Series):
@@ -1149,6 +1165,10 @@ class GrandPy:
 
         Otherwise, the column will be replaced by the given value or updated if a dictionary was given.
 
+        Examples
+        --------
+
+
         Parameters
         ----------
         column : str
@@ -1166,7 +1186,13 @@ class GrandPy:
 
         if column in new_coldata.columns:
             if isinstance(value, Mapping):
-                new_coldata.loc[value.keys(), column] = list(value.values())
+                if all(v in new_coldata[column].values for v in value.keys()):
+                    for match_value, new_val in value.items():
+                        new_coldata.loc[new_coldata[column] == match_value, column] = new_val
+                else:
+                    for row_index, new_value in value.items():
+                        if row_index in new_coldata.index:
+                            new_coldata.at[row_index, column] = new_value
                 return self._dev_replace(coldata = new_coldata)
 
         new_coldata[column] = value
@@ -1180,7 +1206,6 @@ class GrandPy:
         """
         return self.coldata['Condition'].tolist()
 
-    # TODO: with_condition fixen für den Fall, das Condition anders heißt
     def with_condition(self, value: Union[str, Sequence[str], pd.Series, Mapping]) -> "GrandPy":
         """
         Set new values for all samples/cells in the coldata.
@@ -1196,7 +1221,7 @@ class GrandPy:
         GrandPy
             A new GrandPy object with the specified condition.
         """
-        new_coldata = self._adata.var.copy()
+        new_coldata = self.coldata
 
         if isinstance(value, Mapping):
             for k, v in value.items():
@@ -1209,7 +1234,7 @@ class GrandPy:
             new_coldata['Condition'] = new_coldata[value].astype(str).agg(" ".join, axis=1)
         else:
             if len(value) == 1:
-                value = value * 12
+                value = value * len(new_coldata.index)
             elif len(value) != len(new_coldata.index):
                 raise ValueError(
                     f"Number of values ({len(value)}) does not match number of samples/cells ({len(new_coldata.index)})")
@@ -1276,7 +1301,7 @@ class GrandPy:
 
     def with_renamed_columns(self, mapping: Mapping) -> "GrandPy":
         """
-        Returns a new GrandPy object with columns in all slots and corresponding rows in coldata renamed.
+        Returns a new GrandPy object with columns in slots renamed and corresponding rows in coldata.
 
         Parameters
         ----------
@@ -1570,10 +1595,11 @@ class GrandPy:
 
         name_genes_by: str, default "Symbol"
             A column in the gene_info DataFrame to be used as the name of the genes.
+            Usually either `Symbol`(Symbols) or 'Gene'(Ensembl IDs).
 
         by_rows: bool, default False
             If True, add rows if there are multiple genes or mode_slots.
-            Otehrwise, add columns
+            Otherwise, add columns.
 
         ntr_nan: bool, default False
             If True, ntr values for no4sU will be set to NaN.
@@ -1686,6 +1712,7 @@ class GrandPy:
 
         name_genes_by: str, default "Symbol"
             A column in the gene_info DataFrame to be used as the name of the genes.
+            Usually either `Symbol`(Symbols) or `Gene`(Ensembl IDs).
 
         summarize: pd.DataFrame, default None
             A summary DataFrame. This can be retrieved via GrandPy.get_summary_matrix().
@@ -1772,7 +1799,7 @@ class GrandPy:
         result_df.index = gene_names
         return result_df
 
-    # TODO: get_analysis_table() add the prefix thingey
+    # TODO: get_analysis_table() add the prefix thingey and by_rows
     def get_analysis_table(
             self,
             analyses: Union[str, int, Sequence[Union[str, int, bool]]] = None,
@@ -1805,6 +1832,7 @@ class GrandPy:
 
         name_genes_by: str, default "Symbol"
             The name of the column in the gene_info DataFrame to be used as the name of the genes.
+            Usually either `Symbol`(Symbols) or `Gene`(Ensembl IDs).
 
         Returns
         -------
@@ -2016,6 +2044,7 @@ class GrandPy:
         return format_ref_output(df["__group__"], group_to_refs, as_dict)
 
 
+    # TODO. deseq2_bic überarbeiten
     # Noch fehlerhaft und unvollständig (u.a. Spalten wirken vertauscht) und EXTREM langsam (130 sec for sars.tsv)
     def deseq2_bic(
             self,
@@ -2092,7 +2121,7 @@ class GrandPy:
         delta_bic_df = bic_df.subtract(bic_df.min(axis=1), axis=0)
         delta_bic_df.columns = [f"{col}.dBIC" for col in delta_bic_df.columns]
         delta_bic_df.index.name = "Symbol"
-
+        #
         return self.with_analysis(name=name, table=delta_bic_df)
 
 
@@ -2147,3 +2176,29 @@ class GrandPy:
         from Py.processing import _normalize
 
         return _normalize(self, genes=genes, name=name, slot=slot, set_to_default=set_to_default, size_factors=size_factors, return_size_factors=return_size_factors)
+
+    def normalize_fpkm(self, genes = None, name: str = "norm", slot: str = "count", set_to_default = True, total_len = None):
+        from Py.processing import _normalize_fpkm
+
+        return _normalize_fpkm(self, genes=genes, name=name, slot=slot, set_to_default=set_to_default, total_len = total_len)
+
+    # TODO: Optimize fit_kinetics further, use ci_size
+    def fit_kinetics(
+            self,
+            fit_type: Literal["nlls", "ntr", "lm", "chase"] = "nlls",
+            *,
+            slot: str = None,
+            genes: Union[str, Sequence[str]] = None,
+            name_prefix: Union[str, None] = None,
+            time: Union[np.ndarray, pd.Series, list] = None,
+            ci_size: float = 0.95,
+            return_fields: Union[str, Sequence[str]] = None,
+            **kwargs
+    ) -> "GrandPy":
+        if slot is None:
+            slot = self.default_slot
+        if return_fields is None:
+            return_fields = ["Synthesis", "Half-life"]
+        return_fields = _ensure_list(return_fields)
+
+        return fit_kinetics(data=self, fit_type=fit_type, slot=slot, genes=genes, name_prefix=name_prefix, time=time, ci_size=ci_size, return_fields=return_fields, **kwargs)
