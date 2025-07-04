@@ -17,21 +17,50 @@ def _comp_hl(p, time=1):
         hl = np.where(np.isfinite(hl), hl, np.nan)
     return hl
 
-def _comp_tpm(cmat: np.ndarray, lengths: np.ndarray, subset: np.ndarray = None) -> np.ndarray:
-    """Computes TPM from count matrix and transcript lengths"""
+def _comp_tpm(
+    count_matrix: np.ndarray,
+    lengths: np.ndarray,
+    subset: Union[Sequence[int], int, None] = None
+) -> np.ndarray:
+    """
+    Berechnet TPM (Transcripts Per Million) aus einer Count-Matrix und Genlängen.
+
+    Parameters
+    ----------
+    count_matrix : np.ndarray
+        Count-Matrix (shape: Gene × Samples)
+    lengths : np.ndarray
+        Längen der Transkripte (shape: Gene,)
+    subset : int, list[int], np.ndarray, optional
+        Optionaler Index oder Liste von Indizes von Genen zur Berechnung der Skalenfaktoren
+
+    Returns
+    -------
+    np.ndarray
+        TPM-normalisierte Matrix (shape: Gene × Samples)
+    """
+
+    # Verhindere Division durch Null
     lengths = lengths.copy()
-    zerolen = lengths == 0
-    lengths[zerolen] = 1
+    zero_len = lengths == 0
+    lengths[zero_len] = 1
 
-    rpk = cmat / (lengths[:, np.newaxis] / 1000)
-    rpk[zerolen, :] = np.nan
+    # RPK berechnen (Reads Per Kilobase)
+    reads_per_kilo = count_matrix / (np.atleast_2d(lengths / 1000).transpose())
 
+    # Subset in ein array umwandeln, falls notwendig
     if subset is not None:
-        scale = np.nansum(rpk[subset, :], axis=0) / 1e6
+        subset = np.atleast_1d(subset)
+        scale = np.nansum(reads_per_kilo[subset, :], axis=0) / 1e6
     else:
-        scale = np.nansum(rpk, axis=0) / 1e6
+        scale = np.nansum(reads_per_kilo, axis=0) / 1e6
 
-    tpm = rpk / scale
+    # TPM berechnen
+    tpm = reads_per_kilo / scale
+
+    # NaNs für Gene mit Länge 0 setzen
+    tpm[zero_len, :] = np.nan
+
     return tpm
 
 def _comp_fpkm(cmat: np.ndarray, lengths: np.ndarray, subset: Sequence[Union[Number, str]] = None) -> np.ndarray:
@@ -225,7 +254,6 @@ def filter_genes(
         function_gene_info=lambda t: t.iloc[gene_idx, :]
     )
 
-# TODO: normalize hat Probleme, wenn Nullwerte in den Daten sind(sars.tsv).
 def _normalize(
     data: "GrandPy",
     genes: Union[str, int, Sequence[Union[str, int, bool]]] = None,
@@ -309,3 +337,58 @@ def _normalize_fpkm(
     final_mat = _comp_fpkm(cmat = mat_for_fpkm, lengths=total_len, subset = mask)
 
     return data.with_slot(name, final_mat, set_to_default=set_to_default)
+
+
+def _normalize_tpm(
+        data: "GrandPy",
+        genes: Union[str, int, Sequence[Union[str, int, bool]]] = None,
+        name: str = "tpm",
+        slot: str = "count",
+        set_to_default: bool = True,
+        total_len: np.ndarray = None
+) -> "GrandPy":
+    """
+    TPM-normalization of the GrandPy-dataset.
+
+    Parameters
+    ----------
+    data: GrandPy
+        a GrandPy-object
+    genes: sequence of genes or indices
+        genes or indices used for the tpm-normalization
+    name: str
+        name of the slot that the tpm-normalization will create
+    slot: str
+        the slot with the data to tpm-normalize
+    set_to_default: bool
+        whether to set the new slot as the default or not
+    total_len: np.ndarray, optional
+        array with the transcript length of the genes
+
+    Returns
+    -------
+    GrandPy
+        a new GrandPy-object with the appended data
+    """
+    # Hole Genlängen
+    if total_len is None:
+        total_len = np.asarray(data.gene_info["Length"])
+
+    # Hole vollständige Zählmatrix
+    count_matrix = data.get_matrix(slot)  # shape: (n_genes, n_samples)
+
+    # Berechne, welche Gene für das Scaling benutzt werden sollen
+    if genes is not None:
+        subset_indices = data.get_index(genes=genes)
+    else:
+        subset_indices = None
+
+    # Berechne TPM normalisiert auf subset
+    tpm_matrix = _comp_tpm(count_matrix, total_len, subset=subset_indices)
+
+    # Optional: falls nur bestimmte Gene als Ergebnis gewünscht sind
+    # z. B. Rückgabe nur für subset, nicht das ganze TPM
+    # → das hier NICHT tun, wenn gesamte Matrix gespeichert werden soll
+    # tpm_matrix = tpm_matrix[subset_indices, :]  # optional
+
+    return data.with_slot(name, tpm_matrix, set_to_default=set_to_default)
