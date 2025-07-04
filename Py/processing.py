@@ -115,14 +115,40 @@ def _comp_fpkm(
 
     return fpkm
 
-def _comp_rpm(cmat: np.ndarray, subset: np.ndarray = None, factor: float = 1e6) -> np.ndarray:
-    """Computes RPM (reads per million) from count matrix"""
+def _comp_rpm(
+    cmat: np.ndarray,
+    subset: Union[Sequence[int], np.ndarray, None] = None,
+    factor: float = 1e6
+) -> np.ndarray:
+    """
+    Berechnet RPM (Reads per Million) aus einer Count-Matrix.
+
+    Parameters
+    ----------
+    cmat : np.ndarray
+        Zählmatrix (Gene × Samples)
+    subset : Liste von Indizes, optional
+        Nur diese Gene werden zur Skalierung verwendet.
+    factor : float
+        Skalenfaktor (Standard: 1e6)
+
+    Returns
+    -------
+    np.ndarray
+        RPM-normalisierte Matrix
+    """
+    cmat = np.asarray(cmat)
+
     if subset is not None:
+        subset = np.atleast_1d(subset)
         scale = np.nansum(cmat[subset, :], axis=0) / factor
     else:
         scale = np.nansum(cmat, axis=0) / factor
 
-    rpm = cmat / scale
+    scale[scale == 0] = np.nan  # Verhindere Division durch 0
+
+    rpm = cmat / scale  # Broadcasting über Spalten
+
     return rpm
 
 def compute_ntr_posterior_quantile(data: "GrandPy", quantile: float, name: str) -> "GrandPy":
@@ -454,3 +480,47 @@ def _normalize_tpm(
     # tpm_matrix = tpm_matrix[subset_indices, :]  # optional
 
     return data.with_slot(name, tpm_matrix, set_to_default=set_to_default)
+
+def _normalize_rpm(
+    data: "GrandPy",
+    genes: Union[str, int, Sequence[Union[str, int, bool]]] = None,
+    name: str = "rpm",
+    slot: str = "count",
+    set_to_default: bool = True,
+    factor: float = 1e6
+) -> "GrandPy":
+    """
+    RPM-Normalisierung eines GrandPy-Objekts.
+
+    Parameters
+    ----------
+    data : GrandPy
+        Das GrandPy-Objekt mit Count-Daten.
+    genes : Liste von Genen oder Indizes
+        Gene, die zur Skalierung verwendet werden (nicht Ausgabe!).
+    name : str
+        Name des neuen Slots (z. B. "rpm").
+    slot : str
+        Welcher Slot verwendet werden soll (z. B. "count").
+    set_to_default : bool
+        Ob der neue Slot als Standard gesetzt wird.
+    factor : float
+        Skalierungsfaktor (Standard: 1e6)
+
+    Returns
+    -------
+    GrandPy
+        Das aktualisierte Objekt mit dem neuen RPM-Slot.
+    """
+
+    # Zählmatrix laden (alle Gene)
+    mat = data.get_matrix(slot)
+
+    # Index der Gene, die zur Skalierung verwendet werden sollen
+    gene_indices = data.get_index(genes=genes) if genes is not None else None
+
+    # Berechne RPM
+    rpm = _comp_rpm(cmat=mat, subset=gene_indices, factor=factor)
+
+    # Füge neuen Slot ein
+    return data.with_slot(name, rpm, set_to_default=set_to_default)
