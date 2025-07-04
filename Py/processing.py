@@ -23,14 +23,16 @@ def _comp_tpm(
     subset: Union[Sequence[int], int, None] = None
 ) -> np.ndarray:
     """
-    Berechnet TPM (Transcripts Per Million) aus einer Count-Matrix und Genlängen.
+    Computes the TPM (transcripts per million) from the given slot and gene lengths.
 
     Parameters
     ----------
     count_matrix : np.ndarray
-        Count-Matrix (shape: Gene × Samples)
+        Count matrix
+
     lengths : np.ndarray
-        Längen der Transkripte (shape: Gene,)
+        Lengths of the genes
+
     subset : int, list[int], np.ndarray, optional
         Optionaler Index oder Liste von Indizes von Genen zur Berechnung der Skalenfaktoren
 
@@ -63,21 +65,53 @@ def _comp_tpm(
 
     return tpm
 
-def _comp_fpkm(cmat: np.ndarray, lengths: np.ndarray, subset: Sequence[Union[Number, str]] = None) -> np.ndarray:
-    """Computes FPKM from count matrix and transcript lengths"""
+
+def _comp_fpkm(
+        count_matrix: np.ndarray,
+        lengths: np.ndarray,
+        subset: Union[Sequence[int], np.ndarray, None] = None
+) -> np.ndarray:
+    """
+    Berechnet FPKM aus einer Count-Matrix und Transkriptlängen.
+    Entspricht exakt der R-Funktion comp.fpkm.
+
+    Parameters
+    ----------
+    count_matrix : np.ndarray
+        Count-Matrix (Gene × Samples)
+    lengths : np.ndarray
+        Längen der Transkripte (1D, für alle Gene in cmat)
+    subset : Optional[Sequence[int]]
+        Welche Gene für die Skalierung (RPM) verwendet werden sollen.
+
+    Returns
+    -------
+    np.ndarray
+        FPKM-Matrix (Gene × Samples)
+    """
+    count_matrix = np.asarray(count_matrix)
+    lengths = np.asarray(lengths)
+
+    # Subset verwenden, falls angegeben
     if subset is not None:
-        scale = np.nansum(cmat[subset, :], axis=0) / 1e6
+        subset = np.atleast_1d(subset)
+        scale = np.nansum(count_matrix[subset, :], axis=0) / 1e6
     else:
-        scale = np.nansum(cmat, axis=0) / 1e6
+        scale = np.nansum(count_matrix, axis=0) / 1e6
 
-    rpm = cmat / scale
+    scale[scale == 0] = np.nan  # Verhindert Division durch 0
 
-    lengths = np.asarray(lengths)  # ← fix für pandas Series
-    zero_len = lengths == 0
-    lengths[zero_len] = 1
+    # RPM: jede Spalte durch zugehörigen Skalierungsfaktor teilen
+    rpm = count_matrix / scale  # Broadcasting funktioniert hier direkt
 
+    # Behandlung von Länge = 0
+    zerolen = lengths == 0
+    lengths = lengths.copy()
+    lengths[zerolen] = 1  # temporär auf 1 setzen um Division durch 0 zu vermeiden
+
+    # FPKM berechnen
     fpkm = rpm / (lengths[:, np.newaxis] / 1000)
-    fpkm[zero_len, :] = np.nan
+    fpkm[zerolen, :] = np.nan  # ursprüngliche Länge 0 → NA setzen
 
     return fpkm
 
@@ -325,19 +359,47 @@ def _normalize_fpkm(
     name: str = "fpkm",
     slot: str = "count",
     set_to_default: bool = True,
-    total_len = None ):
+    total_len: np.ndarray = None
+) -> "GrandPy":
+    """
+    FPKM-Normalisierung eines GrandPy-Objekts, analog zu DESeq2::NormalizeFPKM in R.
 
+    Parameters
+    ----------
+    data : GrandPy
+        Das GrandPy-Objekt mit Count-Daten.
+    genes : Sequenz von Genen oder bool-Maske
+        Gene, die für die Skalierung verwendet werden sollen (nicht zur Ausgabe!).
+    name : str
+        Name des neuen Slots (z. B. "fpkm").
+    slot : str
+        Welcher Slot verwendet werden soll (z. B. "count").
+    set_to_default : bool
+        Ob der neue Slot als Default gesetzt wird.
+    total_len : np.ndarray
+        Transkriptlängen aller Gene (Standard: data.gene_info["Length"]).
+
+    Returns
+    -------
+    GrandPy
+        Das aktualisierte Objekt mit dem neuen Slot.
+    """
+
+    # Hole Transkriptlängen
     if total_len is None:
-        total_len = data.gene_info["Length"]
+        total_len = np.asarray(data.gene_info["Length"])
 
-    genes = data.get_index(genes)
-    mat_for_fpkm = data.get_matrix(slot, genes=genes)
-    mask = np.zeros(len(mat_for_fpkm), dtype=bool)
-    mask[genes] = True
-    final_mat = _comp_fpkm(cmat = mat_for_fpkm, lengths=total_len, subset = mask)
+    # Hole die vollständige Matrix (alle Gene × Samples)
+    mat = data.get_matrix(slot)
 
-    return data.with_slot(name, final_mat, set_to_default=set_to_default)
+    # Konvertiere genes (z. B. Namen, bools oder Indizes) zu numerischem Index
+    gene_indices = data.get_index(genes=genes)  # kann auch None sein
 
+    # Berechne FPKM-Werte
+    fpkm = _comp_fpkm(count_matrix=mat, lengths=total_len, subset=gene_indices)
+
+    # Speichere als neuen Slot
+    return data.with_slot(name, fpkm, set_to_default=set_to_default)
 
 def _normalize_tpm(
         data: "GrandPy",
