@@ -18,11 +18,14 @@ from pydeseq2.dds import DeseqDataSet
 import warnings
 from scipy.sparse import issparse
 
+from Py.modeling import fit_kinetics
+
+
 def _is_sparse_matrix(mat):
     return issparse(mat)
 
 
-# TODO Plots: PlotExpressionTest, PlotAnalyses, MAPlot, PlotTypeDistribution, FormatCorrelation
+# TODO Plots: PlotExpressionTest, PlotAnalyses, PlotTypeDistribution, FormatCorrelation
 
 def _get_plot_limits(vals, override_lim=None):
     """Compute IQR-based limits if not overridden."""
@@ -143,6 +146,7 @@ def _density2d(x, y, n=100, margin='n'):
 
     return density
 
+#TODO bei lim farbe checken
 # TODO Log noch weiter testen
 # parameter die noch fehlen:
     # 2. xcol/ycol
@@ -486,6 +490,76 @@ def plot_heatmap(
     return_matrix: bool = False,
     na_to: Optional[float] = None,
 ):
+    """
+     Create heatmaps from grandR objects.
+
+     Convenience method to compare among more two variables (slot data or analyses results).
+
+     Parameters
+     ----------
+     data : GrandPy
+         The GrandPy object containing the data to visualize.
+
+     mode_slot : str or list of str, optional
+         Either one or more mode.slot specifications (e.g., "count", "new_count"),
+         or names matching analysis results. If None, uses the default slot.
+
+     columns : str or list, optional
+         The columns (samples/cells) to include. Can be a logical expression
+         over the sample metadata, a list of column names, or None for all columns.
+
+     genes : list, optional
+         A list of gene names to restrict the plot to. If None, uses all genes.
+
+     transform : str or callable, default="Z"
+         Transformation to apply to the data matrix. Possible string values are
+         "Z" (z-score per row), "vst" (variance stabilizing transform),
+         "logFC" (log2 fold change), or "none".
+
+     cluster_genes : bool, default=True
+         Whether to cluster genes (rows) hierarchically.
+
+     cluster_columns : bool, default=False
+         Whether to cluster samples/cells (columns) hierarchically.
+
+     label_genes : bool, optional
+         Whether to show gene names on the y-axis. Defaults to True if number
+         of genes is <=50, otherwise False.
+
+     xlabels : list, optional
+         Custom labels for the x-axis. Only valid if a single mode_slot is specified.
+
+     breaks : list, optional
+         Numeric vector specifying color breaks for the heatmap.
+
+     colors : list or str, optional
+         A color palette or a list of colors for the heatmap gradient.
+
+     title : str, optional
+         The title for the heatmap.
+
+     return_matrix : bool, default=False
+         If True, prints the matrix used for plotting.
+
+     na_to : float, optional
+         Value to substitute for missing (NA) values before plotting.
+
+     See Also
+        --------
+        GrandPy.plots
+            Get the names of all stored plot functions.
+
+        GrandPy.with_plot
+            Add a plot function.
+
+        GrandPy.with_dropped_plots
+            Remove plots matching a regex.
+
+        GrandPy.plot_global
+            Executes a stored global plot function.
+
+
+     """
 
     if mode_slot is None:
         mode_slot = data.default_slot
@@ -1468,39 +1542,42 @@ def plot_vulcano(
     plt.show()
 
 def f_old_nonequi(t, f0, ks, kd):
-    return f0 * np.exp(-kd * t)
+    return f0 * np.exp(-t * kd)
 
 def f_new(t, ks, kd):
-    return ks / kd * (1 - np.exp(-kd * t))
+    return ks / kd * (1 - np.exp(-t * kd))
 
 def parse_time_str(t):
     match = re.match(r"(\d+(?:\.\d+)?)", str(t))
-    return float(match.group(1)) if match else np.nan
+    return float(match.group(1)) if match else 0
 
-def plot_gene_progressive_timecourse(
+# Beispielaufruf: plot_gene_progressive_timecourse(sars, "UHMK1")
+def plot_gene_progressive_timecourse( # TODO docstring mit see also fit kinets wegen kwargs
     data: GrandPy,
     gene: str,
     slot: Optional[str] = None,
     time: str = "Time.original",
-    show_ci: bool = False,
+    fit_type: str = "nlls",
+    size: float = 50,
     exact_tics: bool = True,
-    rescale: bool = True,
-    size: float = 50
+    **kwargs
 ):
 
     if slot is None:
         slot = data.default_slot
 
-    selected_columns = data.columns
-
-    total = data.get_matrix(mode_slot=slot, genes=gene, columns=selected_columns)
-    new = data.get_matrix(mode_slot=ModeSlot("new", slot), genes=gene, columns=selected_columns)
-    old = data.get_matrix(mode_slot=ModeSlot("old", slot), genes=gene, columns=selected_columns)
-
     timepoints = data.coldata[time].values
     time_numeric = np.array([parse_time_str(t) for t in timepoints])
 
-    condition = data.coldata["Condition"] if "Condition" in data.coldata.columns else pd.Series([gene]*len(timepoints))
+    condition = (
+        data.coldata["Condition"]
+        if "Condition" in data.coldata.columns
+        else pd.Series([gene] * len(timepoints))
+    )
+
+    total = data.get_matrix(mode_slot=slot, genes=gene)
+    new = data.get_matrix(mode_slot=ModeSlot("new", slot), genes=gene)
+    old = data.get_matrix(mode_slot=ModeSlot("old", slot), genes=gene)
 
     df = pd.DataFrame({
         "time": timepoints,
@@ -1511,10 +1588,30 @@ def plot_gene_progressive_timecourse(
         "condition": condition
     })
 
-    tt = np.linspace(0, df["time_numeric"].max(), 100)
+
+    from Py.utils import _get_kinetics_data
+    fit_results = _get_kinetics_data(
+        data,
+        genes=gene,
+        fit_type=fit_type,
+        return_fields=["Synthesis", "Half-life", "f0", "Degradation"],
+        show_progress=True,
+        **kwargs
+    )
+    if condition.nunique() == 1:
+        fit_results = {gene: fit_results}
+
+    tt = np.linspace(0, df["time_numeric"].max(), 200)
     fitted = []
     for cond in df["condition"].unique():
-        f0, ks, kd = 10, 5, 0.5
+        fit = fit_results.get(f"kinetics_{cond}")
+        if fit is None:
+            continue
+
+        f0 = fit.loc[gene, f"{cond}_f0"]
+        ks = fit.loc[gene, f"{cond}_Synthesis"]
+        kd = fit.loc[gene, f"{cond}_Degradation"]
+
         fitted.append(pd.DataFrame({
             "time_numeric": tt,
             "Expression": f_old_nonequi(tt, f0, ks, kd),
@@ -1527,47 +1624,86 @@ def plot_gene_progressive_timecourse(
             "Type": "new",
             "condition": cond
         }))
+    df_fitted = pd.concat(fitted, ignore_index=True)
 
-    df_fitted = pd.concat(fitted)
-
-    df_long = pd.melt(df, id_vars=["time", "condition"],
-                      value_vars=["total", "new", "old"],
-                      var_name="Type", value_name="Expression")
+    df_long = pd.melt(
+        df,
+        id_vars=["time_numeric", "condition"],
+        value_vars=["total", "new", "old"],
+        var_name="Type",
+        value_name="Expression"
+    )
 
     g = sns.FacetGrid(
         df_long,
         col="condition",
         sharey=True,
-        sharex=True
+        sharex=True,
     )
 
+    # Plot total, new, old points
     g.map_dataframe(
         sns.scatterplot,
-        x="time",
+        x="time_numeric",
         y="Expression",
         hue="Type",
-        palette={"total":"gray", "new":"#e34a33", "old":"#2b8cbe"},
+        palette={"total": "gray", "new": "#e34a33", "old": "#2b8cbe"},
         s=size
     )
 
+    # Plot total curve
     g.map_dataframe(
-        sns.lineplot,
-        data=df_fitted,
-        x="time",
-        y="Expression",
-        hue="Type",
-        palette={"total":"grey", "old":"#2b8cbe", "new":"#e34a33"},
-        style="Type",
-        dashes=True,
-        linewidth=1
+        lambda data, color, **kws: sns.lineplot(
+            data=data[data["Type"] == "total"]
+            .groupby(["time_numeric", "condition"], as_index=False)
+            .mean(numeric_only=True),
+            x="time_numeric",
+            y="Expression",
+            color="gray",
+            linestyle="solid",
+            linewidth=1, antialiased=True
+        )
     )
 
-    g.set_axis_labels("Time", "Expression")
+    # Plot fitted curves
+    for cond, ax in zip(df["condition"].unique(), g.axes.flat):
+        for line_type in ["new", "old"]:
+            df_fit = df_fitted[
+                (df_fitted["condition"] == cond) &
+                (df_fitted["Type"] == line_type)
+                ]
+            ax.plot(
+                df_fit["time_numeric"],
+                df_fit["Expression"],
+                linestyle="dashed",
+                linewidth=1,
+                color={"new": "#e34a33", "old": "#2b8cbe"}[line_type],
+                label=f"{line_type} (fit)"
+            )
+
+    g.set_ylabels("Expression")
     g.set_titles("{col_name}")
     g.add_legend(title="RNA")
-    plt.tight_layout()
+    # Exact tics
+    if exact_tics:
+        time_original = data.coldata["Time.original"]
+        time_numeric = np.array([parse_time_str(t) for t in time_original])
+        brdf = pd.DataFrame({
+            "time_numeric": time_numeric,
+            "time_original": time_original.str.replace("_", ".", regex=False)
+        }).drop_duplicates().sort_values("time_numeric")
+        for ax in g.axes.flat:
+            ax.set_xticks(brdf["time_numeric"])
+            ax.set_xticklabels(brdf["time_original"], rotation=45)
+            ax.set_xlabel("")
+    else:
+        unique_times = np.sort(df["time_numeric"].unique())
+        for ax in g.axes.flat:
+            ax.set_xticks(unique_times)
+            ax.set_xticklabels([f"{t:.2f}" for t in unique_times], rotation=45)
+            ax.set_xlabel("4sU labeling [h]")
     plt.show()
-
+    plt.close()
 
 #TODO noch nicht einmal getestet
 def plot_ma(
