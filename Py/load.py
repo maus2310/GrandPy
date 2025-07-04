@@ -19,9 +19,9 @@ from Py.grandPy import GrandPy
 
 # Predefined design variable names for harmonized analysis (mirrors R's Design list)
 DESIGN_KEYS = {
-    "has_4sU": "has.4sU",
-    "conc_4sU": "concentration.4sU",
-    "dur_4sU": "duration.4sU",
+    "conc.4sU": "concentration.4sU",
+    "has.4sU": "has.4sU",
+    "dur.4sU": "duration.4sU",
     "Replicate": "Replicate",
     "Condition": "Condition",
     "hpi": "hpi",
@@ -32,6 +32,8 @@ DESIGN_KEYS = {
     "Origin": "Origin"
 }
 
+#TODO: Frage - allgemein time.original oder duration.4sU.original?
+
 
 SEMANTICS = {
     "duration.4sU": "time",
@@ -41,7 +43,7 @@ SEMANTICS = {
 }
 
 
-def infer_suffixes_from_df(df, known_suffixes=None, estimator=None, sparse=False) -> dict:
+def infer_suffixes_from_df(df, known_suffixes=None, estimator="Binom", sparse=False) -> dict:
     """
     Automatically tries to recognize slots (count, ntr, alpha, beta, ...) and their suffixes from column names.
 
@@ -66,7 +68,7 @@ def infer_suffixes_from_df(df, known_suffixes=None, estimator=None, sparse=False
         Slot names with recognized (single) suffix
     """
     if known_suffixes is None:
-        if estimator:
+        if sparse and estimator:
             suffix_map = {
                 "ntr":   [f" {estimator} NTR"],
                 "alpha": [f" {estimator} alpha"],
@@ -82,7 +84,6 @@ def infer_suffixes_from_df(df, known_suffixes=None, estimator=None, sparse=False
             }
 
         if not sparse:
-            # Only add these slots for dense input
             suffix_map.update({
                 "count": [" Readcount", " Read count", "Readcount", "Read count"],
                 "ll": [" ll"],
@@ -94,7 +95,7 @@ def infer_suffixes_from_df(df, known_suffixes=None, estimator=None, sparse=False
     result = {}
     for slot, suffix_list in known_suffixes.items():
         for suffix in suffix_list:
-            matching = [col for col in df.columns if col.endswith(suffix)]
+            matching = [col for col in df.columns if col.lower().endswith(suffix.lower())]
             if matching:
                 result[slot] = suffix
                 break
@@ -244,6 +245,13 @@ def apply_design_semantics(coldata: pd.DataFrame) -> pd.DataFrame:
     coldata.attrs["_semantics"] = semantics
     return coldata
 
+def semantics_time(values, name):
+    df = pd.DataFrame({name: values})
+    df[f"{name}.original"] = df[name]
+    df[name] = df[name].map(parse_time_string)
+    df = apply_design_semantics(df)
+    return df
+
 
 def build_coldata(names, design=None):
     """
@@ -263,6 +271,22 @@ def build_coldata(names, design=None):
         DataFrame with one row per sample, containing design info and a 'no4sU' flag (if applicable).
     """
 
+    if isinstance(design, pd.DataFrame):
+        df = design.copy()
+        if df.index.name != "Name":
+            if "Name" in df.columns:
+                df = df.set_index("Name")
+            else:
+                raise ValueError("Design DataFrame must have a 'Name' column or a 'Name' index.")
+        df.index = df.index.map(str)
+        df = df.reindex(names)
+        df = df.reset_index().rename(columns={"index": "Name"})
+
+        if "no4sU" not in df.columns:
+            df["no4sU"] = False
+
+        return apply_design_semantics(df)
+
     if callable(design):
         return design(names)
 
@@ -280,20 +304,22 @@ def build_coldata(names, design=None):
     coldata = pd.DataFrame(aligned_rows, columns=design, index=pd.Index(names, name="Name"))
     coldata["Name"] = coldata.index
 
-    for col in coldata.columns:
-        if any(key in col.lower() for key in ["time", "duration", "dur.4sU", "duration.4sU"]):
-            coldata[f"{col}.original"] = coldata[col]
+    time_cols = []
+    for col in design:
+        if col in SEMANTICS:
+            orig = f"{col}.original"
+            coldata[orig] = coldata[col]
             coldata[col] = coldata[col].map(parse_time_string)
+            time_cols.append(orig)
 
-    no4su_col = next(
-        (c for c in coldata.columns if c.endswith(".original") and coldata[c].isin(["no4sU", "nos4U", "-"]).any()),
-        None)
-    if no4su_col:
-        coldata["no4sU"] = coldata[no4su_col].isin(["no4sU", "nos4U", "-"])
+    if time_cols:
+        flag_col = time_cols[0]
+        coldata["no4sU"] = coldata[flag_col].isin(["no4sU", "nos4U", "-"])
     else:
         coldata["no4sU"] = False
 
-    coldata = coldata[["Name"] + [c for c in coldata.columns if c != "Name"]]
+    ordered = (["Name"] + list(design) + [f"{c}.original" for c in design if f"{c}.original" in coldata.columns] + ["no4sU"])
+    coldata = coldata[ordered]
     return apply_design_semantics(coldata)
 
 
@@ -558,7 +584,7 @@ def is_sparse_file(path) -> bool:
 
     return has_matrix and has_barcodes and has_features
 
-def read_dense(file_path, default_slot="count", design=None, *, classification_genes=None, classification_genes_label="Unknown", classify_genes_func=None, estimator=None):
+def read_dense(file_path, default_slot="count", design=None, *, classification_genes=None, classification_genes_label="Unknown", classify_genes_func=None, estimator="Binom"):
     """
     Reads a GRAND-SLAM TSV file as dense (NumPy) matrices and returns a GrandPy object.
 
@@ -591,12 +617,20 @@ def read_dense(file_path, default_slot="count", design=None, *, classification_g
         A GrandPy object populated with dense matrices and metadata.
     """
 
-    return _read(file_path, sparse=False, default_slot=default_slot, design=design,
+    if callable(design):
+        design_arg = design
+    if isinstance(design, pd.DataFrame):
+        design_arg = design
+    elif design is not None:
+        design_arg = tuple(DESIGN_KEYS.get(d, d) for d in design)
+    else:
+        design_arg = None
+    return _read(file_path, sparse=False, default_slot=default_slot, design=design_arg,
                  classification_genes=classification_genes, classification_genes_label=classification_genes_label,
                  classify_genes_func=classify_genes_func, estimator=estimator)
 
 
-def read_sparse(folder_path, default_slot="count", design=None, classification_genes=None, classification_genes_label="Unknown", classify_genes_func=None, pseudobulk=None, targets=None, estimator=None): # TODO nicht "viral" bei classify genes
+def read_sparse(folder_path, default_slot="count", design=None, classification_genes=None, classification_genes_label="Unknown", classify_genes_func=None, pseudobulk=None, targets=None, estimator="Binom"): # TODO nicht "viral" bei classify genes
     """
     Reads a GRAND-SLAM sparse dataset from a directory.
 
@@ -630,7 +664,16 @@ def read_sparse(folder_path, default_slot="count", design=None, classification_g
     GrandPy
     """
 
-    return _read(Path(folder_path), sparse=True, default_slot=default_slot, design=design,
+    if callable(design):
+        design_arg = design
+    if isinstance(design, pd.DataFrame):
+        design_arg = design
+    elif design is not None:
+        design_arg = tuple(DESIGN_KEYS.get(d, d) for d in design)
+    else:
+        design_arg = None
+
+    return _read(Path(folder_path), sparse=True, default_slot=default_slot, design=design_arg,
                  classification_genes=classification_genes, classification_genes_label=classification_genes_label,
                  classify_genes_func=classify_genes_func,
                  pseudobulk=pseudobulk, targets=targets, estimator=estimator)
@@ -708,7 +751,7 @@ def find_existing_file(path: Path, base_name: str, extensions=(".gz", "", ".tsv"
 
 def _read(file_path, sparse, default_slot, design,
           classification_genes, classification_genes_label,
-          classify_genes_func=None, pseudobulk=None, targets=None, estimator=None):
+          classify_genes_func=None, pseudobulk=None, targets=None, estimator="Binom"):
     """
     Reads GRAND-SLAM TSV or Matrix Market file and creates a GrandPy object.
 
