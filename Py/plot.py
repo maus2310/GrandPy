@@ -1612,6 +1612,7 @@ def plot_gene_progressive_timecourse( # TODO docstring mit see also fit kinets w
         data,
         genes=gene,
         fit_type=fit_type,
+        time=time_numeric,
         return_fields=["Synthesis", "Half-life", "f0", "Degradation"],
         show_progress=True,
         **kwargs
@@ -1704,15 +1705,31 @@ def plot_gene_progressive_timecourse( # TODO docstring mit see also fit kinets w
     g.add_legend(title="RNA")
     # Exact tics
     if exact_tics:
-        time_original = data.coldata["Time.original"]
+        import re
+
+        # suche "time" oder "time.original"
+        pattern = re.compile(rf"^{re.escape(time)}(?:\.original)?$")
+        cols = [c for c in data.coldata.columns if pattern.match(c)]
+        if not cols:
+            raise KeyError(f"Keine Spalte passt auf Regex '{pattern.pattern}'")
+
+        # wähle .original, wenn vorhanden, sonst Basis-Spalte
+        sel = next((c for c in cols if c.endswith(".original")), cols[0])
+        time_original = data.coldata[sel].astype(str)
+
         time_numeric = np.array([parse_time_str(t) for t in time_original])
-        brdf = pd.DataFrame({
-            "time_numeric": time_numeric,
-            "time_original": time_original.str.replace("_", ".", regex=False)
-        }).drop_duplicates().sort_values("time_numeric")
+
+        brdf = (
+            pd.DataFrame({
+                "time_numeric": time_numeric,
+                "time_original": time_original.str.replace("_", ".", regex=False)
+            })
+            .drop_duplicates()
+            .sort_values("time_numeric")
+        )
         for ax in g.axes.flat:
             ax.set_xticks(brdf["time_numeric"])
-            ax.set_xticklabels(brdf["time_original"], rotation=45)
+            ax.set_xticklabels(brdf["time_original"], rotation=45, ha="right")
             ax.set_xlabel("")
     else:
         unique_times = np.sort(df["time_numeric"].unique())
