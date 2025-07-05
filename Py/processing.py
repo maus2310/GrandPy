@@ -3,7 +3,7 @@ from scipy.stats import beta
 import numpy as np
 from math import log
 import pandas as pd
-from typing import TYPE_CHECKING, Union, Sequence
+from typing import TYPE_CHECKING, Union, Sequence, Optional
 import warnings
 
 if TYPE_CHECKING:
@@ -524,3 +524,65 @@ def _normalize_rpm(
 
     # Füge neuen Slot ein
     return data.with_slot(name, rpm, set_to_default=set_to_default)
+
+
+def compute_expression_percentage(
+    data,
+    name: str,
+    genes: Optional[list] = None,
+    mode_slot: Optional[str] = None,
+    genes_total: Optional[list] = None,
+    mode_slot_total: Optional[str] = None,
+    multiply_by_100: bool = True,
+):
+    """
+    Compute the percentage of expression for a set of genes per column and
+    store it in the coldata (sample metadata).
+
+    Parameters
+    ----------
+    data : GrandPy
+        The GrandPy object containing the expression data.
+
+    name : str
+        Name of the new column in coldata where the percentage will be stored.
+
+    genes : list, optional
+        List of genes for which to compute expression fraction.
+        Defaults to all genes.
+
+    mode_slot : str, optional
+        Data slot to use for numerator values. Defaults to data.default_slot.
+
+    genes_total : list, optional
+        List of genes to use for total expression. Defaults to all genes.
+
+    mode_slot_total : str, optional
+        Data slot to use for total expression. Defaults to mode_slot.
+
+    multiply_by_100 : bool, default=True
+        If True, percentages are scaled to [0, 100].
+
+    Returns
+    -------
+    GrandPy
+        The modified GrandPy object with a new column in coldata.
+    """
+    if mode_slot is None:
+        mode_slot = data.default_slot
+    if mode_slot_total is None:
+        mode_slot_total = mode_slot
+    if genes is None:
+        genes = data.genes
+    if genes_total is None:
+        genes_total = data.genes
+
+    numerator = data.get_matrix(mode_slot=mode_slot, genes=genes).sum(axis=0)
+    denominator = data.get_matrix(mode_slot=mode_slot_total, genes=genes_total).sum(axis=0)
+
+    percentage = numerator / denominator
+    if multiply_by_100:
+        percentage *= 100
+
+    data = data.with_coldata(column=name, value=percentage)
+    return data

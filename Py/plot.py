@@ -5,7 +5,7 @@ from IPython.core.pylabtools import figsize
 from matplotlib import cm
 import numpy as np
 import pandas as pd
-from typing import Optional, Union
+from typing import Optional, Union, Callable
 import re
 
 from Py.analysis_tool import AnalysisTool
@@ -235,8 +235,6 @@ def plot_scatter(
         names = data.get_analysis_table(with_gene_info=False).keys().tolist()
     else:
         names = list(data.coldata["Name"])
-    print("Names:", names)
-    print("Analysis:", analysis)
     x = x or names[0]
     y = y or names[1]
     if x not in names:
@@ -248,20 +246,12 @@ def plot_scatter(
         mode_slot = data.default_slot
 
     raw_matrix = data._resolve_mode_slot(mode_slot)
-    print("Mode Slot:", mode_slot)
-    print("Raw Matrix:", raw_matrix)
-    print("x", x)
-    print("y", y)
     if _is_sparse_matrix(raw_matrix):
         df = data.get_analysis_table()
-        print("DEBUG DF", df)
-        print("DEBUG: Use sparse plot")
     elif analysis:
         df = data.get_analysis_table(with_gene_info=False)
-        print("DEBUG: Use analysis plot")
     else:
         df = data.get_table(mode_slots=mode_slot)
-        print("DEBUG: Use dense plot")
 
     if x in df.columns:
         x_vals_all = df[x].to_numpy()
@@ -272,7 +262,6 @@ def plot_scatter(
         matrix = data._resolve_mode_slot(mode_slot)
         matrix = matrix.toarray() if hasattr(matrix, "toarray") else matrix
         x_vals_all = matrix[:, col_index]
-    print("DEBUG", x_vals_all)
 
     if y in df.columns:
         y_vals_all = df[y].to_numpy()
@@ -283,7 +272,6 @@ def plot_scatter(
         matrix = data._resolve_mode_slot(mode_slot)
         matrix = matrix.toarray() if hasattr(matrix, "toarray") else matrix
         y_vals_all = matrix[:, col_index]
-    print("DEBUG", y_vals_all)
     if np.all(np.isnan(x_vals_all)):
         raise ValueError(f"All Values for '{x}' in slot '{mode_slot}' are NaN. - Plot not possible!")
     if np.all(np.isnan(y_vals_all)):
@@ -381,7 +369,6 @@ def _transform_z(matrix: np.ndarray, center: bool = True, scale: bool = True) ->
         return matrix.astype(np.float64)
 
     from scipy.stats import zscore
-    print(matrix)
     return zscore(matrix, axis=1, ddof=1, nan_policy='omit' if (center or scale) else 'propagate')
 
 def _transform_vst(data, selected_columns: list, mode_slot, genes) -> pd.DataFrame:
@@ -411,8 +398,40 @@ def _transform_vst(data, selected_columns: list, mode_slot, genes) -> pd.DataFra
     vst_df = pd.DataFrame(vst_array, index=slotmat.index, columns=slotmat.columns)
     return vst_df
 
-def _transform_logfc() -> np.ndarray:
-    ... #TODO LFC funktion in diffexpr fehlt noch dafür
+def _logfc_transform(
+    m: np.ndarray,
+    reference_columns: Optional[list[int]] = None,
+    lfc_fun: Optional[Callable[[np.ndarray, np.ndarray], np.ndarray]] = None
+) -> np.ndarray:
+    """
+    Compute log2 fold changes for a matrix against a reference (e.g., mean of columns).
+
+    Parameters
+    ----------
+    m : np.ndarray
+        Expression matrix (genes × samples).
+    reference_columns : list of int, optional
+        Columns used to compute reference expression per gene.
+        Defaults to all columns.
+    lfc_fun : function, optional
+        A custom logFC function: takes (x, ref) and returns logFCs.
+        If None, uses log2((x+1)/(ref+1)).
+
+    Returns
+    -------
+    np.ndarray
+        Transformed matrix of log fold changes (same shape as input).
+    """
+    if reference_columns is None:
+        reference_columns = list(range(m.shape[1]))
+
+    ref = np.nanmean(m[:, reference_columns], axis=1)
+
+    if lfc_fun is None:
+        lfc_fun = lambda x, r: np.log2((x + 1) / (r + 1))
+
+    result = np.apply_along_axis(lambda v: lfc_fun(v, ref), axis=0, arr=m)
+    return result
 
 def _make_continuous_colors(values, colors=None, breaks=None):
     values = np.asarray(values, dtype=np.float64)
@@ -596,7 +615,6 @@ def plot_heatmap(
     sample_names = table.columns.to_list()
 
     if isinstance(transform, str):
-        print(mat)
         transform = transform.lower()
         if transform == "z":
             mat = _transform_z(mat)
@@ -1757,5 +1775,137 @@ def plot_ma(
                     ha="right", va="bottom")
 
     plt.tight_layout()
+    plt.show()
+    plt.close()
+
+
+
+def plot_expression_test(
+    data: GrandPy,
+    w4sU: str,
+    no4sU: Union[str, int],
+    ylim: tuple = (-1, 1),
+    hl_quantile: float = 0.8,
+    path_for_save: Optional[str] = None,
+    size: float = 10
+):
+    """
+    Compare expression levels between 4sU and no4sU samples using a log2 fold-change metric.
+
+    This function reproduces the behavior of the R function `PlotExpressionTest` from grandR:
+    It plots log2 fold change of 4sU vs no4sU against mean expression, with density coloring.
+
+    Parameters
+    ----------
+    data : GrandPy
+        The GrandPy dataset object.
+    w4sU : str
+        Column name for the 4sU sample (used as numerator in fold change).
+    no4sU : str or int
+        Column name or constant value for the no4sU reference (denominator).
+    ylim : tuple of float, default (-1, 1)
+        The y-axis range to display.
+    hl_quantile : float, default 0.8
+        Highlighting quantile for optional future use (currently unused).
+    size : float, default 10
+        Dot size in the scatter plot.
+
+    """
+
+
+    w = data.get_matrix(mode_slot="count", columns=w4sU)
+    if isinstance(no4sU, (int, float)):
+        n = np.full_like(w, fill_value=no4sU)
+    else:
+        n = data.get_matrix(mode_slot="count", columns=no4sU)
+    valid = np.isfinite(w + n)
+    w = w[valid]
+    n = n[valid]
+
+    m = np.vstack([w, n]).T
+    lfc_mat = _logfc_transform(m, reference_columns=[1])
+    lfc = lfc_mat[:, 0]
+    M = (np.log10(w + 1) + np.log10(n + 1)) / 2
+    xy = np.vstack([M, lfc])
+    density = _density2d(M, lfc, n=100, margin='n')
+
+    idx = np.argsort(density)
+    M, lfc, density = M[idx], lfc[idx], density[idx]
+    fig, ax = plt.subplots(figsize=(10, 6))
+    sc = ax.scatter(M, lfc, c=density, cmap="viridis", s=size, alpha=1)
+    ax.axhline(y=0, color="gray", linestyle="--")
+    ax.set_xlabel("Mean expression (log10)")
+    ax.set_ylabel("log2 FC (4sU / no4sU)")
+    ax.set_ylim(ylim)
+    fig.colorbar(sc, ax=ax, label="Density")
+    ax.set_title("Expression Test: 4sU vs no4sU")
+    plt.tight_layout()
+    plt.show()
+    plt.close()
+
+
+def plot_type_distribution(
+    data,
+    mode_slot: Optional[str] = None,
+    relative: bool = False,
+    return_fig: bool = False,
+    palette: str = "Dark2",
+):
+    """
+    Plot the distribution of gene types across conditions.
+
+    Parameters
+    ----------
+    data : object
+        Object containing expression data and gene information.
+        Expected to have methods:
+          - get_table(mode_slot) -> pd.DataFrame (genes × conditions)
+        and attribute:
+          - gene_info : pd.DataFrame with column 'Type' (gene types per gene)
+
+    mode_slot : str, optional
+        Data slot to use for the expression matrix.
+        If None, uses a default slot (must be defined on the `data` object).
+
+    relative : bool, default False
+        If True, plot relative percentages per condition instead of raw sums.
+
+    """
+    if mode_slot is None:
+        mode_slot = data.default_slot
+
+    df = data.get_table(mode_slot)
+    gene_types = data.gene_info['Type'].unique()
+
+    sums = pd.DataFrame({
+        t: df.loc[data.gene_info['Type'] == t].sum(axis=0)
+        for t in gene_types
+    })
+
+    sums = sums.loc[:, sums.sum(axis=0) > 0]
+
+    if relative:
+        sums = sums.div(sums.sum(axis=1), axis=0) * 100
+        mode_slot = f"{mode_slot} [%]"
+
+    df_long = sums.reset_index().melt(id_vars='index', var_name='Type', value_name='value')
+    df_long.rename(columns={'index': 'Condition'}, inplace=True)
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    sns.barplot(data=df_long, x='Condition', y='value', hue='Type', palette=palette, ax=ax)
+    ax.set_xlabel('')
+    ax.set_ylabel(mode_slot)
+    ax.tick_params(axis='x', rotation=45)
+    if relative:
+        ax.legend(
+            bbox_to_anchor=(1.02, 1),
+            loc='upper left',
+            borderaxespad=0,
+            title="Type"
+        )
+        plt.subplots_adjust(right=0.75)
+    else:
+        ax.legend(title="Type")
+        plt.tight_layout()
     plt.show()
     plt.close()
