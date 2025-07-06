@@ -19,13 +19,10 @@ import warnings
 from scipy.sparse import issparse
 
 from Py.modeling import fit_kinetics
-
+# TODO Plots: PlotAnalyses, FormatCorrelation
 
 def _is_sparse_matrix(mat):
     return issparse(mat)
-
-
-# TODO Plots: PlotExpressionTest, PlotAnalyses, PlotTypeDistribution, FormatCorrelation
 
 def _get_plot_limits(vals, override_lim=None):
     """Compute IQR-based limits if not overridden."""
@@ -35,8 +32,8 @@ def _get_plot_limits(vals, override_lim=None):
     iqr = q3 - q1
     return q1 - 1.5 * iqr, q3 + 1.5 * iqr
 
-def parse_time_to_float(time_str):
-    match = re.match(r"(\d+(\.\d+)?)h", time_str)
+def _parse_time_to_float(t):
+    match = re.match(r"(\d+(\.\d+)?)h", t)
     if match:
         return float(match.group(1))
     else:
@@ -49,7 +46,6 @@ def _apply_outlier_filter(x_vals, y_vals, remove):
     if not remove:
         return mask, None, None
 
-    # IQR-basierte Filtergrenzen
     def get_bounds(vals, min_iqr=1e-6):
         q1, q3 = np.percentile(vals[np.isfinite(vals)], [25, 75])
         iqr = max(q3 - q1, min_iqr)
@@ -67,7 +63,6 @@ def _apply_outlier_filter(x_vals, y_vals, remove):
 
     return mask, x_auto_lim, y_auto_lim
 
-
 def _plot_diagonal(ax, diag, x_range):
     """Draw identity or offset lines."""
     if diag is True:
@@ -77,7 +72,6 @@ def _plot_diagonal(ax, diag, x_range):
     elif isinstance(diag, (list, tuple)):
         for offset in diag:
             ax.plot(x_range, x_range + offset, linestyle="--", color="gray", label=f"y = x + {offset}")
-
 
 def _highlight_points(ax, data, x_vals, y_vals, highlight, size):
     def get_indices(genes):
@@ -91,7 +85,6 @@ def _highlight_points(ax, data, x_vals, y_vals, highlight, size):
         idxs = get_indices(highlight)
         if idxs:
             ax.scatter(x_vals[idxs], y_vals[idxs], color="red", s=size * 3)
-
 
 def _setup_default_aes(data: GrandPy, aest: dict | None = None) -> dict:
     if aest is None:
@@ -109,7 +102,6 @@ def _setup_default_aes(data: GrandPy, aest: dict | None = None) -> dict:
         aest["shape"] = "Replicate"
 
     return aest
-
 
 def _density2d(x, y, n=100, margin='n'):
     x = np.asarray(x)
@@ -146,6 +138,144 @@ def _density2d(x, y, n=100, margin='n'):
 
     return density
 
+def _make_continuous_colors(values, colors=None, breaks=None):
+    values = np.asarray(values, dtype=np.float64)
+    values = values[np.isfinite(values)]
+
+    def quantile(arr, q):
+        return np.nanpercentile(arr, q*100)
+
+    if quantile(values, 0.25) < 0:
+        quant = [50, 95]
+
+        if breaks == "minmax":
+            ll = np.nanmax(np.abs(values))
+            breaks = np.linspace(-ll, ll, 5)
+        elif isinstance(breaks, int):
+            quant = [q * 100 for q in np.linspace(0, 1, breaks + 1)[1:-1]] + [95]
+            breaks = None
+
+        if breaks is None:
+            upper = np.nanpercentile(values[values > 0], quant)
+            lower = np.nanpercentile(np.abs(values[values < 0]), quant)
+            pm = np.maximum(upper, lower)
+            breaks = [-b for b in reversed(pm)] + [0] + list(pm)
+
+        if colors is None:
+            colors = ["#CA0020", "#F4A582", "#F7F7F7", "#92C5DE", "#0571B0"]
+
+    else:
+        quant = [5, 25, 50, 75, 95]
+
+        if breaks == "minmax":
+            breaks = np.linspace(np.nanmin(values), np.nanmax(values), 5)
+        elif isinstance(breaks, int):
+            quant = [5] + [q * 100 for q in np.linspace(0, 1, breaks)[1:-1]] + [95]
+            breaks = None
+
+        if breaks is None:
+            breaks = np.nanpercentile(values, quant)
+
+        if colors is None:
+            colors = ["#FFFFB2", "#FECC5C", "#FD8D3C", "#F03B20", "#BD0026"]
+    reverse = False
+    if isinstance(colors, str):
+        if colors.startswith("rev"):
+            reverse = True
+            colors = colors[3:]
+        try:
+            cmap = cm.get_cmap(colors, len(breaks))
+            color_list = [mcolors.rgb2hex(cmap(i)) for i in range(cmap.N)]
+        except ValueError:
+            cmap = cm.get_cmap("viridis", len(breaks))
+            color_list = [mcolors.rgb2hex(cmap(i)) for i in range(cmap.N)]
+
+        if reverse:
+            color_list = color_list[::-1]
+
+        colors = color_list
+    else:
+        colors = list(colors)
+    return {"breaks": breaks, "colors": colors}
+
+def _transform_no(matrix: np.ndarray) -> np.ndarray:
+    return matrix
+
+def _transform_z(matrix: np.ndarray, center: bool = True, scale: bool = True) -> np.ndarray:
+    if not center and not scale:
+        return matrix.astype(np.float64)
+
+    from scipy.stats import zscore
+    return zscore(matrix, axis=1, ddof=1, nan_policy='omit' if (center or scale) else 'propagate')
+
+def _transform_vst(data, selected_columns: list, mode_slot, genes) -> pd.DataFrame:
+    mat = data.get_table(mode_slots=mode_slot, columns=selected_columns, genes=genes)
+    mat = mat.loc[:, mat.notna().any(axis=0)]
+
+    selected_columns_valid = mat.columns.tolist()
+
+    coldata = data.coldata.loc[selected_columns_valid]
+    coldata["condition"] = coldata["Condition"]
+
+    if str(mode_slot).lower() == "count":
+        slotmat = mat.T.round().astype(int)
+    else:
+        slotmat = mat.T
+
+    slotmat = slotmat.loc[coldata.index]
+    try:
+        dds = DeseqDataSet(counts=slotmat, metadata=coldata, design_factors="Condition")
+
+    except Exception:
+        warnings.warn("Column 'Condition' not found in coldata. Please add a 'Condition' column to use this function.")
+
+    dds.deseq2()
+    dds.vst_fit()
+    vst_array = dds.vst_transform()
+    vst_df = pd.DataFrame(vst_array, index=slotmat.index, columns=slotmat.columns)
+    return vst_df
+
+def _logfc_transform(
+    m: np.ndarray,
+    reference_columns: Optional[list[int]] = None,
+    lfc_fun: Optional[Callable[[np.ndarray, np.ndarray], np.ndarray]] = None
+) -> np.ndarray:
+    """
+    Compute log2 fold changes for a matrix against a reference (e.g., mean of columns).
+
+    Parameters
+    ----------
+    m : np.ndarray
+        Expression matrix (genes × samples).
+    reference_columns : list of int, optional
+        Columns used to compute reference expression per gene.
+        Defaults to all columns.
+    lfc_fun : function, optional
+        A custom logFC function: takes (x, ref) and returns logFCs.
+        If None, uses log2((x+1)/(ref+1)).
+
+    Returns
+    -------
+    np.ndarray
+        Transformed matrix of log fold changes (same shape as input).
+    """
+    if reference_columns is None:
+        reference_columns = list(range(m.shape[1]))
+
+    ref = np.nanmean(m[:, reference_columns], axis=1)
+
+    if lfc_fun is None:
+        lfc_fun = lambda x, r: np.log2((x + 1) / (r + 1))
+
+    result = np.apply_along_axis(lambda v: lfc_fun(v, ref), axis=0, arr=m)
+    return result
+
+def _f_old_nonequi(t, f0, ks, kd):
+    return f0 * np.exp(-t * kd)
+
+def _f_new(t, ks, kd):
+    return ks / kd * (1 - np.exp(-t * kd))
+
 #TODO bei lim farbe checken
 # TODO Log noch weiter testen
 # parameter die noch fehlen:
@@ -179,8 +309,8 @@ def plot_scatter(
     cross: Optional[bool] = None,
     diagonal: Optional[bool | float | tuple] = None,
     highlight: Optional[Union[list[str], dict[str, list[str]]]] = None,
-    path_for_save: Optional[str] = None,
     analysis: str = None,
+    path_for_save: Optional[str] = None,
 ):
     """
     ScatterPlot
@@ -202,7 +332,7 @@ def plot_scatter(
     show_outlier: bool
         If True, outliers will be plotted in light gray
     path_for_save: str
-        Saves the plot as a PNG to the specified directory (must end with \\ or \\\\. e.g. "C:\\\\Users\\\\user\\\\Desktop\\\\")
+        Saves the plot as a PNG to the specified directory
     limit: tuple[float, float]
         Defines both xlim and ylim if they are not set explicitly
     x_limit: tuple[float, float]
@@ -219,12 +349,10 @@ def plot_scatter(
         If True, draws horizontal and vertical dashed lines at x = 0 and y = 0
     highlight: list[str] | dict[str, list[str]]
         A list of gene names or a dictionary mapping colors to gene lists.
-        Genes will be highlighted in the plot with size 3× the default.
+        Genes will be highlighted in the plot with size 3× the default
+    analysis: str
+        Analysis name
 
-    Returns
-    -------
-    None
-        The function creates and optionally saves a matplotlib plot.
     """
 
     if data.analyses:
@@ -353,145 +481,12 @@ def plot_scatter(
         _highlight_points(ax, data, x_vals_all, y_vals_all, highlight, size)
 
     ax.grid(False)
-
-    if path_for_save:
-        fig.savefig(f"{path_for_save}{x}_{y}_{mode_slot}.png", format="png", dpi=300)
     plt.tight_layout()
+    if path_for_save:
+        fig.savefig(f"{path_for_save}/{x}_{y}_{mode_slot}.png", format="png", dpi=300)
     plt.show()
     plt.close()
 
-
-def _transform_no(matrix: np.ndarray) -> np.ndarray:
-    return matrix
-
-def _transform_z(matrix: np.ndarray, center: bool = True, scale: bool = True) -> np.ndarray:
-    if not center and not scale:
-        return matrix.astype(np.float64)
-
-    from scipy.stats import zscore
-    return zscore(matrix, axis=1, ddof=1, nan_policy='omit' if (center or scale) else 'propagate')
-
-def _transform_vst(data, selected_columns: list, mode_slot, genes) -> pd.DataFrame:
-    mat = data.get_table(mode_slots=mode_slot, columns=selected_columns, genes=genes)
-    mat = mat.loc[:, mat.notna().any(axis=0)]
-
-    selected_columns_valid = mat.columns.tolist()
-
-    coldata = data.coldata.loc[selected_columns_valid]
-    coldata["condition"] = coldata["Condition"]
-
-    if str(mode_slot).lower() == "count":
-        slotmat = mat.T.round().astype(int)
-    else:
-        slotmat = mat.T
-
-    slotmat = slotmat.loc[coldata.index]
-    try:
-        dds = DeseqDataSet(counts=slotmat, metadata=coldata, design_factors="Condition")
-
-    except Exception:
-        warnings.warn("Column 'Condition' not found in coldata. Please add a 'Condition' column to use this function.")
-
-    dds.deseq2()
-    dds.vst_fit()
-    vst_array = dds.vst_transform()
-    vst_df = pd.DataFrame(vst_array, index=slotmat.index, columns=slotmat.columns)
-    return vst_df
-
-def _logfc_transform(
-    m: np.ndarray,
-    reference_columns: Optional[list[int]] = None,
-    lfc_fun: Optional[Callable[[np.ndarray, np.ndarray], np.ndarray]] = None
-) -> np.ndarray:
-    """
-    Compute log2 fold changes for a matrix against a reference (e.g., mean of columns).
-
-    Parameters
-    ----------
-    m : np.ndarray
-        Expression matrix (genes × samples).
-    reference_columns : list of int, optional
-        Columns used to compute reference expression per gene.
-        Defaults to all columns.
-    lfc_fun : function, optional
-        A custom logFC function: takes (x, ref) and returns logFCs.
-        If None, uses log2((x+1)/(ref+1)).
-
-    Returns
-    -------
-    np.ndarray
-        Transformed matrix of log fold changes (same shape as input).
-    """
-    if reference_columns is None:
-        reference_columns = list(range(m.shape[1]))
-
-    ref = np.nanmean(m[:, reference_columns], axis=1)
-
-    if lfc_fun is None:
-        lfc_fun = lambda x, r: np.log2((x + 1) / (r + 1))
-
-    result = np.apply_along_axis(lambda v: lfc_fun(v, ref), axis=0, arr=m)
-    return result
-
-def _make_continuous_colors(values, colors=None, breaks=None):
-    values = np.asarray(values, dtype=np.float64)
-    values = values[np.isfinite(values)]
-
-    def quantile(arr, q):
-        return np.nanpercentile(arr, q*100)
-
-    if quantile(values, 0.25) < 0:
-        quant = [50, 95]
-
-        if breaks == "minmax":
-            ll = np.nanmax(np.abs(values))
-            breaks = np.linspace(-ll, ll, 5)
-        elif isinstance(breaks, int):
-            quant = [q * 100 for q in np.linspace(0, 1, breaks + 1)[1:-1]] + [95]
-            breaks = None
-
-        if breaks is None:
-            upper = np.nanpercentile(values[values > 0], quant)
-            lower = np.nanpercentile(np.abs(values[values < 0]), quant)
-            pm = np.maximum(upper, lower)
-            breaks = [-b for b in reversed(pm)] + [0] + list(pm)
-
-        if colors is None:
-            colors = ["#CA0020", "#F4A582", "#F7F7F7", "#92C5DE", "#0571B0"]
-
-    else:
-        quant = [5, 25, 50, 75, 95]
-
-        if breaks == "minmax":
-            breaks = np.linspace(np.nanmin(values), np.nanmax(values), 5)
-        elif isinstance(breaks, int):
-            quant = [5] + [q * 100 for q in np.linspace(0, 1, breaks)[1:-1]] + [95]
-            breaks = None
-
-        if breaks is None:
-            breaks = np.nanpercentile(values, quant)
-
-        if colors is None:
-            colors = ["#FFFFB2", "#FECC5C", "#FD8D3C", "#F03B20", "#BD0026"]
-    reverse = False
-    if isinstance(colors, str):
-        if colors.startswith("rev"):
-            reverse = True
-            colors = colors[3:]
-        try:
-            cmap = cm.get_cmap(colors, len(breaks))
-            color_list = [mcolors.rgb2hex(cmap(i)) for i in range(cmap.N)]
-        except ValueError:
-            cmap = cm.get_cmap("viridis", len(breaks))
-            color_list = [mcolors.rgb2hex(cmap(i)) for i in range(cmap.N)]
-
-        if reverse:
-            color_list = color_list[::-1]
-
-        colors = color_list
-    else:
-        colors = list(colors)
-    return {"breaks": breaks, "colors": colors}
 
 def plot_heatmap(
     data,
@@ -508,6 +503,7 @@ def plot_heatmap(
     title: Optional[str] = None,
     return_matrix: bool = False,
     na_to: Optional[float] = None,
+    path_for_save: Optional[str] = None
 ):
     """
      Create heatmaps from grandR objects.
@@ -562,6 +558,8 @@ def plot_heatmap(
 
      na_to : float, optional
          Value to substitute for missing (NA) values before plotting.
+     path_for_save : str, optional
+        Saves the plot as a PNG to the specified directory
 
      See Also
         --------
@@ -683,6 +681,8 @@ def plot_heatmap(
     if title:
         plt.title(title, y=1.05)
     plt.tight_layout()
+    if path_for_save:
+        fig.savefig(f"{path_for_save}/Heatmap_{mode_slot}.png", format="png", dpi=300)
     plt.show()
     plt.close()
 
@@ -691,14 +691,15 @@ def plot_heatmap(
 def plot_pca(
     data: GrandPy,
     mode_slot: str | ModeSlot = None,
-    path_for_save: Optional[str] = None,
     ntop: int = 500,
     aest: Optional[dict] = None,
     x: int = 1,
     y: int = 2,
     columns: Union[str, list, None] = None,
-    do_vst: bool = True):
-
+    do_vst: bool = True,
+    path_for_save: Optional[str] = None,
+):
+#TODO Docstring
     if mode_slot is None:
         mode_slot = data.default_slot
 
@@ -759,7 +760,6 @@ def plot_pca(
     plt.gca().set_aspect("equal", adjustable="box")
     plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0.)
     plt.tight_layout()
-
     if path_for_save:
         plt.savefig(f"{path_for_save}/PCA_{mode_slot}.png", dpi=300)
     plt.show()
@@ -773,9 +773,10 @@ def plot_gene_old_vs_new(
     log: bool = True,
     show_ci: bool = False,
     aest: Optional[dict] = None,
-    size: float = 50
+    size: float = 50,
+    path_for_save: Optional[str] = None,
 ):
-
+#TODO Docstring
     if slot is None:
         slot = data.default_slot
 
@@ -896,6 +897,8 @@ def plot_gene_old_vs_new(
         ax=ax
     )
     plt.tight_layout()
+    if path_for_save:
+        fig.savefig(f"{path_for_save}/{gene}_Old_vs_New.png", format="png", dpi=300)
     plt.show()
     plt.close()
 
@@ -908,7 +911,8 @@ def plot_gene_total_vs_ntr(
     log: bool = True,
     show_ci: bool = False,
     aest: Optional[dict] = None,
-    size: float = 50
+    size: float = 50,
+    path_for_save: Optional[str] = None,
 ):
     if slot is None:
         slot = data.default_slot
@@ -1018,8 +1022,9 @@ def plot_gene_total_vs_ntr(
         s=size,
         ax=ax
     )
-
     plt.tight_layout()
+    if path_for_save:
+        fig.savefig(f"{path_for_save}/{gene}_Total_vs_Ntr.png", format="png", dpi=300)
     plt.show()
     plt.close()
 
@@ -1036,8 +1041,9 @@ def plot_gene_groups_points(
     size: float = 50,
     transform: Optional[callable] = None,
     dodge: bool = False,
+    path_for_save: Optional[str] = None,
 ):
-
+#TODO Docstring
     if mode_slot is None:
         mode_slot = data.default_slot
 
@@ -1184,8 +1190,9 @@ def plot_gene_groups_points(
 
     if hue:
         ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-
     plt.tight_layout()
+    if path_for_save:
+        fig.savefig(f"{path_for_save}/{gene}_Groups_Points.png", format="png", dpi=300)
     plt.show()
     plt.close()
 
@@ -1197,8 +1204,10 @@ def plot_gene_groups_bars(
     columns: Optional[Union[str, list]] = None,
     show_ci: bool = False,
     xlabels: Optional[Union[str, list]] = None,
-    transform: Optional[callable] = None
+    transform: Optional[callable] = None,
+    path_for_save: Optional[str] = None,
 ):
+#TODO Docstring
     if slot is None:
         slot = data.default_slot
 
@@ -1304,6 +1313,8 @@ def plot_gene_groups_bars(
 
     ax.legend()
     plt.tight_layout()
+    if path_for_save:
+        fig.savefig(f"{path_for_save}/{gene}_Groups_Bars.png", format="png", dpi=300)
     plt.show()
     plt.close()
 
@@ -1320,10 +1331,10 @@ def plot_gene_snapshot_timecourse(
     show_ci: bool = False,
     aest: Optional[dict] = None,
     size: float = 50,
-    dodge: bool = False
+    dodge: bool = False,
+    path_for_save: Optional[str] = None,
 ):
-
-
+#TODO DOcstring
     if mode_slot is None:
         mode_slot = data.default_slot
 
@@ -1343,7 +1354,7 @@ def plot_gene_snapshot_timecourse(
 
     if time not in df.columns:
         raise ValueError(f"Column '{time}' not found in coldata!")
-    x_vals_numeric = df[time].apply(parse_time_to_float)
+    x_vals_numeric = df[time].apply(_parse_time_to_float)
 
     if not exact_tics:
         x_breaks = sorted(df[time].unique())
@@ -1413,7 +1424,7 @@ def plot_gene_snapshot_timecourse(
         err_low = dfmode_slot - ymin
         err_high = ymax - dfmode_slot
 
-        x_all = df[time].apply(parse_time_to_float).to_numpy()
+        x_all = df[time].apply(_parse_time_to_float).to_numpy()
 
         if dodge and hue and hue in df.columns:
             hue_vals = sorted(df[hue].unique())
@@ -1501,6 +1512,8 @@ def plot_gene_snapshot_timecourse(
         )
     sns.scatterplot(data=df, x="Time_float_dodged", y=y, hue=hue, style=style, s=size, ax=ax)
     plt.tight_layout()
+    if path_for_save:
+        fig.savefig(f"{path_for_save}/{gene}_Snapshot_Timecourse.png", format="png", dpi=300)
     plt.show()
     plt.close()
 
@@ -1510,8 +1523,10 @@ def plot_vulcano(
     analyses = None,
     p_cutoff: float = 0.05,
     lfc_cutoff: float = 1,
-    annotate_numbers=False #TODO Default ist True aber noch nicht implementiert
+    annotate_numbers=False, #TODO Default ist True aber noch nicht implementiert
+    path_for_save: Optional[str] = None,
 ):
+#TODO Docstring
     if analyses is None:
         analyses = data.analyses[0]
     df = data.get_analysis_table(analyses=analyses, regex=False, columns=["LFC", "Q"], with_gene_info=False)
@@ -1555,19 +1570,12 @@ def plot_vulcano(
     ax.set_xlabel(r'$\log_2$ Fold Change (LFC)')
     ax.set_ylabel(r'$-\log_{10}$ FDR (Q)')
     ax.set_title(analyses)
-
     plt.tight_layout()
+    if path_for_save:
+        fig.savefig(f"{path_for_save}/Vulcano.png", format="png", dpi=300)
     plt.show()
+    plt.close()
 
-def f_old_nonequi(t, f0, ks, kd):
-    return f0 * np.exp(-t * kd)
-
-def f_new(t, ks, kd):
-    return ks / kd * (1 - np.exp(-t * kd))
-
-def parse_time_str(t):
-    match = re.match(r"(\d+(?:\.\d+)?)", str(t))
-    return float(match.group(1)) if match else 0
 
 # Beispielaufruf: plot_gene_progressive_timecourse(sars, "UHMK1")
 def plot_gene_progressive_timecourse( # TODO docstring mit see also fit kinets wegen kwargs
@@ -1578,6 +1586,7 @@ def plot_gene_progressive_timecourse( # TODO docstring mit see also fit kinets w
     fit_type: str = "nlls",
     size: float = 50,
     exact_tics: bool = True,
+    path_for_save: Optional[str] = None,
     **kwargs
 ):
 
@@ -1585,7 +1594,7 @@ def plot_gene_progressive_timecourse( # TODO docstring mit see also fit kinets w
         slot = data.default_slot
 
     timepoints = data.coldata[time].values
-    time_numeric = np.array([parse_time_str(t) for t in timepoints])
+    time_numeric = np.array([_parse_time_to_float(t) for t in timepoints])
 
     condition = (
         data.coldata["Condition"]
@@ -1612,7 +1621,6 @@ def plot_gene_progressive_timecourse( # TODO docstring mit see also fit kinets w
         data,
         genes=gene,
         fit_type=fit_type,
-        time=time_numeric,
         return_fields=["Synthesis", "Half-life", "f0", "Degradation"],
         show_progress=True,
         **kwargs
@@ -1633,13 +1641,13 @@ def plot_gene_progressive_timecourse( # TODO docstring mit see also fit kinets w
 
         fitted.append(pd.DataFrame({
             "time_numeric": tt,
-            "Expression": f_old_nonequi(tt, f0, ks, kd),
+            "Expression": _f_old_nonequi(tt, f0, ks, kd),
             "Type": "old",
             "condition": cond
         }))
         fitted.append(pd.DataFrame({
             "time_numeric": tt,
-            "Expression": f_new(tt, ks, kd),
+            "Expression": _f_new(tt, ks, kd),
             "Type": "new",
             "condition": cond
         }))
@@ -1705,31 +1713,15 @@ def plot_gene_progressive_timecourse( # TODO docstring mit see also fit kinets w
     g.add_legend(title="RNA")
     # Exact tics
     if exact_tics:
-        import re
-
-        # suche "time" oder "time.original"
-        pattern = re.compile(rf"^{re.escape(time)}(?:\.original)?$")
-        cols = [c for c in data.coldata.columns if pattern.match(c)]
-        if not cols:
-            raise KeyError(f"Keine Spalte passt auf Regex '{pattern.pattern}'")
-
-        # wähle .original, wenn vorhanden, sonst Basis-Spalte
-        sel = next((c for c in cols if c.endswith(".original")), cols[0])
-        time_original = data.coldata[sel].astype(str)
-
-        time_numeric = np.array([parse_time_str(t) for t in time_original])
-
-        brdf = (
-            pd.DataFrame({
-                "time_numeric": time_numeric,
-                "time_original": time_original.str.replace("_", ".", regex=False)
-            })
-            .drop_duplicates()
-            .sort_values("time_numeric")
-        )
+        time_original = data.coldata["Time.original"]
+        time_numeric = np.array([_parse_time_to_float(t) for t in time_original])
+        brdf = pd.DataFrame({
+            "time_numeric": time_numeric,
+            "time_original": time_original.str.replace("_", ".", regex=False)
+        }).drop_duplicates().sort_values("time_numeric")
         for ax in g.axes.flat:
             ax.set_xticks(brdf["time_numeric"])
-            ax.set_xticklabels(brdf["time_original"], rotation=45, ha="right")
+            ax.set_xticklabels(brdf["time_original"], rotation=45)
             ax.set_xlabel("")
     else:
         unique_times = np.sort(df["time_numeric"].unique())
@@ -1737,6 +1729,8 @@ def plot_gene_progressive_timecourse( # TODO docstring mit see also fit kinets w
             ax.set_xticks(unique_times)
             ax.set_xticklabels([f"{t:.2f}" for t in unique_times], rotation=45)
             ax.set_xlabel("4sU labeling [h]")
+    if path_for_save:
+        fig.savefig(f"{path_for_save}/{gene}_Progrssive_Timecourse.png", format="png", dpi=300)
     plt.show()
     plt.close()
 
@@ -1749,6 +1743,7 @@ def plot_ma(
     annotate_numbers: bool = True,
     path_for_save: Optional[str] = None
 ):
+#TODO Docstring
     if analysis is None:
         analysis = data.analyses[0]
 
@@ -1790,11 +1785,11 @@ def plot_ma(
                     ha="right", va="top")
         ax.annotate(f"n={down}", xy=(x_vals.max(), y_vals.min()), xycoords="data",
                     ha="right", va="bottom")
-
     plt.tight_layout()
+    if path_for_save:
+        fig.savefig(f"{path_for_save}/MAPlot.png", format="png", dpi=300)
     plt.show()
     plt.close()
-
 
 
 def plot_expression_test(
@@ -1803,32 +1798,10 @@ def plot_expression_test(
     no4sU: Union[str, int],
     ylim: tuple = (-1, 1),
     hl_quantile: float = 0.8,
-    path_for_save: Optional[str] = None,
-    size: float = 10
+    size: float = 10,
+    path_for_save: Optional[str] = None
 ):
-    """
-    Compare expression levels between 4sU and no4sU samples using a log2 fold-change metric.
-
-    This function reproduces the behavior of the R function `PlotExpressionTest` from grandR:
-    It plots log2 fold change of 4sU vs no4sU against mean expression, with density coloring.
-
-    Parameters
-    ----------
-    data : GrandPy
-        The GrandPy dataset object.
-    w4sU : str
-        Column name for the 4sU sample (used as numerator in fold change).
-    no4sU : str or int
-        Column name or constant value for the no4sU reference (denominator).
-    ylim : tuple of float, default (-1, 1)
-        The y-axis range to display.
-    hl_quantile : float, default 0.8
-        Highlighting quantile for optional future use (currently unused).
-    size : float, default 10
-        Dot size in the scatter plot.
-
-    """
-
+#TODO Docstring
 
     w = data.get_matrix(mode_slot="count", columns=w4sU)
     if isinstance(no4sU, (int, float)):
@@ -1857,6 +1830,8 @@ def plot_expression_test(
     fig.colorbar(sc, ax=ax, label="Density")
     ax.set_title("Expression Test: 4sU vs no4sU")
     plt.tight_layout()
+    if path_for_save:
+        fig.savefig(f"{path_for_save}/Expression_Test.png", format="png", dpi=300)
     plt.show()
     plt.close()
 
@@ -1867,6 +1842,7 @@ def plot_type_distribution(
     relative: bool = False,
     return_fig: bool = False,
     palette: str = "Dark2",
+    path_for_save: Optional[str] = None,
 ):
     """
     Plot the distribution of gene types across conditions.
@@ -1924,5 +1900,7 @@ def plot_type_distribution(
     else:
         ax.legend(title="Type")
         plt.tight_layout()
+    if path_for_save:
+        fig.savefig(f"{path_for_save}/Type_Distribution.png", format="png", dpi=300)
     plt.show()
     plt.close()
