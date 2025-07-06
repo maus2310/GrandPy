@@ -12,7 +12,6 @@ from Py.slot_tool import SlotTool, ModeSlot, _parse_as_mode_slot
 from Py.plot_tool import PlotTool, Plot
 from Py.analysis_tool import AnalysisTool
 from Py.diffexp import get_summary_matrix
-from Py.modeling import fit_kinetics
 from Py.processing import filter_genes
 from Py.utils import _ensure_list, _make_unique, _reindex_by_index_name, _subset_dense_or_sparse, concat
 
@@ -2113,19 +2112,22 @@ class GrandPy:
             fit_type: Literal["nlls", "ntr", "chase"] = "nlls",
             *,
             slot: str = None,
-            genes: Union[str, Sequence[str]] = None,
             name_prefix: Union[str, None] = None,
-            time: Union[np.ndarray, pd.Series, list] = None,
-            ci_size: float = 0.95,
             return_fields: Union[str, Sequence[str]] = None,
+            time: Union[str, np.ndarray, pd.Series, list] = "Time",
+            ci_size: float = 0.95,
+            genes: Union[str, Sequence[str]] = None,
             show_progress: bool = True,
             **kwargs
     ) -> "GrandPy":
         """
-        Fit kinetics for one or more genes using least-squares or chase-based modeling.
+        Fit kinetic models to all genes.
 
-        For each condition in the dataset, this function extracts old and new RNA data, applies a per-gene
-        kinetic model fit, and stores the results as analysis tables in the GrandPy object.
+        Fit the standard mass action kinetics model of gene expression by different methods.
+
+        `nlls` and `chase` need proper normalization.
+        `ntr` is independent of normalization but can not be performed without assuming steady state.
+        The parameters are fit per condition.
 
         Parameters
         ----------
@@ -2133,42 +2135,42 @@ class GrandPy:
             Type of fit to perform.
 
             - `"nlls"`: full synthesis/degradation model.
-            - `"ntr"`:
+            - `"ntr"`: fit degradation rates using the NTR model.
             - `"chase"`: decay-only fitting.
 
         slot: str, optional
             Name of the data slot to use for old/new separation.
 
-        genes: Union[str or int or Sequence[str or int or bool], optional
-            Gene(s) to fit. Uses all by default. Specified either by their index, their symbol, their ensamble id, or a boolean mask.
-
         name_prefix: str, optional
             Optional prefix for naming the analysis tables.
-
-        time: array-like, optional
-            Vector of time points. If not provided, inferred from `data.coldata["Time"]`.
-
-        ci_size: float, optional
-            Confidence interval size to use in each fit, by default 0.95.
 
         return_fields: str or Sequence[str], default ["Synthesis", "Half-life"]
             Names of result fields to extract from each fit. The following options are available:
 
-            - `"Synthesis"`: Estimated synthesis rate (s).
-            - `"Degradation"`: Estimated degradation rate (d).
-            - `"Half-life"`: Calculated half-life (log(2) / d).
+            - `"Synthesis"`: Estimated synthesis rate.
+            - `"Degradation"`: Estimated degradation rate.
+            - `"Half-life"`: Calculated half-life.
             - `"log_likelihood"`: Log-likelihood of the fit.
-            - `"f0"`: Initial transcript abundance (approximation).
-            - `"total"`: Total RNA abundance (v_old + v_new or slot_total).
+            - `"f0"`: Initial transcript abundance.
+            - `"total"`: Total RNA abundance.
             - `"conf_lower"`: Lower bounds of confidence intervals for s, d, and half-life.
             - `"conf_upper"`: Upper bounds of confidence intervals for s, d, and half-life.
             - `"rmse"`: Root mean square error over all timepoints.
 
-            Only for fit_type = "nlls" or "chase":
+            Additional fields for fit_type = "nlls" and "chase":
 
             - `"rmse_old"`: RMSE for old RNA timepoints.
             - `"rmse_new"`: RMSE for new RNA timepoints.
             - `"residuals"`: Dictionary of raw and relative residuals.
+
+        time: array-like, default "Time"
+            Either a column name in `coldata` or a list of timepoints.
+
+        ci_size: float, default 0.95
+            Confidence interval size to use in each fit.
+
+        genes: Union[str or int or Sequence[str or int or bool], optional
+            Gene(s) to fit. Uses all by default. Specified either by their index, their symbol, their ensamble id, or a boolean mask.
 
         show_progress: bool, default True
             If True, a progress bar will be displayed.
@@ -2176,9 +2178,24 @@ class GrandPy:
         **kwargs: dict
             Additional keyword arguments passed to the per-gene fitting function.
 
-            for fit_type = "nlls" or "chase":
+            for fit_type = "nlls":
 
-            - maxiter : Maximum number of optimization iterations, by default 250.
+            - maxiter: Maximum number of optimization iterations, by default 250.
+            - steady_state: Whether to use the steady-state model. Can be set for each condition individually by using a dict. By default True
+
+            for fit_type = "chase":
+
+            - maxiter: Maximum number of optimization iterations, by default 250.
+
+            for fit_type = "ntr":
+
+            - transformed_ntr_map: Wheter to assume that NTR values are MAP transformed, by default True.
+            - exact_ci: Wheter to use exact confidence intervals, by default False.
+
+        See Also
+        --------
+        GrandPy.normalize
+            Normalizes the expression data.
 
         Returns
         -------
@@ -2194,27 +2211,24 @@ class GrandPy:
 
         name_prefix = f"{name_prefix}_" if name_prefix else ""
 
-        # Compute all necessary functions on self now so it doesn't have to be passed on (not necessary, but seems to help performance)
-        condition_vector = self.coldata["Condition"].values
+        if isinstance(time, str):
+            time = self.coldata[time]
 
-        time = np.array(time) if time is not None else self.coldata["Time"].values
+        time = np.array(time)
 
-        new_slot = "ntr" if fit_type == "chase" else ModeSlot("new", slot)
-        new_mat = np.atleast_2d(self.get_matrix(mode_slot=new_slot, genes=genes))
-        old_mat = np.atleast_2d(self.get_matrix(mode_slot=ModeSlot("old", slot), genes=genes))
+        # ntr and nlls have been implemented separately for easier optimization and better readability
+        if fit_type == "ntr":
+            from Py.modeling import fit_kinetics_ntr
 
-        genes_to_fit = self.get_genes(genes)
+            kinetics = fit_kinetics_ntr(data = self, slot = slot, genes = genes, name_prefix = name_prefix, time = time,
+                                        ci_size = ci_size, show_progress = show_progress, return_fields=return_fields,**kwargs)
+        else:
+            from Py.modeling import fit_kinetics
 
-        # Optional data only for chase
-        slot_data = self.get_matrix(slot) if fit_type == "chase" else None
-        slot_names = np.array(self._adata.var_names) if fit_type == "chase" else None
+            kinetics = fit_kinetics(data=self, fit_type=fit_type, slot=slot, genes=genes, name_prefix=name_prefix, time=time,
+                                    ci_size=ci_size, return_fields=return_fields, show_progress=show_progress, **kwargs)
 
-        kinetics = fit_kinetics(fit_type=fit_type, cond_vec=condition_vector, new_mat=new_mat, old_mat=old_mat,
-                                genes=genes_to_fit, name_prefix=name_prefix, time=time, slot_data=slot_data,
-                                slot_names=slot_names, ci_size=ci_size, return_fields=return_fields,
-                                show_progress=show_progress, **kwargs)
-
-        # with_analysis should copy here, so this shouldn't mutate self
+        # with_analysis should copy here, so this doesn't mutate self
         new_gp = self
         for name, analysis in kinetics.items():
             new_gp = new_gp.with_analysis(name, analysis)

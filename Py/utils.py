@@ -224,6 +224,7 @@ def _ensure_list(obj):
     return list(obj)
 
 
+# alternative fit_kinetics function
 def _get_kinetics_data(
             self,
             fit_type: Literal["nlls", "ntr", "chase"] = "nlls",
@@ -266,7 +267,7 @@ def _get_kinetics_data(
     slot_names = np.array(self._adata.var_names) if fit_type == "chase" else None
 
     kinetics = fit_kinetics(fit_type=fit_type, cond_vec=condition_vector, new_mat=new_mat, old_mat=old_mat,
-                            genes=genes_to_fit, name_prefix=name_prefix, time=time, slot_data=slot_data,
+                            genes_to_fit=genes_to_fit, name_prefix=name_prefix, time=time, slot_data=slot_data,
                             slot_names=slot_names, ci_size=ci_size, return_fields=return_fields,
                             show_progress=show_progress, **kwargs)
 
