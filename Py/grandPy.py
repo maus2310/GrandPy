@@ -2106,6 +2106,7 @@ class GrandPy:
 
         return _normalize_rpm(self, genes=genes, name=name, slot=slot, factor=factor)
 
+
     # ----- modeling functions -----
     def fit_kinetics(
             self,
@@ -2121,7 +2122,7 @@ class GrandPy:
             **kwargs
     ) -> "GrandPy":
         """
-        Fit kinetic models to all genes.
+        Fit kinetic models to genes.
 
         Fit the standard mass action kinetics model of gene expression by different methods.
 
@@ -2202,33 +2203,11 @@ class GrandPy:
         GrandPy
             A new GrandPy object with analysis results added per condition.
         """
-        # Preprocess the parameters
-        if slot is None:
-            slot = self.default_slot
-        if return_fields is None:
-            return_fields = ["Synthesis", "Half-life"]
-        return_fields = _ensure_list(return_fields)
+        from Py.modeling import fit_kinetics
 
-        name_prefix = f"{name_prefix}_" if name_prefix else ""
+        kinetics = fit_kinetics(data=self, fit_type=fit_type, slot=slot, name_prefix=name_prefix, time=time,
+                                ci_size=ci_size, genes=genes, show_progress=show_progress, **kwargs)
 
-        if isinstance(time, str):
-            time = self.coldata[time]
-
-        time = np.array(time)
-
-        # ntr and nlls have been implemented separately for easier optimization and better readability
-        if fit_type == "ntr":
-            from Py.modeling import fit_kinetics_ntr
-
-            kinetics = fit_kinetics_ntr(data = self, slot = slot, genes = genes, name_prefix = name_prefix, time = time,
-                                        ci_size = ci_size, show_progress = show_progress, return_fields=return_fields,**kwargs)
-        else:
-            from Py.modeling import fit_kinetics
-
-            kinetics = fit_kinetics(data=self, fit_type=fit_type, slot=slot, genes=genes, name_prefix=name_prefix, time=time,
-                                    ci_size=ci_size, return_fields=return_fields, show_progress=show_progress, **kwargs)
-
-        # with_analysis should copy here, so this doesn't mutate self
         new_gp = self
         for name, analysis in kinetics.items():
             new_gp = new_gp.with_analysis(name, analysis)

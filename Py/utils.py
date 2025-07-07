@@ -226,49 +226,25 @@ def _ensure_list(obj):
 
 # alternative fit_kinetics function
 def _get_kinetics_data(
-            self,
-            fit_type: Literal["nlls", "ntr", "chase"] = "nlls",
-            *,
-            slot: str = None,
-            genes: Union[str, Sequence[str]] = None,
-            name_prefix: Union[str, None] = None,
-            time: Union[np.ndarray, pd.Series, list] = None,
-            ci_size: float = 0.95,
-            return_fields: Union[str, Sequence[str]] = None,
-            show_progress: bool = True,
-            **kwargs
-    ) -> dict[str, DataFrame]:
+    data,
+    fit_type: Literal["nlls", "ntr", "chase"] = "nlls",
+    *,
+    slot: str = None,
+    name_prefix: Union[str, None] = None,
+    return_fields: Union[str, Sequence[str]] = None,
+    time: Union[str, np.ndarray, pd.Series, list] = "Time",
+    ci_size: float = 0.95,
+    genes: Union[str, Sequence[str]] = None,
+    show_progress: bool = True,
+    **kwargs
+) -> dict[str, DataFrame]:
     """
     This function is almost the same as `GrandPy.fit_kinetics`.
-    The only difference is that it returns the kinetics data instead of the fitted model.
+    The only difference is that it returns the kinetics data instead of a GrandPy object.
     """
-    from Py.slot_tool import ModeSlot
     from Py.modeling import fit_kinetics
 
-    if slot is None:
-        slot = self.default_slot
-    if return_fields is None:
-        return_fields = ["Synthesis", "Half-life"]
-    return_fields = _ensure_list(return_fields)
-
-    name_prefix = f"{name_prefix}_" if name_prefix else ""
-
-    condition_vector = self.coldata["Condition"].values
-
-    time = np.array(time) if time is not None else self.coldata["Time"].values
-
-    new_slot = "ntr" if fit_type == "chase" else ModeSlot("new", slot)
-    new_mat = np.atleast_2d(self.get_matrix(mode_slot=new_slot, genes=genes))
-    old_mat = np.atleast_2d(self.get_matrix(mode_slot=ModeSlot("old", slot), genes=genes))
-
-    genes_to_fit = self.get_genes(genes)
-
-    slot_data = self.get_matrix(slot) if fit_type == "chase" else None
-    slot_names = np.array(self._adata.var_names) if fit_type == "chase" else None
-
-    kinetics = fit_kinetics(fit_type=fit_type, cond_vec=condition_vector, new_mat=new_mat, old_mat=old_mat,
-                            genes_to_fit=genes_to_fit, name_prefix=name_prefix, time=time, slot_data=slot_data,
-                            slot_names=slot_names, ci_size=ci_size, return_fields=return_fields,
-                            show_progress=show_progress, **kwargs)
+    kinetics = fit_kinetics(data=data, fit_type=fit_type, slot=slot, genes=genes, name_prefix=name_prefix, time=time,
+                            ci_size=ci_size, return_fields=return_fields, show_progress=show_progress, **kwargs)
 
     return kinetics

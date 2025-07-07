@@ -1,18 +1,56 @@
-import warnings
 from typing import Union, Sequence, Literal, TYPE_CHECKING, Mapping, Callable
 import numpy as np
 import pandas as pd
 from functools import cached_property
 from dataclasses import dataclass
-from scipy.integrate import quad
 from scipy.stats import t, chi2
 from scipy.optimize import least_squares, OptimizeResult, brentq
 
 
 from Py.slot_tool import ModeSlot
+from Py.utils import _ensure_list
 
 if TYPE_CHECKING:
     from Py.grandPy import GrandPy
+
+
+def fit_kinetics(
+    data,
+    fit_type: Literal["nlls", "ntr", "chase"] = "nlls",
+    *,
+    slot: str = None,
+    name_prefix: Union[str, None] = None,
+    return_fields: Union[str, Sequence[str]] = None,
+    time: Union[str, np.ndarray, pd.Series, list] = "Time",
+    ci_size: float = 0.95,
+    genes: Union[str, Sequence[str]] = None,
+    show_progress: bool = True,
+    **kwargs
+) -> dict[str, pd.DataFrame]:
+    # Preprocess the parameters
+    if slot is None:
+        slot = data.default_slot
+    if return_fields is None:
+        return_fields = ["Synthesis", "Half-life"]
+    return_fields = _ensure_list(return_fields)
+
+    name_prefix = f"{name_prefix}_" if name_prefix else ""
+
+    if isinstance(time, str):
+        time = data.coldata[time]
+
+    time = np.array(time)
+
+    # ntr and nlls have been implemented separately for easier optimization and better readability
+    if fit_type == "ntr":
+        kinetics = fit_kinetics_ntr(data=data, slot=slot, genes=genes, name_prefix=name_prefix, time=time,
+                                    ci_size=ci_size, show_progress=show_progress, return_fields=return_fields, **kwargs)
+    else:
+        kinetics = fit_kinetics_nlls(data=data, fit_type=fit_type, slot=slot, genes=genes, name_prefix=name_prefix, time=time,
+                                ci_size=ci_size, return_fields=return_fields, show_progress=show_progress, **kwargs)
+
+    return kinetics
+
 
 
 # ----- nlls und chase kinetic modeling -----
@@ -510,10 +548,10 @@ def fit_kinetics_gene_least_squares_chase(*, values_new: np.ndarray, values_old:
                                            slot_names=slot_names, steady_state=steady_state, gene=gene)
 
 
-def fit_kinetics(
+def fit_kinetics_nlls(
     data: "GrandPy",
     slot: str,
-    fit_type: Literal["nlls", "ntr", "chase"] = "nlls",
+    fit_type: str = "nlls",
     *,
     genes: Union[str, int, Sequence[Union[str, int, bool]]] = None,
     name_prefix: Union[str, None] = None,
@@ -647,7 +685,7 @@ def fit_kinetics(
 
 
 # ----- ntr kinetic modeling -----
-def uniroot_safe(fun: Callable[[float], float], lower: float, upper: float):
+def uniroot_safe(fun, lower: float, upper: float):
     """
     Safely compute the root of a function using Brent's method.
 
@@ -662,7 +700,6 @@ def uniroot_safe(fun: Callable[[float], float], lower: float, upper: float):
         return brentq(fun, lower, upper)
     except Exception:
         return np.nan
-
 
 @dataclass
 class NTRFitResult:
@@ -875,6 +912,7 @@ def fit_kinetics_ntr(
 
     condition_vector = data.coldata["Condition"].values
 
+    # --- Retrieve matrices ---
     alpha = np.atleast_2d(data.get_matrix(mode_slot="alpha", genes=genes_to_fit))
     beta = np.atleast_2d(data.get_matrix(mode_slot="beta", genes=genes_to_fit))
     ntr = np.atleast_2d(data.get_matrix(mode_slot="ntr", genes=genes_to_fit))
@@ -967,7 +1005,6 @@ def fit_kinetics_ntr(
         result[f"{name_prefix}kinetics_{condition}"] = df
 
     return result
-
 
 def fit_kinetics_gene_ntr(
         alpha: np.ndarray,
