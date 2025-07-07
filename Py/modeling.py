@@ -3,7 +3,6 @@ import numpy as np
 import pandas as pd
 from functools import cached_property
 from dataclasses import dataclass
-from scipy.stats import t, chi2
 from scipy.optimize import least_squares, OptimizeResult, brentq
 
 
@@ -15,7 +14,7 @@ if TYPE_CHECKING:
 
 
 def fit_kinetics(
-    data,
+    data: "GrandPy",
     fit_type: Literal["nlls", "ntr", "chase"] = "nlls",
     *,
     slot: str = None,
@@ -27,6 +26,11 @@ def fit_kinetics(
     show_progress: bool = True,
     **kwargs
 ) -> dict[str, pd.DataFrame]:
+    """
+    Wrapper for fit_kinetics_nlls and fit_kinetics_ntr.
+
+    For detailed documentation, see grandPy.GrandPy.fit_kinetics.
+    """
     # Preprocess the parameters
     if slot is None:
         slot = data.default_slot
@@ -52,120 +56,251 @@ def fit_kinetics(
     return kinetics
 
 
+# ----- nlls and chase kinetic modeling -----
+def fit_kinetics_nlls(
+    data: "GrandPy",
+    slot: str,
+    fit_type: Literal["nlls", "chase"] = "nlls",
+    *,
+    genes: Union[str, int, Sequence[Union[str, int, bool]]] = None,
+    name_prefix: Union[str, None] = None,
+    time: Union[np.ndarray, pd.Series, list] = None,
+    ci_size: float = 0.95,
+    return_fields: Sequence[str] = None,
+    steady_state: Union[bool, Mapping[str, bool]] = True,
+    show_progress: bool = True,
+    **kwargs
+) -> dict[str, pd.DataFrame]:
+    """
+    For a detailed documentation, see grandpy.GrandPy.fit_kinetics.
 
-# ----- nlls und chase kinetic modeling -----
-@np.vectorize
-def f_old_equi(t, s, d):
+    This function will automatically switch to parallel processing if the number of genes is greater than 1500.
     """
-    Computes the expected amount of old RNA under steady-state assumptions.
-    """
-    return s / d * np.exp(-d * t)
+    if show_progress:
+        from tqdm import tqdm
 
-@np.vectorize
-def f_new(t, s, d):
-    """
-    Computes the expected amount of newly synthesized RNA at a given time.
-    """
-    return s / d * (1 - np.exp(-d * t))
+    genes_to_fit = data.get_genes(genes)
 
-def get_residuals_and_jacobian_equi(t_old, v_old, t_new, v_new, chase: bool):
+    condition_vector = data.coldata["Condition"].values
+
+    # An arbitrary threshold, where parallelization is probably slower.
+    if len(genes_to_fit) > 1500:
+        from concurrent.futures import ProcessPoolExecutor
+        parallel = True
+    else:
+        parallel = False
+
+    # --- Select a fit function ---
+    fit_func = {
+        "nlls": fit_kinetics_gene_least_squares,
+        "chase": fit_kinetics_gene_least_squares_chase
+    }.get(fit_type)
+    if fit_func is None:
+        raise ValueError(f"Unknown fit type: {fit_type}")
+
+    unique_conditions = np.unique(condition_vector)
+
+    # --- Map steady_state to each condition ---
+    if isinstance(steady_state, bool):
+        steady_state = {cond: steady_state for cond in unique_conditions}
+
+    # --- Retrieve expression matrices ---
+    new_slot = "ntr" if fit_type == "chase" else ModeSlot("new", slot)
+    new_expression = np.atleast_2d(data.get_matrix(mode_slot=new_slot, genes=genes_to_fit))
+    old_expression = np.atleast_2d(data.get_matrix(mode_slot=ModeSlot("old", slot), genes=genes_to_fit))
+
+    if fit_type == "chase":
+        slot_matrix = data.get_matrix(slot, genes=genes_to_fit)
+        slot_values_per_gene = {
+            gene: np.mean(slot_matrix[i, :])
+            for i, gene in enumerate(genes_to_fit)
+        }
+    else:
+        slot_values_per_gene = {}
+
+    result = {}
+
+    for condition in unique_conditions:
+        idx = np.where(condition_vector == condition)[0]
+        time_cond = time[idx]
+        new_cond = new_expression[:, idx]
+        old_cond = old_expression[:, idx]
+        condition_steady_state = steady_state[condition]
+
+        if parallel:
+            jobs = []
+            with ProcessPoolExecutor() as executor:
+                for gene_index, gene in enumerate(genes_to_fit):
+                    values_new = new_cond[gene_index, :]
+                    values_old = old_cond[gene_index, :]
+                    total_value = slot_values_per_gene.get(gene,None)
+
+                    job = executor.submit(
+                        fit_func,
+                        values_new=values_new,
+                        values_old=values_old,
+                        time=time_cond,
+                        ci_size=ci_size,
+                        total_value=total_value,
+                        steady_state=condition_steady_state,
+                        **kwargs
+                    )
+                    jobs.append((gene, job))
+
+                rows = []
+                symbols = []
+
+                if show_progress:
+                    for gene, future in tqdm(jobs, desc=f"Fitting {condition}", total=len(jobs)):
+                        res = future.result()
+                        series = res.to_series(condition=condition, prefix=name_prefix, fields=return_fields)
+                        rows.append(series.values)
+                        symbols.append(gene)
+                else:
+                    for gene, future in jobs:
+                        res = future.result()
+                        series = res.to_series(condition=condition, prefix=name_prefix, fields=return_fields)
+                        rows.append(series.values)
+                        symbols.append(gene)
+
+        else:
+            rows = []
+            symbols = []
+
+            gene_index_iterator = enumerate(genes_to_fit)
+            if show_progress:
+                gene_index_iterator = tqdm(gene_index_iterator, total=len(genes_to_fit), desc=f"Fitting {condition}")
+
+            for gene_index, gene in gene_index_iterator:
+                values_new = new_cond[gene_index, :]
+                values_old = old_cond[gene_index, :]
+
+                res = fit_func(
+                    values_new=values_new,
+                    values_old=values_old,
+                    time=time_cond,
+                    ci_size=ci_size,
+                    total_value=slot_values_per_gene.get(gene, None),
+                    steady_state=condition_steady_state,
+                    **kwargs
+                )
+                series = res.to_series(condition=condition, prefix=name_prefix, fields=return_fields)
+                rows.append(series.values)
+                symbols.append(gene)
+
+        df = pd.DataFrame(np.vstack(rows), index=symbols, columns=series.index)
+        df.index.name = "Symbol"
+        result[f"{name_prefix}kinetics_{condition}"] = df
+
+    return result
+
+def fit_kinetics_gene_least_squares(
+    values_new: np.ndarray,
+    values_old: np.ndarray,
+    time: np.ndarray,
+    *,
+    ci_size: float = 0.95,
+    max_iter: int = 250,
+    chase: bool = False,
+    steady_state: bool = True,
+    total_value: float = None,
+) -> "FitResult":
     """
-    Constructs residual and Jacobian functions assuming steady-state kinetics.
+    Fits synthesis and degradation rates for a single gene and condition using non-linear least squares.
+
+    This function implements a least-squares optimization to infer kinetic parameters from time-resolved data.
+    Optionally supports "chase" mode for experiments where labeled RNA is decaying.
 
     Parameters
     ----------
-    t_old : np.ndarray
-        Time points for old RNA.
-    v_old : np.ndarray
-        Observed values for old RNA.
-    t_new : np.ndarray
-        Time points for new RNA.
-    v_new : np.ndarray
-        Observed values for new RNA.
-    chase : bool
-        If True, assumes a chase experiment (no old RNA used).
+    values_new : np.ndarray
+       Observed values of new RNA.
+
+    values_old : np.ndarray
+       Observed values of old RNA.
+
+    time : np.ndarray
+       Time points
+
+    ci_size : float, default 0.95
+       Confidence interval level.
+
+    max_iter : int, default 250
+       Maximum number of optimization iterations.
+
+    chase : bool, default False
+       Whether to perform the fit in "chase" mode (only v_new is used).
+
+    steady_state : bool, default True
+        Wheter to use steady for a condition.
+
+    total_value : float, optional
+       Optional total expression values used to estimate initial concentration in chase mode.
 
     Returns
     -------
-    tuple
-        A tuple (residual_function, jacobian_function) for least-squares optimization.
+    FitResult
+       A container object holding fitted parameters, residuals, confidence intervals, and diagnostics.
+
+    See Also
+    --------
+    FitResult
+       Object encapsulating result and post-fit statistics.
     """
-    def residual_function(par):
-        s, d = par
-        ro = np.zeros_like(v_old) if chase else v_old - f_old_equi(t_old, s, d)
-        rn = v_new - (f_old_equi(t_new, s, d) if chase else f_new(t_new, s, d))
-        return np.concatenate([ro, rn])
-    
-    def jacobian_function(par):
-        s, d = par
+
+    if time.size + time.size == 0:
+        return FitResult()
+
+    # --- Define residual and Jacobian functions ---
+    if steady_state:
+        res_fun, jac = get_residuals_and_jacobian_equi(time, values_old, time, values_new, chase)
         if chase:
-            j_old_s = np.zeros_like(t_old)
-            j_old_d = np.zeros_like(t_old)
+            x0 = guess_chase_start(values_new, time)
+            bounds = ([1e-8, 1e-3], [np.inf, 2.0])
         else:
-            exp_o = np.exp(-d * t_old)
-            j_old_s = -exp_o / d
-            j_old_d = -(-s / d**2 * exp_o + s / d * (-t_old * exp_o))
-        exp_n = np.exp(-d * t_new)
-        if chase:
-            j_new_s = -exp_n / d
-            j_new_d = s / d ** 2 * exp_n - s / d * (t_new * exp_n)
-        else:
-            one_me = 1 - exp_n
-            j_new_s = -one_me / d
-            j_new_d = -(-s / d**2 * one_me + s / d * (t_new * exp_n))
-        return np.vstack([np.concatenate([j_old_s, j_new_s]),
-                          np.concatenate([j_old_d, j_new_d])]).T
-    return residual_function, jacobian_function
+            x0 = [np.mean(values_old), 0.1]
+            bounds = ([0, 1e-4], [np.inf, np.inf])
+    else:
+        res_fun, jac = get_residuals_and_jacobian_nonequi(time, values_old, time, values_new)
+        s0 = np.maximum(np.max(values_new[time > 0] / time[time > 0]), 1e-3)
+        d0 = guess_d0_from_old(values_old, time)
+        f00 = np.mean(values_old[time == 0]) if np.any(time == 0) else np.mean(values_old)
+        x0 = [s0, d0, f00]
+        bounds = ([0, 1e-4, 0], [np.inf, np.inf, np.inf])
 
-def get_residuals_and_jacobian_nonequi(t_old, v_old, t_new, v_new):
+    # --- Run least-squares optimization ---
+    result = least_squares(
+        res_fun,
+        x0=x0,
+        jac=jac,
+        bounds=bounds,
+        max_nfev=max_iter
+    )
+    if not result.success or result.nfev >= max_iter:
+        return FitResult()
+
+    # --- Construct FitResult object ---
+    return FitResult(
+        time=time,
+        values_new=values_new,
+        values_old=values_old,
+        chase=chase,
+        slot_total=total_value,
+        opt_result=result,
+        ci_size=ci_size,
+        steady_state=steady_state
+    )
+
+def fit_kinetics_gene_least_squares_chase(*, values_new: np.ndarray, values_old: np.ndarray, time: np.ndarray,
+                                          ci_size: float = 0.95, max_iter: int = 250, steady_state: bool = None,
+                                          total_value: float = None, slot_names: np.ndarray = None
+                                          ) -> "FitResult":
     """
-    Constructs residual and Jacobian functions assuming non steady-state kinetics.
-
-    Parameters
-    ----------
-    t_old : np.ndarray
-        Time points for old RNA.
-    v_old : np.ndarray
-        Observed values for old RNA.
-    t_new : np.ndarray
-        Time points for new RNA.
-    v_new : np.ndarray
-        Observed values for new RNA.
-
-    Returns
-    -------
-    tuple
-        A tuple (residual_function, jacobian_function) for least-squares optimization.
+    This function only exists due to parallelization issues.
     """
-    def residual_function(par):
-        s, d, f0 = par
-        pred_old = f0 * np.exp(-d * t_old)
-        pred_new = s / d * (1 - np.exp(-d * t_new))
-        return np.concatenate([v_old - pred_old, v_new - pred_new])
-
-    def jocobian_function(par):
-        s, d, f0 = par
-        exp_o = np.exp(-d * t_old)
-        exp_n = np.exp(-d * t_new)
-
-        # r_old derivatives
-        j_old_s = np.zeros_like(t_old)
-        j_old_d = f0 * t_old * exp_o
-        j_old_f0 = -exp_o
-
-        # r_new derivatives
-        j_new_s = -(1 - exp_n) / d
-        j_new_d = s / d**2 * (1 - exp_n) - s / d * t_new * exp_n
-        j_new_f0 = np.zeros_like(t_new)
-
-        J = np.vstack([
-            np.concatenate([j_old_s, j_new_s]),
-            np.concatenate([j_old_d, j_new_d]),
-            np.concatenate([j_old_f0, j_new_f0])
-        ]).T
-        return J
-
-    return residual_function, jocobian_function
+    return fit_kinetics_gene_least_squares(values_new=values_new, values_old=values_old, time=time,
+                                           ci_size=ci_size, max_iter=max_iter, chase=True, total_value=total_value,
+                                           steady_state=steady_state)
 
 @dataclass
 class FitResult:
@@ -314,6 +449,8 @@ class FitResult:
         if self.opt_result is None or self.opt_result.jac is None:
             return np.full(2, np.nan), np.full(2, np.nan)
 
+        from scipy.stats import t
+
         try:
             J = self.opt_result.jac
             if J.shape[1] > 2:
@@ -373,13 +510,11 @@ class FitResult:
 
     def to_series(self, condition: str = None, prefix: str = "", fields: list[str] = None) -> pd.Series:
         data = self.to_dict(fields)
-        p = f"{prefix}_" if prefix else ""
-        c = f"{condition}_" if condition else ""
 
         flat = {}
 
         for key, val in data.items():
-            base_key = f"{p}{c}{key}"
+            base_key = f"{prefix}{condition}_{key}"
 
             if key == "residuals":
                 # isolated handling for residuals
@@ -429,453 +564,163 @@ class FitResult:
         return pd.Series(flat)
 
 
-def fit_kinetics_gene_least_squares(
-    values_new: np.ndarray,
-    values_old: np.ndarray,
-    time: np.ndarray,
-    *,
-    ci_size: float = 0.95,
-    maxiter: int = 250,
-    chase: bool = False,
-    steady_state: bool = True,
-    slot_data: np.ndarray = None,
-    slot_names: np.ndarray = None,
-    gene: str = None
-) -> FitResult:
+def get_residuals_and_jacobian_equi(t_old, v_old, t_new, v_new, chase: bool):
     """
-    Fits synthesis and degradation rates for a single gene and condition using non-linear least squares.
-
-    This function implements a least-squares optimization to infer kinetic parameters from time-resolved data.
-    Optionally supports "chase" mode for experiments where labeled RNA is decaying.
+    Constructs residual and Jacobian functions assuming steady-state kinetics.
 
     Parameters
     ----------
-    values_new : np.ndarray
-       Observed values of new RNA.
-
-    values_old : np.ndarray
-       Observed values of old RNA.
-
-    time : np.ndarray
-       Time points
-
-    ci_size : float, default 0.95
-       Confidence interval level.
-
-    maxiter : int, default 250
-       Maximum number of optimization iterations.
-
-    chase : bool, default False
-       Whether to perform the fit in "chase" mode (only v_new is used).
-
-    steady_state : bool, default True
-        Wheter to use steady for a condition.
-
-    slot_data : np.ndarray, optional
-       Optional total expression values used to estimate initial concentration in chase mode.
-
-    slot_names : np.ndarray, optional
-       Gene names corresponding to `slot_data`.
-
-    gene : str or int or Sequence[str or int or bool], optional
-       The gene symbol currently being fit. Either by their index, their symbol, their ensamble id, or a boolean mask.
+    t_old : np.ndarray
+        Time points for old RNA.
+    v_old : np.ndarray
+        Observed values for old RNA.
+    t_new : np.ndarray
+        Time points for new RNA.
+    v_new : np.ndarray
+        Observed values for new RNA.
+    chase : bool
+        If True, assumes a chase experiment (no old RNA used).
 
     Returns
     -------
-    FitResult
-       A container object holding fitted parameters, residuals, confidence intervals, and diagnostics.
-
-    See Also
-    --------
-    FitResult
-       Object encapsulating result and post-fit statistics.
+    tuple
+        A tuple (residual_function, jacobian_function) for least-squares optimization.
     """
 
-    if time.size + time.size == 0:
-        return FitResult()
+    def residual_function(par):
+        s, d = par
+        ro = np.zeros_like(v_old) if chase else v_old - f_old_equi(t_old, s, d)
+        rn = v_new - (f_old_equi(t_new, s, d) if chase else f_new(t_new, s, d))
+        return np.concatenate([ro, rn])
 
-    # --- Define residual and Jacobian functions ---
-    if steady_state:
-        res_fun, jac = get_residuals_and_jacobian_equi(time, values_old, time, values_new, chase)
-        x0 = [np.mean(values_old), 0.1]
-        bounds = ([0, 1e-4], [np.inf, np.inf])
-    else:
-        res_fun, jac = get_residuals_and_jacobian_nonequi(time, values_old, time, values_new)
-        s0 = np.maximum(np.max(values_new[time > 0] / time[time > 0]), 0.1)
-        d0 = 0.1
-        f00 = np.mean(values_old[time == 0]) if np.any(time == 0) else np.mean(values_old)
-        x0 = [s0, d0, f00]
-        bounds = ([0, 1e-4, 0], [np.inf, np.inf, np.inf])
-
-    # --- Run least-squares optimization ---
-    result = least_squares(
-        res_fun,
-        x0=x0,
-        jac=jac,
-        bounds=bounds,
-        max_nfev=maxiter
-    )
-    if not result.success or result.nfev >= maxiter:
-        return FitResult()
-
-    # --- Optionally use total expression for chase f0 estimation ---
-    lvl_val = None
-    if chase and slot_data is not None and slot_names is not None:
-        idx = slot_names == gene
-        lvl_val = np.median(slot_data[idx]) if np.any(idx) else np.nan
-
-    # --- Construct FitResult object ---
-    return FitResult(
-        time=time,
-        values_new=values_new,
-        values_old=values_old,
-        chase=chase,
-        slot_total=lvl_val,
-        opt_result=result,
-        ci_size=ci_size,
-        steady_state=steady_state
-    )
-
-def fit_kinetics_gene_least_squares_chase(*, values_new: np.ndarray, values_old: np.ndarray, time: np.ndarray,
-                                          ci_size: float = 0.95, maxiter: int = 250, steady_state: bool = None,
-                                          slot_data: np.ndarray = None, slot_names: np.ndarray = None, gene: str = None
-                                          ) -> FitResult:
-    """
-    This function only exists due to parallelization issues.
-    """
-    return fit_kinetics_gene_least_squares(values_new=values_new, values_old=values_old, time=time,
-                                           ci_size=ci_size, maxiter=maxiter, chase=True, slot_data=slot_data,
-                                           slot_names=slot_names, steady_state=steady_state, gene=gene)
-
-
-def fit_kinetics_nlls(
-    data: "GrandPy",
-    slot: str,
-    fit_type: str = "nlls",
-    *,
-    genes: Union[str, int, Sequence[Union[str, int, bool]]] = None,
-    name_prefix: Union[str, None] = None,
-    time: Union[np.ndarray, pd.Series, list] = None,
-    ci_size: float = 0.95,
-    return_fields: Sequence[str] = None,
-    steady_state: Union[bool, Mapping[str, bool]] = True,
-    show_progress: bool = True,
-    **kwargs
-) -> dict[str, pd.DataFrame]:
-    """
-    For a detailed documentation, see grandpy.GrandPy.fit_kinetics.
-
-    This function will automatically switch to parallel processing if the number of genes is greater than 1500.
-    """
-    if show_progress:
-        from tqdm import tqdm
-
-    genes_to_fit = data.get_genes(genes)
-
-    condition_vector = data.coldata["Condition"].values
-
-    # An arbitrary threshold, where parallelization is probably slower.
-    if len(genes_to_fit) > 1500:
-        from concurrent.futures import ProcessPoolExecutor
-        parallel = True
-    else:
-        parallel = False
-
-    # --- Select a fit function ---
-    fit_func = {
-        "nlls": fit_kinetics_gene_least_squares,
-        "chase": fit_kinetics_gene_least_squares_chase
-    }.get(fit_type)
-    if fit_func is None:
-        raise ValueError(f"Unknown fit type: {fit_type}")
-
-    unique_conditions = np.unique(condition_vector)
-
-    # --- Map steady_state to each condition ---
-    if isinstance(steady_state, bool):
-        steady_state = {cond: steady_state for cond in unique_conditions}
-
-    # --- Retrieve expression matrices ---
-    new_slot = "ntr" if fit_type == "chase" else ModeSlot("new", slot)
-    new_expression = np.atleast_2d(data.get_matrix(mode_slot=new_slot, genes=genes_to_fit))
-    old_expression = np.atleast_2d(data.get_matrix(mode_slot=ModeSlot("old", slot), genes=genes_to_fit))
-    slot_data = data.get_matrix(slot) if fit_type == "chase" else None
-    slot_names = np.array(data._adata.var_names) if fit_type == "chase" else None
-
-    result = {}
-
-    for condition in unique_conditions:
-        idx = np.where(condition_vector == condition)[0]
-        time_cond = time[idx]
-        new_cond = new_expression[:, idx]
-        old_cond = old_expression[:, idx]
-        condition_steady_state = steady_state[condition]
-
-        if parallel:
-            jobs = []
-            with ProcessPoolExecutor() as executor:
-                for gene_index, gene in enumerate(genes_to_fit):
-                    values_new = new_cond[gene_index, :]
-                    values_old = old_cond[gene_index, :]
-
-                    job = executor.submit(
-                        fit_func,
-                        values_new=values_new,
-                        values_old=values_old,
-                        time=time_cond,
-                        ci_size=ci_size,
-                        gene=gene,
-                        slot_data=slot_data,
-                        slot_names=slot_names,
-                        steady_state=condition_steady_state,
-                        **kwargs
-                    )
-                    jobs.append((gene, job))
-
-                rows = []
-                symbols = []
-
-                if show_progress:
-                    for gene, future in tqdm(jobs, desc=f"Fitting {condition}", total=len(jobs)):
-                        res = future.result()
-                        series = res.to_series(condition=condition, prefix=name_prefix, fields=return_fields)
-                        rows.append(series.values)
-                        symbols.append(gene)
-                else:
-                    for gene, future in jobs:
-                        res = future.result()
-                        series = res.to_series(condition=condition, prefix=name_prefix, fields=return_fields)
-                        rows.append(series.values)
-                        symbols.append(gene)
-
+    def jacobian_function(par):
+        s, d = par
+        if chase:
+            j_old_s = np.zeros_like(t_old)
+            j_old_d = np.zeros_like(t_old)
         else:
-            rows = []
-            symbols = []
+            exp_o = np.exp(-d * t_old)
+            j_old_s = -exp_o / d
+            j_old_d = -(-s / d ** 2 * exp_o + s / d * (-t_old * exp_o))
+        exp_n = np.exp(-d * t_new)
+        if chase:
+            j_new_s = -exp_n / d
+            j_new_d = s / d ** 2 * exp_n - s / d * (t_new * exp_n)
+        else:
+            one_me = 1 - exp_n
+            j_new_s = -one_me / d
+            j_new_d = -(-s / d ** 2 * one_me + s / d * (t_new * exp_n))
+        return np.vstack([np.concatenate([j_old_s, j_new_s]),
+                          np.concatenate([j_old_d, j_new_d])]).T
 
-            gene_index_iterator = enumerate(genes_to_fit)
-            if show_progress:
-                gene_index_iterator = tqdm(gene_index_iterator, total=len(genes_to_fit), desc=f"Fitting {condition}")
+    return residual_function, jacobian_function
 
-            for gene_index, gene in gene_index_iterator:
-                values_new = new_cond[gene_index, :]
-                values_old = old_cond[gene_index, :]
+def get_residuals_and_jacobian_nonequi(t_old, v_old, t_new, v_new):
+    """
+    Constructs residual and Jacobian functions assuming non steady-state kinetics.
 
-                res = fit_func(
-                    values_new=values_new,
-                    values_old=values_old,
-                    time=time_cond,
-                    ci_size=ci_size,
-                    gene=gene,
-                    slot_data=slot_data,
-                    slot_names=slot_names,
-                    steady_state=condition_steady_state,
-                    **kwargs
-                )
-                series = res.to_series(condition=condition, prefix=name_prefix, fields=return_fields)
-                rows.append(series.values)
-                symbols.append(gene)
+    Parameters
+    ----------
+    t_old : np.ndarray
+        Time points for old RNA.
+    v_old : np.ndarray
+        Observed values for old RNA.
+    t_new : np.ndarray
+        Time points for new RNA.
+    v_new : np.ndarray
+        Observed values for new RNA.
 
-        df = pd.DataFrame(np.vstack(rows), index=symbols, columns=series.index)
-        df.index.name = "Symbol"
-        result[f"{name_prefix}kinetics_{condition}"] = df
+    Returns
+    -------
+    tuple
+        A tuple (residual_function, jacobian_function) for least-squares optimization.
+    """
 
-    return result
+    def residual_function(par):
+        s, d, f0 = par
+        pred_old = f0 * np.exp(-d * t_old)
+        pred_new = s / d * (1 - np.exp(-d * t_new))
+        return np.concatenate([v_old - pred_old, v_new - pred_new])
+
+    def jocobian_function(par):
+        s, d, f0 = par
+        exp_o = np.exp(-d * t_old)
+        exp_n = np.exp(-d * t_new)
+
+        # r_old derivatives
+        j_old_s = np.zeros_like(t_old)
+        j_old_d = f0 * t_old * exp_o
+        j_old_f0 = -exp_o
+
+        # r_new derivatives
+        j_new_s = -(1 - exp_n) / d
+        j_new_d = s / d ** 2 * (1 - exp_n) - s / d * t_new * exp_n
+        j_new_f0 = np.zeros_like(t_new)
+
+        J = np.vstack([
+            np.concatenate([j_old_s, j_new_s]),
+            np.concatenate([j_old_d, j_new_d]),
+            np.concatenate([j_old_f0, j_new_f0])
+        ]).T
+        return J
+
+    return residual_function, jocobian_function
+
+
+def guess_chase_start(values_new: np.ndarray, time: np.ndarray):
+    """
+    Approximates the start values x0 for least_squares in a chase experiment using linear regression.
+    """
+    from numpy.polynomial import Polynomial
+
+    mask = (values_new > 0) & (time > 0)
+    if np.count_nonzero(mask) < 2:
+        return np.mean(values_new), 0.1
+
+    y = np.log(np.maximum(values_new[mask], 1e-3))
+    t = time[mask]
+    p = Polynomial.fit(t, y, deg=1)
+    slope = p.convert().coef[1]
+
+    d0 = np.clip(-slope, 1e-3, 2.0)
+    s0 = np.clip(values_new[0] * d0, 1e-3, np.inf)
+
+    return s0, d0
+
+def guess_d0_from_old(values_old, time):
+    """
+    Approximates the degradation(d0) for least_squares in a non steady state using linear regression.
+    """
+    from numpy.polynomial import Polynomial
+
+    mask = (values_old > 0) & (time > 0)
+    if np.count_nonzero(mask) < 2:
+        return 0.1
+    y = np.log(np.maximum(values_old[mask], 1e-3))
+    t = time[mask]
+    p = Polynomial.fit(t, y, deg=1)
+    slope = p.convert().coef[1]
+    return np.clip(-slope, 1e-3, 2.0)
+
+
+@np.vectorize
+def f_old_equi(t, s, d):
+    """
+    Computes the expected amount of old RNA under steady-state assumptions.
+    """
+    return s / d * np.exp(-d * t)
+
+@np.vectorize
+def f_new(t, s, d):
+    """
+    Computes the expected amount of newly synthesized RNA at a given time.
+    """
+    return s / d * (1 - np.exp(-d * t))
 
 
 
 
 # ----- ntr kinetic modeling -----
-def uniroot_safe(fun, lower: float, upper: float):
-    """
-    Safely compute the root of a function using Brent's method.
-
-    Returns
-    -------
-    float
-        Approximate root within [lower, upper].
-    """
-    try:
-        if fun(lower) * fun(upper) >= 0:
-            return 0.5 * (lower + upper)
-        return brentq(fun, lower, upper)
-    except Exception:
-        return np.nan
-
-@dataclass
-class NTRFitResult:
-    """
-    Stores the result of NTR-based RNA degradation fitting.
-
-    Attributes
-    ----------
-    result : float
-        Fitted degradation rate.
-
-    time : np.ndarray
-        Time points.
-
-    alpha : np.ndarray
-        Alpha values.
-
-    beta : np.ndarray
-        Beta values.
-
-    ntr : np.ndarray
-        New-total-ratio.
-
-    f0 : float
-        Estimated total RNA expression.
-
-    exact_ci : bool
-        Whether confidence intervals are computed via posterior integration.
-
-    ci_size : float
-        Confidence interval size.
-
-    transformed_ntr_map : bool
-        Whether transformed MAP estimates were used for NTR.
-    """
-    result: float
-    time: np.ndarray
-    alpha: np.ndarray
-    beta: np.ndarray
-    ntr: np.ndarray
-    f0: float
-    exact_ci: bool = False
-    ci_size: float = 0.95
-    transformed_ntr_map: bool = True
-    model_type: Literal["ntr"] = "ntr"
-
-    def loglik(self, d: float) -> float:
-        td = self.time * d
-        safe_exp = np.clip(np.exp(-td), 1e-10, 1 - 1e-10)
-        log_term = np.log1p(-safe_exp)
-        if self.transformed_ntr_map:
-            return np.sum((self.alpha - 1) * log_term - td * (self.beta - 1))
-        else:
-            return np.sum((self.alpha - 1) * log_term - td * self.beta)
-
-    @cached_property
-    def degradation(self) -> float:
-        return self.result
-
-    @cached_property
-    def synthesis(self) -> float:
-        return self.f0 * self.degradation
-
-    @cached_property
-    def half_life(self) -> float:
-        return np.log(2) / self.degradation if self.degradation > 0 else np.nan
-
-    @cached_property
-    def predicted_ntr(self) -> np.ndarray:
-        return 1 - np.exp(-self.degradation * self.time)
-
-    @cached_property
-    def rmse(self) -> float:
-        return np.sqrt(np.mean((self.predicted_ntr - self.ntr) ** 2))
-
-    @cached_property
-    def log_likelihood(self) -> float:
-        return self.loglik(self.degradation)
-
-    @cached_property
-    def total_expr(self) -> float:
-        return self.f0
-
-    @cached_property
-    def ci_lower(self) -> dict:
-        lower_d, upper_d = self.confidence_intervals
-
-        return {
-            "Synthesis": self.f0 * lower_d,
-            "Degradation": lower_d,
-            "Half-life": np.log(2) / upper_d if upper_d > 0 else np.nan
-        }
-
-    @cached_property
-    def ci_upper(self) -> dict:
-        lower_d, upper_d = self.confidence_intervals
-
-        return {
-            "Synthesis": self.f0 * upper_d,
-            "Degradation": upper_d,
-            "Half-life": np.log(2) / lower_d if lower_d > 0 else np.nan
-        }
-
-    @cached_property
-    def confidence_intervals(self) -> tuple[float, float]:
-        """
-        Approximate confidence interval for degradation using fast posterior CDF approximation.
-        """
-        if not self.exact_ci:
-            crit = chi2.ppf(self.ci_size, df=2) / 2
-            cutoff = self.log_likelihood - crit
-            lower = uniroot_safe(lambda d: self.loglik(d) - cutoff, *self._ci_bounds)
-            upper = uniroot_safe(lambda d: self.loglik(d) - cutoff, self.degradation, self._ci_bounds[1])
-            return lower, upper
-
-        from scipy.interpolate import interp1d
-
-        # --- FAST posterior CDF via precomputed grid ---
-        n_grid = 150 if self.exact_ci else 300
-        grid = np.linspace(*self._ci_bounds, n_grid)
-        logpost = np.array([self.loglik(d) for d in grid])
-        post = np.exp(logpost - np.max(logpost))  # prevent overflow
-        area = np.trapz(post, grid)
-        cdf_vals = np.cumsum(post) * (grid[1] - grid[0]) / area
-
-        cdf_interp = interp1d(grid, cdf_vals, bounds_error=False, fill_value=(0.0, 1.0))
-
-        # Find lower/upper bounds via interpolation
-        lower = uniroot_safe(lambda d: cdf_interp(d) - (1 - self.ci_size) / 2, *self._ci_bounds)
-        upper = uniroot_safe(lambda d: cdf_interp(d) - (1 + self.ci_size) / 2, *self._ci_bounds)
-
-        return lower, upper
-
-    @cached_property
-    def _ci_bounds(self):
-        return np.log(2) / 48, np.log(2) / 0.01
-
-    def to_dict(self, fields: list[str]) -> dict[str, object]:
-        field_funcs = {
-            "Synthesis": lambda: self.synthesis,
-            "Degradation": lambda: self.degradation,
-            "Half-life": lambda: self.half_life,
-            "conf_lower": lambda: self.ci_lower,
-            "conf_upper": lambda: self.ci_upper,
-            "f0": lambda: self.f0,
-            "log_likelihood": lambda: self.log_likelihood,
-            "rmse": lambda: self.rmse,
-            "total": lambda: self.total_expr,
-        }
-        return {
-            f: field_funcs[f]() if f in field_funcs else np.nan
-            for f in fields
-        }
-
-    def to_series(self, condition: str = None, prefix: str = "", fields: list[str] = None) -> pd.Series:
-        data = self.to_dict(fields)
-        p = f"{prefix}_" if prefix else ""
-        c = f"{condition}_" if condition else ""
-
-        flat = {}
-
-        for key, val in data.items():
-            base_key = f"{p}{c}{key}"
-
-            if isinstance(val, dict):
-                for subkey, subval in val.items():
-                    flat[f"{base_key}_{subkey}"] = subval
-            elif isinstance(val, (list, np.ndarray)):
-                for i, v in enumerate(val):
-                    flat[f"{base_key}_{i}"] = v
-            else:
-                flat[base_key] = val
-
-        return pd.Series(flat)
-
-
 def fit_kinetics_ntr(
         data: "GrandPy",
         slot: str,
@@ -1016,7 +861,7 @@ def fit_kinetics_gene_ntr(
         transformed_map_ntr: bool = True,
         exact_ci: bool = False,
         total_fun: Callable = np.median
-) -> NTRFitResult:
+) -> "NTRFitResult":
     """
     Fit degradation rate using the NTR model for a single gene and condition.
 
@@ -1084,3 +929,193 @@ def fit_kinetics_gene_ntr(
         f0 = f0,
         transformed_ntr_map=transformed_map_ntr,
     )
+
+@dataclass
+class NTRFitResult:
+    """
+    Stores the result of NTR-based RNA degradation fitting.
+
+    Attributes
+    ----------
+    result : float
+        Fitted degradation rate.
+
+    time : np.ndarray
+        Time points.
+
+    alpha : np.ndarray
+        Alpha values.
+
+    beta : np.ndarray
+        Beta values.
+
+    ntr : np.ndarray
+        New-total-ratio.
+
+    f0 : float
+        Estimated total RNA expression.
+
+    exact_ci : bool
+        Whether confidence intervals are computed via posterior integration.
+
+    ci_size : float
+        Confidence interval size.
+
+    transformed_ntr_map : bool
+        Whether transformed MAP estimates were used for NTR.
+    """
+    result: float
+    time: np.ndarray
+    alpha: np.ndarray
+    beta: np.ndarray
+    ntr: np.ndarray
+    f0: float
+    exact_ci: bool = False
+    ci_size: float = 0.95
+    transformed_ntr_map: bool = True
+    model_type: Literal["ntr"] = "ntr"
+
+    def loglik(self, d: float) -> float:
+        td = self.time * d
+        safe_exp = np.clip(np.exp(-td), 1e-10, 1 - 1e-10)
+        log_term = np.log1p(-safe_exp)
+        if self.transformed_ntr_map:
+            return np.sum((self.alpha - 1) * log_term - td * (self.beta - 1))
+        else:
+            return np.sum((self.alpha - 1) * log_term - td * self.beta)
+
+    @cached_property
+    def degradation(self) -> float:
+        return self.result
+
+    @cached_property
+    def synthesis(self) -> float:
+        return self.f0 * self.degradation
+
+    @cached_property
+    def half_life(self) -> float:
+        return np.log(2) / self.degradation if self.degradation > 0 else np.nan
+
+    @cached_property
+    def predicted_ntr(self) -> np.ndarray:
+        return 1 - np.exp(-self.degradation * self.time)
+
+    @cached_property
+    def rmse(self) -> float:
+        return np.sqrt(np.mean((self.predicted_ntr - self.ntr) ** 2))
+
+    @cached_property
+    def log_likelihood(self) -> float:
+        return self.loglik(self.degradation)
+
+    @cached_property
+    def total_expr(self) -> float:
+        return self.f0
+
+    @cached_property
+    def ci_lower(self) -> dict:
+        lower_d, upper_d = self.confidence_intervals
+
+        return {
+            "Synthesis": self.f0 * lower_d,
+            "Degradation": lower_d,
+            "Half-life": np.log(2) / upper_d if upper_d > 0 else np.nan
+        }
+
+    @cached_property
+    def ci_upper(self) -> dict:
+        lower_d, upper_d = self.confidence_intervals
+
+        return {
+            "Synthesis": self.f0 * upper_d,
+            "Degradation": upper_d,
+            "Half-life": np.log(2) / lower_d if lower_d > 0 else np.nan
+        }
+
+    @cached_property
+    def confidence_intervals(self) -> tuple[float, float]:
+        """
+        Approximate confidence interval for degradation using fast posterior CDF approximation.
+        """
+        if not self.exact_ci:
+            from scipy.stats import chi2
+
+            crit = chi2.ppf(self.ci_size, df=2) / 2
+            cutoff = self.log_likelihood - crit
+            lower = uniroot_safe(lambda d: self.loglik(d) - cutoff, *self._ci_bounds)
+            upper = uniroot_safe(lambda d: self.loglik(d) - cutoff, self.degradation, self._ci_bounds[1])
+            return lower, upper
+
+        from scipy.interpolate import interp1d
+
+        # --- FAST posterior CDF via precomputed grid ---
+        n_grid = 150 if self.exact_ci else 300
+        grid = np.linspace(*self._ci_bounds, n_grid)
+        logpost = np.array([self.loglik(d) for d in grid])
+        post = np.exp(logpost - np.max(logpost))  # prevent overflow
+        area = np.trapz(post, grid)
+        cdf_vals = np.cumsum(post) * (grid[1] - grid[0]) / area
+
+        cdf_interp = interp1d(grid, cdf_vals, bounds_error=False, fill_value=(0.0, 1.0))
+
+        # Find lower/upper bounds via interpolation
+        lower = uniroot_safe(lambda d: cdf_interp(d) - (1 - self.ci_size) / 2, *self._ci_bounds)
+        upper = uniroot_safe(lambda d: cdf_interp(d) - (1 + self.ci_size) / 2, *self._ci_bounds)
+
+        return lower, upper
+
+    @cached_property
+    def _ci_bounds(self):
+        return np.log(2) / 48, np.log(2) / 0.01
+
+    def to_dict(self, fields: list[str]) -> dict[str, object]:
+        field_funcs = {
+            "Synthesis": lambda: self.synthesis,
+            "Degradation": lambda: self.degradation,
+            "Half-life": lambda: self.half_life,
+            "conf_lower": lambda: self.ci_lower,
+            "conf_upper": lambda: self.ci_upper,
+            "f0": lambda: self.f0,
+            "log_likelihood": lambda: self.log_likelihood,
+            "rmse": lambda: self.rmse,
+            "total": lambda: self.total_expr,
+        }
+        return {
+            f: field_funcs[f]() if f in field_funcs else np.nan
+            for f in fields
+        }
+
+    def to_series(self, condition: str = None, prefix: str = "", fields: list[str] = None) -> pd.Series:
+        data = self.to_dict(fields)
+
+        flat = {}
+
+        for key, val in data.items():
+            base_key = f"{prefix}{condition}_{key}"
+
+            if isinstance(val, dict):
+                for subkey, subval in val.items():
+                    flat[f"{base_key}_{subkey}"] = subval
+            elif isinstance(val, (list, np.ndarray)):
+                for i, v in enumerate(val):
+                    flat[f"{base_key}_{i}"] = v
+            else:
+                flat[base_key] = val
+
+        return pd.Series(flat)
+
+def uniroot_safe(fun, lower: float, upper: float):
+    """
+    Safely compute the root of a function using Brent's method.
+
+    Returns
+    -------
+    float
+        Approximate root within [lower, upper].
+    """
+    try:
+        if fun(lower) * fun(upper) >= 0:
+            return 0.5 * (lower + upper)
+        return brentq(fun, lower, upper)
+    except Exception:
+        return np.nan

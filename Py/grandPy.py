@@ -1284,11 +1284,11 @@ class GrandPy:
 
         columns = _ensure_list(columns)
 
-        if isinstance(columns[0], int):
-            result = coldata.iloc[columns]["Name"]
+        if all(isinstance(column, int) for column in columns):
+            result = coldata.iloc[columns].index
 
-        elif isinstance(columns[0], (str, bool)):
-            result = coldata.loc[columns, "Name"]
+        elif all(isinstance(column, (str, bool)) for column in columns):
+            result = coldata.loc[columns, :].index
 
         else:
             raise TypeError("The input must be either string, int or a boolean mask. They cannot be mixed")
@@ -1796,7 +1796,7 @@ class GrandPy:
         else:
             column_ids = self.get_columns(columns, reorder=reorder_columns)
             column_indices = [coldata.index.get_loc(c) for c in column_ids]
-            column_names = coldata.loc[column_ids, "Name"].tolist()
+            column_names = coldata.loc[column_ids, :].index.tolist()
 
         result_df = pd.DataFrame()
 
@@ -1839,7 +1839,8 @@ class GrandPy:
             *,
             regex: bool = True,
             with_gene_info: bool = True,
-            name_genes_by: str = "Symbol"
+            name_genes_by: str = "Symbol",
+            by_rows: bool = False,
     ) -> pd.DataFrame:
         """
         Get a DataFrame containing analysis tables, optionally with the corresponding gene_info.
@@ -2115,35 +2116,35 @@ class GrandPy:
             slot: str = None,
             name_prefix: Union[str, None] = None,
             return_fields: Union[str, Sequence[str]] = None,
-            time: Union[str, np.ndarray, pd.Series, list] = "Time",
+            time: Union[str, np.ndarray, pd.Series, Sequence] = "Time",
             ci_size: float = 0.95,
             genes: Union[str, Sequence[str]] = None,
             show_progress: bool = True,
             **kwargs
     ) -> "GrandPy":
         """
-        Fit kinetic models to genes.
+        Fit kinetic models to gene expression data.
 
-        Fit the standard mass action kinetics model of gene expression by different methods.
+        This method fits mass-action kinetic models of RNA dynamics using one of several approaches.
+        Fits are performed separately per condition.
 
-        `nlls` and `chase` need proper normalization.
-        `ntr` is independent of normalization but can not be performed without assuming steady state.
-        The parameters are fit per condition.
+        The `"nlls"` and `"chase"` methods require normalized input.
+        The `"ntr"` method is independent of normalization but assumes steady-state kinetics.
 
         Parameters
         ----------
         fit_type: {'nlls' or 'ntr' or 'chase'}, default 'nlls'
-            Type of fit to perform.
+            The type of model to fit:
 
-            - `"nlls"`: full synthesis/degradation model.
-            - `"ntr"`: fit degradation rates using the NTR model.
-            - `"chase"`: decay-only fitting.
+            - `"nlls"`: Fit synthesis and degradation rates using non-linear least squares.
+            - `"ntr"`: Estimate degradation from new-to-total ratios, assuming steady-state.
+            - `"chase"`: Fit degradation from decay of labeled RNA only.
 
         slot: str, optional
-            Name of the data slot to use for old/new separation.
+            Name of the data slot used to extract old/new RNA expression. Defaults to the default slot.
 
         name_prefix: str, optional
-            Optional prefix for naming the analysis tables.
+            Prefix added to the name of the fit result.
 
         return_fields: str or Sequence[str], default ["Synthesis", "Half-life"]
             Names of result fields to extract from each fit. The following options are available:
@@ -2158,13 +2159,13 @@ class GrandPy:
             - `"conf_upper"`: Upper bounds of confidence intervals for s, d, and half-life.
             - `"rmse"`: Root mean square error over all timepoints.
 
-            Additional fields for fit_type = "nlls" and "chase":
+            Additional fields `"nlls"` and `"chase"`:
 
             - `"rmse_old"`: RMSE for old RNA timepoints.
             - `"rmse_new"`: RMSE for new RNA timepoints.
             - `"residuals"`: Dictionary of raw and relative residuals.
 
-        time: array-like, default "Time"
+        time: str or array-like, default "Time"
             Either a column name in `coldata` or a list of timepoints.
 
         ci_size: float, default 0.95
@@ -2177,26 +2178,23 @@ class GrandPy:
             If True, a progress bar will be displayed.
 
         **kwargs: dict
-            Additional keyword arguments passed to the per-gene fitting function.
+            Additional parameters passed to the model-specific fitting function.
 
-            for fit_type = "nlls":
+            For `"nlls"`:
+                - max_iter: Maximum number of optimization iterations, by default 250.
+                - steady_state: Whether to use the steady-state model. Can be set for each condition individually by using a dict. By default True
 
-            - maxiter: Maximum number of optimization iterations, by default 250.
-            - steady_state: Whether to use the steady-state model. Can be set for each condition individually by using a dict. By default True
+            For `"ntr"`:
+                - transformed_ntr_map: Whether to assume that NTR values are MAP transformed, by default True.
+                - exact_ci: Whether to use exact confidence intervals, by default False.
 
-            for fit_type = "chase":
-
-            - maxiter: Maximum number of optimization iterations, by default 250.
-
-            for fit_type = "ntr":
-
-            - transformed_ntr_map: Wheter to assume that NTR values are MAP transformed, by default True.
-            - exact_ci: Wheter to use exact confidence intervals, by default False.
+            For `"chase"`:
+                - max_iter: Maximum number of optimization iterations, by default 250.
 
         See Also
         --------
-        GrandPy.normalize
-            Normalizes the expression data.
+        GrandPy.get_analysis_table: Retrieve analyses from the object.
+        GrandPy.normalize: Normalizes the expression data.
 
         Returns
         -------
@@ -2205,8 +2203,9 @@ class GrandPy:
         """
         from Py.modeling import fit_kinetics
 
-        kinetics = fit_kinetics(data=self, fit_type=fit_type, slot=slot, name_prefix=name_prefix, time=time,
-                                ci_size=ci_size, genes=genes, show_progress=show_progress, **kwargs)
+        kinetics = fit_kinetics(data=self, fit_type=fit_type, slot=slot, return_fields=return_fields,
+                                name_prefix=name_prefix, time=time, ci_size=ci_size, genes=genes,
+                                show_progress=show_progress, **kwargs)
 
         new_gp = self
         for name, analysis in kinetics.items():
