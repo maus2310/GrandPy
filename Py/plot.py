@@ -699,7 +699,37 @@ def plot_pca(
     do_vst: bool = True,
     path_for_save: Optional[str] = None,
 ):
-#TODO Docstring
+    """
+        Perform a principal component analysis (PCA) on a GrandPy dataset and visualize the results.
+
+        The function extracts the specified mode slot, optionally applies
+        variance-stabilizing transformation (VST) on raw counts using PyDESeq2-like methods, selects
+        the top most variable features, and then computes and plots a PCA biplot colored by sample
+        metadata.
+
+        Parameters
+        ----------
+        data : GrandPy
+            A GrandPy object containing the data matrix and metadata.
+        mode_slot : str or ModeSlot, optional
+            The slot or mode to use for data retrieval.
+        ntop : int, default=500
+            Number of top most variable genes/features to include in the PCA.
+        aest : dict, optional
+            A dictionary defining aesthetic mappings for plotting, e.g., color or shape.
+        x : int, default=1
+            Principal component to use for the x-axis (e.g., 1 = PC1).
+        y : int, default=2
+            Principal component to use for the y-axis (e.g., 2 = PC2).
+        columns : str, list, or None, optional
+            Column selection filter: if str, interpreted as a pandas query on coldata;
+            if list, interpreted as a list of sample names to include; if None, all samples.
+        do_vst : bool, default=True
+            Whether to apply variance-stabilizing transformation on raw counts before PCA
+            (only if mode_slot is 'count').
+        path_for_save : str or None, optional
+            If given, saves the PCA plot as a PNG in the specified directory.
+        """
     if mode_slot is None:
         mode_slot = data.default_slot
 
@@ -776,7 +806,36 @@ def plot_gene_old_vs_new(
     size: float = 50,
     path_for_save: Optional[str] = None,
 ):
-#TODO Docstring
+    """
+        Plot old versus new RNA for a single gene, optionally including confidence intervals.
+
+        This function visualizes the ratio of old and new RNA (based on a labeled pulse-chase experiment)
+        for a given gene across samples. Optionally, confidence intervals from credible interval slots
+        can be added as error bars. Supports aesthetic grouping via color/shape, log-scaling, and export
+        of the figure to disk.
+
+        Parameters
+        ----------
+        data : GrandPy
+            A GrandPy object containing the data matrix and associated metadata.
+        gene : str
+            The gene to plot.
+        slot : str, optional
+            The data slot to use (default: data.default_slot).
+        columns : str, list, or None, optional
+            Column selection filter: if str, interpreted as pandas query on coldata;
+            if list, interpreted as a list of sample names to include; if None, all samples.
+        log : bool, default=True
+            Whether to use logarithmic axes for plotting.
+        show_ci : bool, default=False
+            If True, adds error bars for credible intervals using slots 'lower' and 'upper'.
+        aest : dict, optional
+            Dictionary defining aesthetic mappings for plotting (e.g. color, shape).
+        size : float, default=50
+            Size of scatter points.
+        path_for_save : str or None, optional
+            If provided, saves the resulting plot as a PNG in the given directory.
+        """
     if slot is None:
         slot = data.default_slot
 
@@ -914,6 +973,35 @@ def plot_gene_total_vs_ntr(
     size: float = 50,
     path_for_save: Optional[str] = None,
 ):
+    """
+        Plot total RNA versus newly transcribed RNA ratio (NTR) for a single gene.
+
+        This function visualizes, for a specified gene, the total RNA abundance against its
+        NTR (newly transcribed RNA ratio) across samples, with optional confidence intervals.
+        Supports aesthetic grouping by color and shape, log-scaling, and saving the figure.
+
+        Parameters
+        ----------
+        data : GrandPy
+            A GrandPy object containing the data matrix and sample metadata.
+        gene : str
+            The gene to plot.
+        slot : str, optional
+            Data slot to use for the total RNA (default: data.default_slot).
+        columns : str, list, or None, optional
+            Column selection filter: if str, interpreted as pandas query on coldata;
+            if list, interpreted as sample names to include; if None, all samples.
+        log : bool, default=True
+            Whether to use logarithmic scaling for the x-axis.
+        show_ci : bool, default=False
+            If True, adds error bars using the `lower` and `upper` credible interval slots.
+        aest : dict, optional
+            Dictionary defining aesthetic mappings (e.g., color, shape).
+        size : float, default=50
+            Size of scatter points.
+        path_for_save : str or None, optional
+            If provided, saves the resulting plot as a PNG in the given directory.
+        """
     if slot is None:
         slot = data.default_slot
 
@@ -1043,7 +1131,49 @@ def plot_gene_groups_points(
     dodge: bool = False,
     path_for_save: Optional[str] = None,
 ):
-#TODO Docstring
+    """
+        Plot RNA values of a single gene grouped by a specified metadata category.
+
+        This function visualizes RNA values for a chosen gene across groups (e.g. conditions)
+        defined by a metadata column. It supports different RNA “modes”,
+        confidence intervals, replicate dodging, custom aesthetics, and transformation
+        functions for advanced data manipulation.
+
+        Parameters
+        ----------
+        data : GrandPy
+            A GrandPy object containing data matrices and metadata.
+        gene : str
+            The gene to plot.
+        group : str, default="Condition"
+            The column name in `coldata` used for grouping samples along the x-axis.
+        mode_slot : str or ModeSlot, optional
+            Defines which slot and which mode (total/new/old/ntr) to plot. If None, uses
+            `data.default_slot`.
+        columns : str, list, or None, optional
+            Column selection: a pandas query string, a list of sample names, or None to use all samples.
+        log : bool, default=True
+            Whether to use logarithmic scaling for the y-axis.
+        show_ci : bool, default=False
+            If True, displays error bars using the `lower` and `upper` credible interval slots.
+        aest : dict, optional
+            A dictionary defining aesthetic mappings (e.g., color or shape columns in coldata).
+        size : float, default=50
+            Point size for the scatterplot.
+        transform : callable, optional
+            A function to transform the `plot_df` DataFrame before plotting
+            (e.g., for normalization or filtering).
+        dodge : bool, default=False
+            Whether to dodge replicates along the x-axis to reduce overlap.
+        path_for_save : str or None, optional
+            If provided, saves the plot as a PNG file in the specified path.
+
+        Notes
+        -----
+        - If `show_ci=True`, confidence interval slots (`lower` and `upper`) must be available.
+        - If `dodge=True`, replicate samples (by `Replicate` column) are slightly shifted
+          to avoid overplotting within the same group.
+        """
     if mode_slot is None:
         mode_slot = data.default_slot
 
@@ -1207,7 +1337,39 @@ def plot_gene_groups_bars(
     transform: Optional[callable] = None,
     path_for_save: Optional[str] = None,
 ):
-#TODO Docstring
+    """
+        Plot stacked bar plots of “new” vs. “old” RNA fractions for a single gene across groups.
+
+        This function visualizes how the total RNA of a gene is composed of “new” and “old” fractions
+        across samples or groups, based on the specified slot. Optionally, confidence intervals
+        can be drawn, and user-defined transformations applied.
+
+        Parameters
+        ----------
+        data : GrandPy
+            A GrandPy object containing data matrices and metadata.
+        gene : str
+            The gene to plot.
+        slot : str, optional
+            The GrandPy slot from which to take expression values. If None, uses `data.default_slot`.
+        columns : str, list, or None, optional
+            Which samples to include: a pandas query string, a list of sample names,
+            or None to use all samples.
+        show_ci : bool, default=False
+            If True, shows confidence intervals based on slots `lower` and `upper`.
+        xlabels : str, list, or None, optional
+            Custom x-axis labels. If a string, it will be evaluated as a Python expression
+            within the sample metadata. If a list, directly used as labels.
+        transform : callable or str, optional
+            Transformation to apply to the data before plotting:
+            * `'z'` for z-score
+            * `'vst'` for variance-stabilizing transform
+            * `'logfc'` for log fold change
+            * `'none'` for no transform
+            or a custom Python function for advanced users.
+        path_for_save : str or None, optional
+            If provided, saves the plot as PNG in the given path.
+        """
     if slot is None:
         slot = data.default_slot
 
@@ -1334,7 +1496,47 @@ def plot_gene_snapshot_timecourse(
     dodge: bool = False,
     path_for_save: Optional[str] = None,
 ):
-#TODO DOcstring
+    """
+        Plot timecourse snapshot of gene expression for specified mode and samples.
+
+        Visualizes the expression of a single gene over time, optionally showing confidence
+        intervals, applying log-scale, and grouping by metadata variables. Supports jittering
+        points to avoid overlap (dodge), averaging replicates, and custom aesthetics.
+
+        Parameters
+        ----------
+        data : GrandPy
+            GrandPy object containing gene expression data and sample metadata.
+        gene : str
+            Gene symbol/name to plot.
+        time : str, default='Time.original'
+            Column name in sample metadata used as the time variable.
+        mode_slot : str, ModeSlot or None, optional
+            Specifies the mode and slot of data to plot (e.g., "new", "old", or total RNA).
+            If None, uses the default slot from `data`.
+        columns : str, list or None, optional
+            Which samples to include. Can be:
+            - None: all samples
+            - string: pandas query to select samples by metadata
+            - list: explicit list of sample names
+        average_lines : bool, default=True
+            Whether to add lines showing mean expression per group.
+        exact_tics : bool, default=True
+            Whether to use exact numeric time ticks or approximate categorical breaks.
+        log : bool, default=True
+            Whether to apply log-scale to y-axis (disabled if slot is "ntr").
+        show_ci : bool, default=False
+            Whether to plot confidence intervals. Requires precomputed slots 'lower' and 'upper'.
+        aest : dict or None, optional
+            Aesthetic mapping for color and style. Keys typically include "color" and "shape"
+            corresponding to metadata columns.
+        size : float, default=50
+            Marker size for scatter plot points.
+        dodge : bool, default=False
+            Whether to horizontally jitter points by hue to reduce overlap.
+        path_for_save : str or None, optional
+            Directory path to save the plot image. If None, does not save.
+        """
     if mode_slot is None:
         mode_slot = data.default_slot
 
@@ -1888,7 +2090,7 @@ def plot_type_distribution(
     sns.barplot(data=df_long, x='Condition', y='value', hue='Type', palette=palette, ax=ax)
     ax.set_xlabel('')
     ax.set_ylabel(mode_slot)
-    ax.tick_params(axis='x', rotation=45)
+    ax.tick_params(axis='x', rotation=90)
     if relative:
         ax.legend(
             bbox_to_anchor=(1.02, 1),
