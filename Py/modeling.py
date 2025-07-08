@@ -110,7 +110,7 @@ def fit_kinetics_nlls(
     old_expression = np.atleast_2d(data.get_matrix(mode_slot=ModeSlot("old", slot), genes=genes_to_fit))
 
     if fit_type == "chase":
-        slot_matrix = data.get_matrix(slot, genes=genes_to_fit)
+        slot_matrix = np.atleast_2d(data.get_matrix(slot, genes=genes_to_fit))
         slot_values_per_gene = {
             gene: np.mean(slot_matrix[i, :])
             for i, gene in enumerate(genes_to_fit)

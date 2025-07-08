@@ -1824,6 +1824,7 @@ def plot_gene_progressive_timecourse( # TODO docstring mit see also fit kinets w
         genes=gene,
         fit_type=fit_type,
         return_fields=["Synthesis", "Half-life", "f0", "Degradation"],
+        time=time_numeric,
         show_progress=True,
         **kwargs
     )
@@ -1901,6 +1902,7 @@ def plot_gene_progressive_timecourse( # TODO docstring mit see also fit kinets w
                 (df_fitted["condition"] == cond) &
                 (df_fitted["Type"] == line_type)
                 ]
+            print(df_fit)
             ax.plot(
                 df_fit["time_numeric"],
                 df_fit["Expression"],
@@ -1915,7 +1917,7 @@ def plot_gene_progressive_timecourse( # TODO docstring mit see also fit kinets w
     g.add_legend(title="RNA")
     # Exact tics
     if exact_tics:
-        time_original = data.coldata["Time.original"]
+        time_original = data.coldata[time]
         time_numeric = np.array([_parse_time_to_float(t) for t in time_original])
         brdf = pd.DataFrame({
             "time_numeric": time_numeric,
