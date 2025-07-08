@@ -1,25 +1,26 @@
+import re
+import warnings
+import numpy as np
+import pandas as pd
+import seaborn as sns
 import matplotlib.pyplot as plt
 import matplotlib.ticker
 import matplotlib.colors as mcolors
-from IPython.core.pylabtools import figsize
-from matplotlib import cm
-import numpy as np
-import pandas as pd
-from typing import Optional, Union, Callable
-import re
 
-from Py.analysis_tool import AnalysisTool
-from Py.grandPy import GrandPy, ModeSlot, _parse_as_mode_slot
+from matplotlib import cm
+from typing import Optional, Union, Callable
 from scipy.stats import gaussian_kde, iqr
 from scipy.ndimage import gaussian_filter
-import seaborn as sns
 from sklearn.decomposition import PCA
 from pydeseq2.dds import DeseqDataSet
-import warnings
+from IPython.core.pylabtools import figsize
 from scipy.sparse import issparse
 
-from Py.modeling import fit_kinetics
+from Py.grandPy import GrandPy
+from Py.slot_tool import ModeSlot, _parse_as_mode_slot
+
 # TODO Plots: PlotAnalyses, FormatCorrelation
+# TODO Plots: Datentypen bei parametern von allen funktionen hinzufügen
 
 def _is_sparse_matrix(mat):
     return issparse(mat)
