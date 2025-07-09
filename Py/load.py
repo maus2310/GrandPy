@@ -4,7 +4,7 @@ import shutil
 import gzip
 import re
 import warnings
-from typing import Any
+from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
@@ -550,9 +550,19 @@ def classify_genes(gene_info: pd.DataFrame,
     return gene_type.astype("category")
 
 
-def resolve_prefix_path(prefix, pseudobulk=None, targets=None) -> Path:
+def resolve_prefix_path(prefix: str | Path,
+                        pseudobulk: Optional[str] = None,
+                        targets: Optional[str] = None) -> Path:
     """
-    Resolves the actual data file path based on GRAND-SLAM prefix and optional parameters.
+    Resolve the path to data.tsv.gz (or .tsv) for a GRAND-SLAM run.
+
+    1. Directly specified file
+    2. *prefix*/data.tsv(.gz)
+    3. *prefix*.pseudobulk.<targets>.<pseudobulk>/data.tsv.gz
+    4. *prefix*.pseudobulk.targets.<pseudobulk>/data.tsv.gz
+    5. *prefix*.pseudobulk.<pseudobulk>/data.tsv.gz
+    6. *prefix*.pseudobulk.<targets>.*
+    7. Fallback: *prefix*.tsv(.gz)
 
     Parameters
     ----------
@@ -565,60 +575,59 @@ def resolve_prefix_path(prefix, pseudobulk=None, targets=None) -> Path:
 
     Returns
     -------
-    Path
+    pathlib.Path
         Resolved Path to the 'data.tsv.gz' file.
     """
     base = Path(prefix)
 
+    # 1.
     if base.is_file():
         return base
 
-    nested_dir = base / "data.tsv"
-    if nested_dir.is_dir():
-        inner = nested_dir / "data.tsv"
-        if inner.exists():
-            return inner
-        inner_gz = nested_dir / "data.tsv.gz"
-        if inner_gz.exists():
-            return inner_gz
+    # 2.
+    for fname in ("data.tsv", "data.tsv.gz"):
+        cand = base / fname
+        if cand.exists():
+            return cand
 
-    # <prefix>.pseudobulk.<targets>.<pseudobulk>
+    # 3. - 5.
+    def _try(path: Path) -> Optional[Path]:
+        gz = path / "data.tsv.gz"
+        tsv = path / "data.tsv"
+        return gz if gz.exists() else (tsv if tsv.exists() else None)
+
     if pseudobulk and targets:
-        path = base.parent / f"{base.name}.pseudobulk.{targets}.{pseudobulk}" / "data.tsv.gz"
-        if path.exists():
-            return path
+        hit = _try(base.parent / f"{base.name}.pseudobulk.{targets}.{pseudobulk}")
+        if hit:
+            return hit
 
-    # <prefix>.pseudobulk.targets.<pseudobulk>
     if pseudobulk:
-        path = base.parent / f"{base.name}.pseudobulk.targets.{pseudobulk}" / "data.tsv.gz"
-        if path.exists():
-            return path
+        hit = _try(base.parent / f"{base.name}.pseudobulk.targets.{pseudobulk}")
+        if hit:
+            return hit
+        hit = _try(base.parent / f"{base.name}.pseudobulk.{pseudobulk}")
+        if hit:
+            return hit
 
-        # <prefix>.pseudobulk.<pseudobulk>
-        path = base.parent / f"{base.name}.pseudobulk.{pseudobulk}" / "data.tsv.gz"
-        if path.exists():
-            return path
-
-    # <prefix>.pseudobulk.<targets>.*
+    # 6.
     if targets:
-        pattern = re.compile(f"^{re.escape(base.name)}\\.pseudobulk\\.{re.escape(targets)}\\..+$")
-        for i in base.parent.iterdir():
-            if i.is_dir() and pattern.match(i.name):
-                path = i / "data.tsv.gz"
-                if path.exists():
-                    return path
+        pattern = re.compile(
+            rf"^{re.escape(base.name)}\.pseudobulk\.{re.escape(targets)}\..+$"
+        )
+        for sub in base.parent.iterdir():
+            if sub.is_dir() and pattern.match(sub.name):
+                hit = _try(sub)
+                if hit:
+                    return hit
 
-    # <prefix>/data.tsv.gz or *tsv(.gz)-file
-    direct_dense = base / "data.tsv"
-    if direct_dense.exists():
-        return direct_dense
-    direct_dense_gz = base / "data.tsv.gz"
-    if direct_dense_gz.exists():
-        return direct_dense_gz
+    # 7.
+    for ext in (".tsv.gz", ".tsv"):
+        cand = Path(f"{base}{ext}")
+        if cand.exists():
+            return cand
 
-    raise FileNotFoundError(
-        f"No valid 'data.tsv.gz' found.\n"
-        f"Checked prefix='{prefix}' with pseudobulk='{pseudobulk}', targets='{targets}'."
+    raise FileNotFoundError(f"No data.tsv(.gz) found for prefix='{prefix}' "
+        f"(pseudobulk='{pseudobulk}', targets='{targets}')."
     )
 
 
