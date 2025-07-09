@@ -1,9 +1,9 @@
-from scipy.stats import beta
+import warnings
 import numpy as np
 from math import log
 import pandas as pd
-from typing import TYPE_CHECKING, Union, Sequence, Optional
-import warnings
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, Union, Optional
 
 if TYPE_CHECKING:
     from Py.grandPy import GrandPy
@@ -159,6 +159,8 @@ def compute_ntr_posterior_quantile(data: "GrandPy", quantile: float, name: str) 
     - quantile: float in [0,1], quantile to compute
     - name: str, name of the new slot
     """
+    from scipy.stats import beta
+
     alpha = data.get_matrix(mode_slot="alpha")
     beta_ = data.get_matrix(mode_slot="beta")
 
@@ -625,49 +627,3 @@ def _compute_expression_percentage(
 
     data = data.with_coldata(column=name, value=percentage)
     return data
-
-def _filter_genes(
-    data: "GrandPy",
-    mode_slot: Union[str, "ModeSlot"] = None,
-    *,
-    min_expression: Number = 100,
-    min_columns: int = None,
-    min_condition: int = None,
-    keep: Union[str, int, Sequence[Union[int, str]]] = None,
-    use: Union[str, int, Sequence[Union[int, str, bool]]] = None,
-    return_genes: bool = False
-) -> Union["GrandPy", list[int]]:
-    """
-    Filter genes based on expression/value thresholds.
-
-    Parameters
-    ----------
-    mode_slot : str or ModeSlot, optional
-        Which data slot to use.
-
-    min_expression : Number, default 100
-        Minimum value threshold to consider a gene expressed.
-
-    min_columns : int, optional
-        Minimum number of samples the gene must meet `min_expression` in.
-        Defaults to half the number of columns in the matrix.
-        Will be ignored if `min_condition` is provided
-
-    min_condition : int, optional
-        Overrides `min_columns` if set.
-
-    keep : str or int or Sequence[str or int], optional
-        Genes to force-keep, regardless of threshold filtering.
-
-    use : str or int or Sequence[bool or int or str], optional
-        Only these genes will be kept if provided (boolean mask, indices, or names).
-        Filtering will not be applied to them. (Basically just subsetting)
-
-    return_genes : bool, default False
-        If True, return the list of selected gene indices instead of a filtered GrandPy object.
-
-    Returns
-    -------
-    list[str] or GrandPy
-    """
-    return filter_genes(data, mode_slot, min_expression=min_expression, min_columns=min_columns, min_condition=min_condition, use=use, keep=keep, return_genes=return_genes)
