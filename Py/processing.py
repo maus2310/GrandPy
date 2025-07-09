@@ -1,4 +1,3 @@
-from numbers import Number
 from scipy.stats import beta
 import numpy as np
 from math import log
@@ -266,17 +265,16 @@ def _compute_steady_state_half_lives(
         return data.with_slot(name, hls)
 
 
-def filter_genes(
-    data: "GrandPy",
-    mode_slot: Union[str, "ModeSlot"]=None,
-    min_expression=100,
-    min_columns=None,
-    min_condition=None,
-    use=None,
-    keep=None,
-    return_genes=False
+def _filter_genes(
+    data,
+    mode_slot: Union[str, "ModeSlot"] = None,
+    min_expression: int = 100,
+    min_columns: int = None,
+    min_condition: int = None,
+    keep: Union[str, int, Sequence[Union[int, str]]] = None,
+    use: Union[str, int, Sequence[Union[int, str, bool]]] = None,
+    return_genes: bool = False
 ) -> Union["GrandPy", list[str]]:
-
     if use is not None and keep is not None:
         raise ValueError("Do not specify both use and keep!")
 

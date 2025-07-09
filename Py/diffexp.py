@@ -1,8 +1,11 @@
-from typing import Union
 import numpy as np
 import pandas as pd
+from typing import Union, TYPE_CHECKING
 
 from Py.utils import _ensure_list
+
+if TYPE_CHECKING:
+    from Py.grandPy import GrandPy
 
 
 def get_summary_matrix(

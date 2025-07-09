@@ -1,9 +1,10 @@
 import re
 import warnings
-from typing import Union, Sequence
 import anndata as ad
 import numpy as np
 import pandas as pd
+from typing import Union
+from collections.abc import Sequence
 
 from Py.utils import _ensure_list, _make_unique, _reindex_by_index_name
 
@@ -68,7 +69,7 @@ class AnalysisTool:
         new_analyses = {} if new_analyses is None else new_analyses
 
         if new_analyses.get(name, None) is not None:
-            warnings.warn(f"An analyses named {name} already exists! It will be overwritten.")
+            warnings.warn(f"An analysis named {name} already exists! It will be overwritten.")
 
         if by is not None:
             table = table.set_index(by, drop=False, verify_integrity=False)

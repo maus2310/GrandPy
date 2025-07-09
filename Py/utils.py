@@ -1,10 +1,12 @@
 import warnings
-from typing import Union, Iterable, Callable, Literal, Sequence, TYPE_CHECKING
 import numpy as np
 import pandas as pd
 import anndata as ad
 import scipy.sparse as sp
-from pandas import DataFrame
+from collections.abc import Sequence
+from typing import Union, Iterable, Callable, Literal, TYPE_CHECKING
+
+from matplotlib.style.core import available
 
 if TYPE_CHECKING:
     from grandPy import GrandPy
@@ -20,7 +22,7 @@ def concat(
     """
     Concatenates all given objects along a given axis. Uses `unique` for metadata and plots.
 
-    Analyses will be concatenated, if their names are identical. Otherwise, they are dropped.
+    Analyses will be concatenated if their names are identical. Otherwise, they are dropped.
 
     Parameters
     ----------
@@ -209,10 +211,10 @@ def _subset_dense_or_sparse(
     """
     if sp.issparse(matrix):
         subset = matrix[np.ix_(row_indices, column_indices)]
-        return subset.toarray().squeeze() if force_numpy else subset
+        return subset.toarray() if force_numpy else subset
     else:
         subset = matrix[np.ix_(row_indices, column_indices)]
-        return subset.squeeze()
+        return subset
 
 def _ensure_list(obj):
     if obj is None:
@@ -237,7 +239,7 @@ def _get_kinetics_data(
     genes: Union[str, Sequence[str]] = None,
     show_progress: bool = True,
     **kwargs
-) -> dict[str, DataFrame]:
+) -> dict[str, pd.DataFrame]:
     """
     This function is almost the same as `GrandPy.fit_kinetics`.
     The only difference is that it returns the kinetics data instead of a GrandPy object.

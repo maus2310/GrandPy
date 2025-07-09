@@ -1,11 +1,10 @@
 import warnings
-from typing import Literal, Union, Sequence, Any
 import anndata as ad
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
-from numpy import ndarray
-from scipy.sparse import csr_matrix
+from collections.abc import Sequence
+from typing import Literal, Union, Sequence, Any
 
 
 class ModeSlot:
@@ -84,8 +83,8 @@ class SlotTool:
             raise KeyError(f"Slot '{slot}' not found.")
         return self._adata.layers[slot].copy()
 
-    def with_slot(self, name: str, new_slot: Union[np.ndarray, pd.DataFrame, sp.csr_matrix, list], *,
-                  set_to_default=False) -> tuple[dict[str, Union[ndarray, csr_matrix]], dict[str, Any]]:
+    def with_slot(self, name: str, new_slot: Union[np.ndarray, pd.DataFrame, sp.csr_matrix, Sequence], *,
+                  set_to_default=False) -> tuple[dict[str, Union[np.ndarray, sp.csr_matrix]], dict[str, Any]]:
         new_slots = self.slot_data()
         # rows and columns are not modified so there is no need to copy
         rows = self._adata.obs.index
@@ -94,7 +93,7 @@ class SlotTool:
         if name in new_slots.keys():
             warnings.warn(f"Slot '{name}' already exists. It will be overwritten.")
 
-        def validate_and_convert_new_data(matrix: Union[pd.DataFrame, sp.csr_matrix, np.ndarray]
+        def validate_and_convert_new_data(matrix: Union[pd.DataFrame, sp.csr_matrix, np.ndarray, Sequence]
                                            ) -> Union[np.ndarray, sp.csr_matrix]:
             # If DataFrame → to NumPy
             if isinstance(matrix, pd.DataFrame):
@@ -126,7 +125,7 @@ class SlotTool:
         return new_slots, new_metadata
 
     def with_dropped_slots(self,slots_to_remove: Sequence[str]
-            ) -> tuple[dict[str, Union[ndarray, csr_matrix]], dict[str, Any]]:
+            ) -> tuple[dict[str, Union[np.ndarray, sp.csr_matrix]], dict[str, Any]]:
         current_slots = self.slot_data()
 
         remaining = [s for s in current_slots if s not in slots_to_remove]

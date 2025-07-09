@@ -1,6 +1,7 @@
-from typing import Union, Sequence, Literal, TYPE_CHECKING, Mapping, Callable
 import numpy as np
 import pandas as pd
+from collections.abc import Sequence, Mapping
+from typing import Union, Literal, TYPE_CHECKING, Callable
 from functools import cached_property
 from dataclasses import dataclass
 from scipy.optimize import least_squares, OptimizeResult, brentq
@@ -86,6 +87,7 @@ def fit_kinetics_nlls(
     # An arbitrary threshold, where parallelization is probably slower.
     if len(genes_to_fit) > 1500:
         from concurrent.futures import ProcessPoolExecutor
+
         parallel = True
     else:
         parallel = False
@@ -106,11 +108,11 @@ def fit_kinetics_nlls(
 
     # --- Retrieve expression matrices ---
     new_slot = "ntr" if fit_type == "chase" else ModeSlot("new", slot)
-    new_expression = np.atleast_2d(data.get_matrix(mode_slot=new_slot, genes=genes_to_fit))
-    old_expression = np.atleast_2d(data.get_matrix(mode_slot=ModeSlot("old", slot), genes=genes_to_fit))
+    new_expression = data.get_matrix(mode_slot=new_slot, genes=genes_to_fit)
+    old_expression = data.get_matrix(mode_slot=ModeSlot("old", slot), genes=genes_to_fit)
 
     if fit_type == "chase":
-        slot_matrix = np.atleast_2d(data.get_matrix(slot, genes=genes_to_fit))
+        slot_matrix = data.get_matrix(slot, genes=genes_to_fit)
         slot_values_per_gene = {
             gene: np.mean(slot_matrix[i, :])
             for i, gene in enumerate(genes_to_fit)
@@ -564,7 +566,7 @@ class FitResult:
         return pd.Series(flat)
 
 
-def get_residuals_and_jacobian_equi(t_old, v_old, t_new, v_new, chase: bool):
+def get_residuals_and_jacobian_equi(t_old: np.ndarray, v_old: np.ndarray, t_new: np.ndarray, v_new: np.ndarray, chase: bool):
     """
     Constructs residual and Jacobian functions assuming steady-state kinetics.
 
@@ -615,7 +617,7 @@ def get_residuals_and_jacobian_equi(t_old, v_old, t_new, v_new, chase: bool):
 
     return residual_function, jacobian_function
 
-def get_residuals_and_jacobian_nonequi(t_old, v_old, t_new, v_new):
+def get_residuals_and_jacobian_nonequi(t_old: np.ndarray, v_old: np.ndarray, t_new: np.ndarray, v_new: np.ndarray):
     """
     Constructs residual and Jacobian functions assuming non steady-state kinetics.
 
@@ -638,7 +640,7 @@ def get_residuals_and_jacobian_nonequi(t_old, v_old, t_new, v_new):
 
     def residual_function(par):
         s, d, f0 = par
-        pred_old = f0 * np.exp(-d * t_old)
+        pred_old = f_old_nonequi(t_old, f0, s, d)
         pred_new = s / d * (1 - np.exp(-d * t_new))
         return np.concatenate([v_old - pred_old, v_new - pred_new])
 
@@ -671,23 +673,27 @@ def guess_chase_start(values_new: np.ndarray, time: np.ndarray):
     """
     Approximates the start values x0 for least_squares in a chase experiment using linear regression.
     """
-    from numpy.polynomial import Polynomial
-
     mask = (values_new > 0) & (time > 0)
     if np.count_nonzero(mask) < 2:
-        return np.mean(values_new), 0.1
+        return 1.0, 0.5
 
     y = np.log(np.maximum(values_new[mask], 1e-3))
     t = time[mask]
-    p = Polynomial.fit(t, y, deg=1)
-    slope = p.convert().coef[1]
 
-    d0 = np.clip(-slope, 1e-3, 2.0)
-    s0 = np.clip(values_new[0] * d0, 1e-3, np.inf)
+    try:
+        from numpy.polynomial import Polynomial
+        p = Polynomial.fit(t, y, deg=1)
+        slope = p.convert().coef[1]
+        d0 = -slope
+    except Exception:
+        d0 = 0.1
+
+    d0 = np.clip(d0, 1e-3, 2.0)
+    s0 = np.clip(values_new[0] * d0, 1e-8, np.inf)
 
     return s0, d0
 
-def guess_d0_from_old(values_old, time):
+def guess_d0_from_old(values_old: np.ndarray, time: np.ndarray):
     """
     Approximates the degradation(d0) for least_squares in a non steady state using linear regression.
     """
@@ -704,18 +710,25 @@ def guess_d0_from_old(values_old, time):
 
 
 @np.vectorize
-def f_old_equi(t, s, d):
+def f_old_equi(t: float, s: float, d: float) -> float:
     """
     Computes the expected amount of old RNA under steady-state assumptions.
     """
-    return s / d * np.exp(-d * t)
+    return s / d * np.exp(-t * d)
 
 @np.vectorize
-def f_new(t, s, d):
+def f_old_nonequi(t: float, f0: float, s: float, d: float):
+    """
+    Computes the expected amount of old RNA under non-steady-state.
+    """
+    return f0 * np.exp(-t * d)
+
+@np.vectorize
+def f_new(t: float, s: float, d: float) -> float:
     """
     Computes the expected amount of newly synthesized RNA at a given time.
     """
-    return s / d * (1 - np.exp(-d * t))
+    return s / d * (1 - np.exp(-t * d))
 
 
 
@@ -758,10 +771,10 @@ def fit_kinetics_ntr(
     condition_vector = data.coldata["Condition"].values
 
     # --- Retrieve matrices ---
-    alpha = np.atleast_2d(data.get_matrix(mode_slot="alpha", genes=genes_to_fit))
-    beta = np.atleast_2d(data.get_matrix(mode_slot="beta", genes=genes_to_fit))
-    ntr = np.atleast_2d(data.get_matrix(mode_slot="ntr", genes=genes_to_fit))
-    total = np.atleast_2d(data.get_matrix(mode_slot=slot, genes=genes_to_fit))
+    alpha = data.get_matrix(mode_slot="alpha", genes=genes_to_fit)
+    beta = data.get_matrix(mode_slot="beta", genes=genes_to_fit)
+    ntr = data.get_matrix(mode_slot="ntr", genes=genes_to_fit)
+    total = data.get_matrix(mode_slot=slot, genes=genes_to_fit)
 
     result = {}
 

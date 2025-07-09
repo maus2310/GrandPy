@@ -1,19 +1,19 @@
 import copy
 import re
 import warnings
-from numbers import Number
-from typing import Any, Union, Sequence, Literal, Mapping, Callable
+from collections.abc import Sequence, Mapping
+from typing import Any, Union, Literal, Callable
 import numpy as np
 import pandas as pd
 import anndata as ad
 import scipy.sparse as sp
 
-from Py.slot_tool import SlotTool, ModeSlot, _parse_as_mode_slot
+from Py.slot_tool import SlotTool, ModeSlot
 from Py.plot_tool import PlotTool, Plot
 from Py.analysis_tool import AnalysisTool
 from Py.diffexp import get_summary_matrix
-from Py.processing import filter_genes
-from Py.utils import _ensure_list, _make_unique, _reindex_by_index_name, _subset_dense_or_sparse, concat
+from Py.processing import _filter_genes
+from Py.utils import _ensure_list, _make_unique, _reindex_by_index_name, _subset_dense_or_sparse
 
 
 class GrandPy:
@@ -31,7 +31,7 @@ class GrandPy:
     --------
     Read a GrandPy Object from a file.
 
-    >>> import GrandPy as gp
+    >>> import grandpy as gp
     >>> sars = gp.read_grand("./data/sars.tsv", design=("Condition", "Time", "Replicate"))
     >>> print(sars)
     GrandPy:
@@ -108,7 +108,7 @@ class GrandPy:
         for key, matrix in slots.items():
             self._adata.layers[key] = matrix
 
-    def _initialize_uns_data(self, prefix, metadata, analyses, plots):
+    def _initialize_uns_data(self, prefix: str, metadata: dict[str, Any], analyses: dict[str, pd.DataFrame], plots: dict[str, dict[str, Plot]]):
         if metadata.get('default_slot') is None:
                 metadata["default_slot"] = "count"
 
@@ -153,6 +153,8 @@ class GrandPy:
 
         return self._dev_replace(anndata = new_adata)
 
+
+    # ----- Replace functions -----
     def replace(
             self,
             *,
@@ -197,7 +199,7 @@ class GrandPy:
 
         anndata: AnnData, optional
             Use with caution. GrandPy uses anndata internally. This will replace the whole anndata instance.
-            Anndata can be retrieved from the instance via ._adata.
+            Anndata can be retrieved from the instance via GrandPy.to_anndata().
 
         Returns
         -------
@@ -208,6 +210,9 @@ class GrandPy:
         --------
             get_matrix()
                 Gives the raw data for a slot, as it is stored internally.
+
+            to_anndata()
+                Retrieves the anndata instance.
         """
         if anndata is None:
             anndata = self._adata.copy()
@@ -461,7 +466,7 @@ class GrandPy:
 
     def with_ntr_slot(self, as_ntr: str, save_ntr_as: str = None) -> "GrandPy":
         """
-        Set a different slot as the new 'ntr' slot.
+        Set a different slot as the new 'ntr' slot. If save_ntr_as is not set, the former ntr slot will be removed.
         The slot 'ntr' will be used for mode_slots and other functions relating to ntr.
 
         Examples
@@ -813,7 +818,7 @@ class GrandPy:
 
 
 
-    # ----- Remaining methods relating to coldata, gene_info or metadata -----
+    # ----- Methods relating to coldata, gene_info or metadata -----
     @property
     def metadata(self) -> dict[str, Any]:
         """
@@ -1419,77 +1424,6 @@ class GrandPy:
 
         return self._dev_replace(gene_info=new_gene_info, coldata=new_coldata, slots=new_layers, analyses=new_analyses)
 
-    def merge(
-            self,
-            other: "GrandPy",
-            *,
-            axis: Literal["gene_info", 0, "coldata", 1] = 1,
-            join: Literal["inner", "outer"] = "inner",
-            merge: Union[Literal["same", "unique", "first", "only"], Callable] = "unique",
-    ) -> "GrandPy":
-        """
-        Merge the other object with the current instance along a given axis. Uses `unique` for merging metadata and plots.
-
-        Analyses are merged if their names in both objects are identical. Otherwise, they are dropped.
-
-        Parameters
-        ----------
-        other: GrandPy
-            The object to merge with the current instance.
-
-        axis: {"gene_info" or 0 or "coldata" or 1}, default 1
-            The axis along which to merge.
-
-        join: {"inner" or "outer"}, default "inner"
-            How to align values when merging. If "outer", the union of the other axis is taken. If "inner", the intersection.
-
-        merge: {"same" or "unique" or "first" or "only"} or Callable, default "unique"
-            How elements not aligned to the axis being concatenated along are selected.
-            Currently implemented strategies include:
-
-            * `None`: No elements are kept.
-            * `"same"`: Elements that are the same in each of the objects.
-            * `"unique"`: Elements for which there is only one possible value.
-            * `"first"`: The first element seen at each from each position.
-            * `"only"`: Elements that show up in only one of the objects.
-
-        Returns
-        -------
-        GrandPy
-            A new merged GrandPy object.
-        """
-        objects = [self, other]
-
-        return concat(objects, axis=axis, join=join, merge=merge)
-
-    def split(self, by: str = "Condition") -> list:
-        """
-        Split the GrandPy object into a list of GrandPy objects based on a column in coldata.
-
-        Parameters
-        ----------
-        by : str, default "Condition"
-            Column in coldata to split by.
-
-        Returns
-        -------
-        list of GrandPy
-            One GrandPy object per unique value in the specified column.
-        """
-        if by not in self.coldata.columns:
-            raise ValueError(f"Column '{by}' not found in coldata.")
-
-        result = []
-        for group in self.coldata[by].unique():
-            mask = self.coldata[by] == group
-            subset = self._adata[:, mask]
-            obj = self._dev_replace(anndata=subset)
-            obj.group = group
-
-            result.append(obj)
-
-        return result
-
 
     def get_matrix(
             self,
@@ -1755,7 +1689,7 @@ class GrandPy:
         result_df = pd.DataFrame()
 
         for slot_name in mode_slots:
-            all_data = self._resolve_mode_slot(slot_name, ntr_nan=ntr_nan)  # shape: genes × samples
+            all_data = self._resolve_mode_slot(slot_name, ntr_nan=ntr_nan)
 
             if summarize is not None:
                 matrix = all_data @ summarize.values
@@ -2030,6 +1964,130 @@ class GrandPy:
         return format_ref_output(df["__group__"], group_to_refs, as_dict)
 
 
+    # ----- Functions on the whole object -----
+    def merge(
+            self,
+            other: "GrandPy",
+            *,
+            axis: Literal["gene_info", 0, "coldata", 1] = 1,
+            join: Literal["inner", "outer"] = "inner",
+            merge: Union[Literal["same", "unique", "first", "only"], Callable] = "unique",
+    ) -> "GrandPy":
+        """
+        Merge the other object with the current instance along a given axis. Uses `unique` for merging metadata and plots.
+
+        Analyses are merged if their names in both objects are identical. Otherwise, they are dropped.
+
+        Parameters
+        ----------
+        other: GrandPy
+            The object to merge with the current instance.
+
+        axis: {"gene_info" or 0 or "coldata" or 1}, default 1
+            The axis along which to merge.
+
+        join: {"inner" or "outer"}, default "inner"
+            How to align values when merging. If "outer", the union of the other axis is taken. If "inner", the intersection.
+
+        merge: {"same" or "unique" or "first" or "only"} or Callable, default "unique"
+            How elements not aligned to the axis being concatenated along are selected.
+            Currently implemented strategies include:
+
+            * `None`: No elements are kept.
+            * `"same"`: Elements that are the same in each of the objects.
+            * `"unique"`: Elements for which there is only one possible value.
+            * `"first"`: The first element seen at each from each position.
+            * `"only"`: Elements that show up in only one of the objects.
+
+        Returns
+        -------
+        GrandPy
+            A new merged GrandPy object.
+        """
+        from Py.utils import concat
+
+        objects = [self, other]
+
+        return concat(objects, axis=axis, join=join, merge=merge)
+
+    def split(self, by: str = "Condition") -> list:
+        """
+        Split the GrandPy object into a list of GrandPy objects based on a column in coldata.
+
+        Parameters
+        ----------
+        by : str, default "Condition"
+            Column in coldata to split by.
+
+        Returns
+        -------
+        list of GrandPy
+            One GrandPy object per unique value in the specified column.
+        """
+        if by not in self.coldata.columns:
+            raise ValueError(f"Column '{by}' not found in coldata.")
+
+        result = []
+        for group in self.coldata[by].unique():
+            mask = self.coldata[by] == group
+            subset = self._adata[:, mask]
+            obj = self._dev_replace(anndata=subset)
+            obj.group = group
+
+            result.append(obj)
+
+        return result
+
+    def to_anndata(self, x: str = None, original: bool = False) -> ad.AnnData:
+        """
+        Extracts an Anndata instance from GrandPy.
+
+        In the unstructured data(.uns), `analyses`, `metadata` and the `prefix` are stored.
+
+        Parameters
+        ----------
+        x: str, optional
+            The name of the slot to be set as the main data matrix X; by default `default_slot`
+
+        original: bool, default False
+            If False, AnnData will be returned scanpy compatible.
+
+            Otherwise, AnnData will be returned as stored internally.
+
+        Notes
+        -----
+        When you want the AnnData instance to be scanpy compatible, use `original` = False.
+        For this, the internal AnnData is transposed and plots are removed.
+        If this is not desired, use `original` = True.
+
+        See Also
+        --------
+        anndata_to_grandpy
+            Returns a GrandPy instance from a given AnnData.
+
+        Returns
+        -------
+        ad.AnnData
+            An AnnData instance containing the data.
+        """
+        if x is None:
+            x = self.default_slot
+
+        adata = self._adata.copy()
+        adata.X = self.get_matrix(x, force_numpy=False)
+
+        if original:
+            return adata
+
+        if self.analyses is not None:
+            for name, analysis in adata.uns["analyses"].items():
+                adata.uns["analyses"][name] = analysis.copy().T
+
+        adata.uns.pop("plots", None)
+
+        return adata.T
+
+
     # ----- Processing functions -----
     def compute_ntr_ci(self, ci_size: float = 0.95, name_lower: str = "lower", name_upper: str = "upper")-> "GrandPy":
         from Py.processing import _compute_ntr_ci
@@ -2040,11 +2098,6 @@ class GrandPy:
         from Py.processing import _compute_steady_state_half_lives
 
         return _compute_steady_state_half_lives(self, time, name=name ,columns=columns, max_hl=max_hl, ci_size=ci_size, compute_ci=compute_ci, as_analysis=as_analysis)
-
-    def compute_absolute(self, dilution: float= 4e4, volume: float = 10.0, slot: str = "tpm", name: str = "absolute") -> "GrandPy":
-        from Py.processing import _compute_absolute
-
-        return _compute_absolute(self, dilution=dilution, volume=volume, slot=slot, name=name)
 
     def normalize(self, genes = None, name: str = "norm", slot: str = "count", set_to_default = True, size_factors = None, return_size_factors = False):
         from Py.processing import _normalize
@@ -2061,20 +2114,59 @@ class GrandPy:
 
         return _normalize_tpm(self, genes=genes, name=name, slot=slot, set_to_default=set_to_default, total_len=total_len)
 
-    def normalize_rpm(self, genes= None, name: str = "rpm", slot: str = "count", set_to_default = True, factor = 1e6):
+    def normalize_rpm(self, genes= None, name: str = "norm", slot: str = "count", set_to_default = True, factor = 1e6):
         from Py.processing import _normalize_rpm
 
-        return _normalize_rpm(self, genes=genes, name=name, slot=slot, set_to_default=set_to_default, factor=factor)
+        return _normalize_rpm(self, genes=genes, name=name, slot=slot, factor=factor)
 
-    def compute_expression_percentage(self, name: str = "expression_percentage", genes: list = None, slot: str = None, genes_total: list = None, slot_total: str = None, float_to_percent: bool = True):
-        from Py.processing import _compute_expression_percentage
 
-        return _compute_expression_percentage(self, name=name, genes=genes, slot=slot, genes_total=genes_total, slot_total=slot_total, float_to_percent=float_to_percent)
+    def filter_genes(
+        self,
+        mode_slot: Union[str, "ModeSlot"] = None,
+        *,
+        min_expression: int = 100,
+        min_columns: int = None,
+        min_condition: int = None,
+        keep: Union[str, int, Sequence[Union[int, str]]] = None,
+        use: Union[str, int, Sequence[Union[int, str, bool]]] = None,
+        return_genes: bool = False
+    ) -> Union["GrandPy", list[int]]:
+        """
+        Filter genes based on expression/value thresholds.
 
-    def filter_genes(self, mode_slot: Union[str, "ModeSlot"] = None, *, min_expression: Number = 100, min_columns: int = None, min_condition: int = None, keep: Union[str, int, Sequence[Union[int,str]]] = None, use: Union[str, int, Sequence[Union[int, str, bool]]]= None, return_genes: bool = False) -> "GrandPy":
-        from Py.processing import _filter_genes
+        Parameters
+        ----------
+        mode_slot : str or ModeSlot, optional
+            Which data slot to use.
 
-        return _filter_genes(self, mode_slot=mode_slot, min_expression=min_expression, min_columns=min_columns, min_condition=min_condition, keep=keep, use=use, return_genes=return_genes)
+        min_expression : Number, default 100
+            Minimum value threshold to consider a gene expressed.
+
+        min_columns : int, optional
+            Minimum number of samples the gene must meet `min_expression` in.
+            Defaults to half the number of columns in the matrix.
+            Will be ignored if `min_condition` is provided
+
+        min_condition : int, optional
+            Overrides `min_columns` if set.
+
+        keep : str or int or Sequence[str or int], optional
+            Genes to force-keep, regardless of threshold filtering.
+
+        use : str or int or Sequence[bool or int or str], optional
+            Only these genes will be kept if provided (boolean mask, indices, or names).
+            Filtering will not be applied to them. (Basically just subsetting)
+
+        return_genes : bool, default False
+            If True, return the list of selected gene indices instead of a filtered GrandPy object.
+
+        Returns
+        -------
+        list[str] or GrandPy
+        """
+        return _filter_genes(self, mode_slot, min_expression=min_expression, min_columns=min_columns,
+                             min_condition=min_condition, use=use, keep=keep, return_genes=return_genes)
+
 
     # ----- modeling functions -----
     def fit_kinetics(
@@ -2185,81 +2277,52 @@ class GrandPy:
 
 
 
-    # TODO. deseq2_bic überarbeiten
-    # Noch fehlerhaft und unvollständig (u.a. Spalten wirken vertauscht) und EXTREM langsam (130 sec for sars.tsv)
-    def deseq2_bic(
-            self,
-            name: str = "BIC",
-            mode: Literal["new", "n", "old", "o", "total", "t"] = "total",
-            formulas: dict = None,
-            no4su: bool = False,
-            columns: Union[str, Sequence[str], Sequence[bool]] = None,
-    ) -> "GrandPy":
+
+
+
+def anndata_to_grandpy(anndata: ad.AnnData, transpose: bool = True) -> "GrandPy":
         """
+        Create a GrandPy instance from an AnnData instance.
 
         Parameters
         ----------
-        name: str
-            Name of the analysis.
-        mode: {"new" or "n" or "old" or "o" or "total" or "t"}, default "total"
-            Data slot to use (e.g., 'total').
-        formulas: dict, optional
-            Dictionary of {model_name: formula_string}, e.g. {"full": "counts ~ Condition", "null": "counts ~ 1"}.
-        no4su: bool, default False
-            Whether to exclude 4sU-treated samples.
-        columns: str or Sequence[str or bool], optional
-            Manually selected sample filter.
+        anndata:
+            The AnnData to convert.
+
+        transpose:
+            If True, all Matrizes in the AnnData are transposed. (see Notes)
+            Otherwise, they remain in their original form.
+
+        Notes
+        -----
+        The internal AnnData has to be transposed, relative to what you would usually expect.
+        Meaning obs relates to the rows of X (coldata) and var to the columns (gene_info).
+
+        See Also
+        --------
+        GrandPy.to_anndata
+            Extract a GrandPy instance from the AnnData.
 
         Returns
         -------
         GrandPy
-            New object with the ΔBIC table added.
+            A GrandPy instance built from the AnnData.
         """
-        from statsmodels.formula.api import glm
-        from statsmodels.genmod.families import NegativeBinomial
+        if transpose:
+            adata = anndata.T
 
-        if formulas is None:
-            formulas = {"Condition": "counts ~ Condition", "Background": "counts ~ 1"}
-
-        coldata = self.coldata
-
-        # Filter samples
-        if columns is None:
-            if no4su:
-                mask = ~coldata["no4sU"]
-                columns = coldata.index[mask].tolist()
-            else:
-                columns = coldata.index.tolist()
+            if adata.uns.get("analyses", None) is not None:
+                for name, analysis in adata.uns["analyses"].items():
+                    adata.uns["analyses"][name] = analysis.T
         else:
-            columns = [col for col in _ensure_list(columns) if col in coldata.index]
+            adata = anndata
 
-        coldata = coldata.loc[columns].copy()
-
-        count_df = self.get_data(mode_slots=ModeSlot(mode, "count"), columns=columns, with_coldata=False)
-
-        bic_per_model = {}
-
-        for model_name, formula in formulas.items():
-            bic_values = []
-            for gene in count_df.columns:
-                try:
-                    df = coldata
-                    df["counts"] = count_df[gene].values
-
-                    model = glm(formula=formula, data=df, family=NegativeBinomial(alpha=1.0)).fit()
-                    bic_values.append(model.bic_llf)
-
-                except Exception as e:
-                    warnings.warn(f"Skipping gene {gene} due to error: {e}")
-                    bic_values.append(np.nan)
-
-            bic_per_model[model_name] = bic_values
-
-        bic_df = pd.DataFrame(bic_per_model, index=count_df.columns)
-
-        # ΔBIC: subtract min BIC per gene
-        delta_bic_df = bic_df.subtract(bic_df.min(axis=1), axis=0)
-        delta_bic_df.columns = [f"{col}.dBIC" for col in delta_bic_df.columns]
-        delta_bic_df.index.name = "Symbol"
-        #
-        return self.with_analysis(name=name, table=delta_bic_df)
+        return GrandPy(
+            prefix=adata.uns.get("prefix", None),
+            gene_info=adata.obs,
+            coldata=adata.var,
+            slots=adata.layers,
+            metadata=adata.uns.get("metadata", None),
+            analyses=adata.uns.get("analyses", None),
+            plots=adata.uns.get("plots", None),
+        )
