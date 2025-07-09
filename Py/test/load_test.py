@@ -266,6 +266,10 @@ print(banp)
 qc = get_table_qc(grand_obj, slot="count")
 print(qc.head())
 
+url = "https://zenodo.org/record/7612564/files/chase_notrescued.tsv.gz?download=1"
+gp_url = read_grand(url, design=("Condition", "dur.4sU", "Replicate"))
+print(gp_url)
+
 
 # ------------------------------------------------------------------------------
 # TODO: Write tests for reading in all test data sets that you have. You could implement that as a single function with nested loops over data sets and estimators.

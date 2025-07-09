@@ -12,6 +12,7 @@ import scipy.sparse as sp
 
 from pathlib import Path
 from scipy.io import mmread
+from urllib.parse import urlparse, unquote
 
 from Py.utils import _to_sparse, _make_unique
 from Py.grandPy import GrandPy
@@ -31,7 +32,6 @@ DESIGN_KEYS = {
     "Barcode": "Barcode",
     "Origin": "Origin"
 }
-
 #TODO: Frage - allgemein time.original oder duration.4sU.original?
 
 
@@ -41,6 +41,37 @@ SEMANTICS = {
     "Time": "time",
     "concentration.4sU": "concentration"
 }
+
+
+def _local_filename_from_url(url: str, default: str = "download") -> str:
+    """
+    Return a clean filename extracted from an HTTP(S) URL.
+
+    The query string and fragment are stripped so that the result can be
+    used safely as a local temporary file name (e.g. on Windows, where “?”
+    is invalid in filenames).
+
+    Parameters
+    ----------
+    url : str
+        Remote URL pointing to a downloadable file. e.g. ".../download=1"
+    default : str, optional
+        Fallback name if the URL does not contain a path component (default is "download").
+
+    Returns
+    -------
+    str
+        The basename of the URL path *without* query or fragment, e.g. "data.tsv.gz".
+
+    Notes
+    -----
+    This helper is used internally by 'read_grand' before the file is downloaded into
+    a temporary directory.
+    """
+
+    parts = urlparse(url)
+    name = Path(unquote(parts.path)).name
+    return name or default
 
 
 def infer_suffixes_from_df(df, known_suffixes=None, estimator="Binom", sparse=False) -> dict:
@@ -151,7 +182,7 @@ def parse_slots(df, suffixes, sparse):
 
     Returns
     -------
-    slots : dict[str, ndarray | csr_matrix]
+    slots : dict[str, ndarray or csr_matrix]
         Expression matrices keyed by slot.
     sample_names : list[str]
         Unique sample names present in **at least one** slot.
@@ -213,7 +244,16 @@ def build_gene_info(df, classify_func):
 
 def parse_time_string(s):
     """
-    Converts Strings (e.g. '90min', '1h', '-') to float-hours.
+    Convert textual time strings such as '90min' or '1h' to hours.
+    Parameters
+    ----------
+    s : str | int | float | pandas.NA
+        Time specification.
+
+    Returns
+    -------
+    float or None
+        Numeric value in hours or 'None' if the string could not be parsed.
     """
     if pd.isna(s) or s in ["-", "no4sU", "nos4U"]:
         return 0.0
@@ -233,9 +273,20 @@ def parse_time_string(s):
 
 def apply_design_semantics(coldata: pd.DataFrame) -> pd.DataFrame:
     """
-    Adds a _semantics dictionary to coldata.attrs with semantic hints
-    for selected design columns (e.g. time, concentration).
+    Add semantic hints to coldata (time, concentration, ...).
+
+    Parameters
+    ----------
+    coldata : pd.DataFrame
+        Design/metadata table with one row per sample.
+
+    Returns
+    -------
+    pd.DataFrame
+        Same object, but with an '_semantics' attribute that maps selected columns
+        to semantic keywords (e.g. {'Time': 'time', 'Concentration': 'concentration'}).
     """
+
     semantics = {}
 
     for key, kind in SEMANTICS.items():
@@ -245,7 +296,24 @@ def apply_design_semantics(coldata: pd.DataFrame) -> pd.DataFrame:
     coldata.attrs["_semantics"] = semantics
     return coldata
 
+
 def semantics_time(values, name):
+    """
+    Convert a sequence of time strings to a numeric column with semantics.
+
+    Parameters
+    ----------
+    values : Sequence[str]
+        Raw time strings (e.g. '90min', '1h', '-').
+    name : str
+        Column name to use for the parsed numeric values.
+
+    Returns
+    -------
+    pd.DataFrame
+        Two-column dataframe + attached '_semantics' attribute.
+    """
+
     df = pd.DataFrame({name: values})
     df[f"{name}.original"] = df[name]
     df[name] = df[name].map(parse_time_string)
@@ -554,7 +622,6 @@ def resolve_prefix_path(prefix, pseudobulk=None, targets=None) -> Path:
     )
 
 
-
 def is_sparse_file(path) -> bool:
     """
     Determines whether the input represents a sparse GRAND-SLAM file by checking for the presence of a 'data.tsv' (or 'data.tsv.gz') file.
@@ -583,6 +650,7 @@ def is_sparse_file(path) -> bool:
     has_features = exists_any("features", [".tsv.gz", ".tsv", ""])
 
     return has_matrix and has_barcodes and has_features
+
 
 def read_dense(file_path, default_slot="count", design=None, *, classification_genes=None, classification_genes_label="Unknown", classify_genes_func=None, estimator="Binom"):
     """
@@ -678,6 +746,7 @@ def read_sparse(folder_path, default_slot="count", design=None, classification_g
                  classify_genes_func=classify_genes_func,
                  pseudobulk=pseudobulk, targets=targets, estimator=estimator)
 
+
 def read_grand(prefix, pseudobulk=None, targets=None, **kwargs):
     """
     Automatically detects whether a GRAND-SLAM dataset is in dense or sparse format
@@ -707,7 +776,7 @@ def read_grand(prefix, pseudobulk=None, targets=None, **kwargs):
             print("Detected URL -> downloading to temp file")
 
             with tempfile.TemporaryDirectory() as tmpdir:
-                local_file = Path(tmpdir) / Path(prefix).name
+                local_file = Path(tmpdir) / _local_filename_from_url(prefix)
                 with urllib.request.urlopen(prefix) as response, open(local_file, 'wb') as out_file:
                     shutil.copyfileobj(response, out_file)
 
@@ -737,11 +806,25 @@ def read_grand(prefix, pseudobulk=None, targets=None, **kwargs):
         print(f"Unexpected error: {e}")
 
 
-def find_existing_file(path: Path, base_name: str, extensions=(".gz", "", ".tsv", ".tsv.gz")):
+def find_existing_file(path: Path, base_name: str, extensions=(".gz", "", ".tsv", ".tsv.gz")) -> Path:
     """
-    Tries to find an existing file with one of the given extensions.
-    Returns the full path if found, else raises FileNotFoundError.
+    Search path for base_name with any of the given extensions.
+
+    Parameters
+    ----------
+    path : pathlib.Path
+        Directory to scan.
+    base_name : str
+        File stem without extension (e.g. "matrix.mtx" -> "matrix").
+    extensions : tuple[str], optional
+        Candidate extensions to test in order. Defaults to (".gz", "", ".tsv", ".tsv.gz").
+
+    Returns
+    -------
+    pathlib.Path
+        The first path that exists.
     """
+
     for ext in extensions:
         candidate = path / f"{base_name}{ext}"
         if candidate.exists():
