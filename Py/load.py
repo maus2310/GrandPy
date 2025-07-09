@@ -32,7 +32,6 @@ DESIGN_KEYS = {
     "Barcode": "Barcode",
     "Origin": "Origin"
 }
-#TODO: Frage - allgemein time.original oder duration.4sU.original?
 
 
 SEMANTICS = {
@@ -587,14 +586,24 @@ def resolve_prefix_path(prefix: str | Path,
     # 2.
     for fname in ("data.tsv", "data.tsv.gz"):
         cand = base / fname
-        if cand.exists():
+        if cand.exists() and cand.is_file():
             return cand
+
+    # 2b. Special case: *prefix*/data.tsv/data (data.tsv is a directory) had to insert this for load_test.py
+    dt_dir = base / "data.tsv"
+    if dt_dir.is_dir():
+        for inner_name in ("data", "data.tsv", "data.tsv.gz"):
+            inner = dt_dir / inner_name
+            if inner.exists() and inner.is_file():
+                return inner
 
     # 3. - 5.
     def _try(path: Path) -> Optional[Path]:
-        gz = path / "data.tsv.gz"
-        tsv = path / "data.tsv"
-        return gz if gz.exists() else (tsv if tsv.exists() else None)
+        for fname in ("data.tsv.gz", "data.tsv"):
+            cand = path / fname
+            if cand.exists():
+                return cand
+        return None
 
     if pseudobulk and targets:
         hit = _try(base.parent / f"{base.name}.pseudobulk.{targets}.{pseudobulk}")
@@ -605,9 +614,10 @@ def resolve_prefix_path(prefix: str | Path,
         hit = _try(base.parent / f"{base.name}.pseudobulk.targets.{pseudobulk}")
         if hit:
             return hit
-        hit = _try(base.parent / f"{base.name}.pseudobulk.{pseudobulk}")
-        if hit:
-            return hit
+        # hit = _try(base.parent / f"{base.name}.pseudobulk.{pseudobulk}")
+        # if hit:
+        #     return hit
+        # This case is never reached with Grand3 defaults (targets="targets")
 
     # 6.
     if targets:
@@ -707,7 +717,7 @@ def read_dense(file_path, default_slot="count", design=None, *, classification_g
                  classify_genes_func=classify_genes_func, estimator=estimator)
 
 
-def read_sparse(folder_path, default_slot="count", design=None, classification_genes=None, classification_genes_label="Unknown", classify_genes_func=None, pseudobulk=None, targets=None, estimator="Binom"): # TODO nicht "viral" bei classify genes
+def read_sparse(folder_path, default_slot="count", design=None, classification_genes=None, classification_genes_label="Unknown", classify_genes_func=None, pseudobulk=None, targets=None, estimator="Binom"):
     """
     Reads a GRAND-SLAM sparse dataset from a directory.
 
@@ -750,7 +760,21 @@ def read_sparse(folder_path, default_slot="count", design=None, classification_g
     else:
         design_arg = None
 
-    return _read(Path(folder_path), sparse=True, default_slot=default_slot, design=design_arg,
+    base = Path(folder_path)
+    expected_parts = []
+    if targets:
+        expected_parts.append(str(targets))
+    if pseudobulk:
+        expected_parts.append(str(pseudobulk))
+
+    for part in expected_parts:
+        if part not in str(base):
+            raise ValueError(
+                f"The given path '{base}' does not match the existing targets/pseudobulk "
+                f"('{targets}', '{pseudobulk}')."
+            )
+
+    return _read(base, sparse=True, default_slot=default_slot, design=design_arg,
                  classification_genes=classification_genes, classification_genes_label=classification_genes_label,
                  classify_genes_func=classify_genes_func,
                  pseudobulk=pseudobulk, targets=targets, estimator=estimator)
@@ -882,9 +906,6 @@ def _read(file_path, sparse, default_slot, design,
         matrix_path = find_existing_file(base, "matrix.mtx", (".gz", ""))
         features_path = find_existing_file(base, "features", (".tsv.gz", ".tsv", ""))
         barcodes_path = find_existing_file(base, "barcodes", (".tsv.gz", ".tsv", ""))
-
-        with open(matrix_path, "rt") if matrix_path.suffix != ".gz" else gzip.open(matrix_path, "rt") as f:
-            count_matrix = mmread(f).tocsr()
 
         features = pd.read_csv(features_path, sep="\t", header=None, compression="infer")
         features.iloc[:, 0] = features.iloc[:, 0].astype(str)
@@ -1083,3 +1104,9 @@ def get_table_qc(grand, slot="count"):
     df = df.merge(coldata, on="Name", how="left")
 
     return df
+
+
+# Minitest:
+# grand = read_grand("test-datasets/test_sparse.targets", design=("Time", "Replicate"))
+# qc = get_table_qc(grand)
+# print(qc.head())

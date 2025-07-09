@@ -214,6 +214,17 @@ def test_validate_input_raises_on_missing_columns():
         validate_input(df, ["A", "C"], context="mock")
 
 
+def test_read_sparse_rejects_invalid_prefix_combination():
+    """
+    Tests that read_sparse raises an error when the provided folder path
+    does not match the targets and pseudobulk values.
+    """
+    invalid_path = "../test-datasets/test_sparse.targets"  # names consists 'targets'
+    with pytest.raises(ValueError, match="does not match the existing targets/pseudobulk"):
+        read_sparse(invalid_path, targets="SOMETHING", pseudobulk="WRONG")
+
+
+
 # -----------------------------------------------------------------------------
 # Test für get_table_qc():
 
@@ -245,35 +256,39 @@ def test_make_unique_adds_suffix():
 # ------------------------------------------------------------------------------
 # aus load.py:
 
-grand_obj = read_grand("https://zenodo.org/record/5834034/files/sars.tsv.gz", design=("Condition", "Time", "Replicate"))
-print(grand_obj)
+if __name__ == "__main__":
+    grand_obj = read_grand("https://zenodo.org/record/5834034/files/sars.tsv.gz", design=("Condition", "Time", "Replicate"))
+    print(grand_obj)
 
-sars = read_grand("data/sars_R.tsv", design=("Condition", "Time", "Replicate"))
-print(sars) # funktioniert
+    sars = read_grand("data/sars_R.tsv", design=("Condition", "Time", "Replicate"))
+    print(sars) # funktioniert
 
-sparse_data = read_grand("test-datasets/test_sparse.targets", design=("Time", "Replicate"))
-print(sparse_data) # funktioniert
+    sparse_data = read_grand("test-datasets/test_sparse.targets", design=("Time", "Replicate"))
+    print(sparse_data) # funktioniert
 
-grand_sparse = read_grand("test-datasets/test_sc_sparse.targets", design=("Condition", "Time", "Replicate"))
-print(grand_sparse)
+    grand_sparse = read_grand("test-datasets/test_sc_sparse.targets", design=("Condition", "Time", "Replicate"))
+    print(grand_sparse)
 
-sc_dense = read_grand("test-datasets/test_sc_dense.targets", design=("Time", "Replicate"))
-print(sc_dense)
+    sc_dense = read_grand("test-datasets/test_sc_dense.targets", design=("Time", "Replicate"))
+    print(sc_dense)
 
-banp = read_grand("https://zenodo.org/record/6976391/files/BANP.tsv.gz", design=("Cell", "Experimental.time", "Genotype", "dur.4sU", "has4.U", "Replicate"))
-print(banp)
+    banp = read_grand("https://zenodo.org/record/6976391/files/BANP.tsv.gz", design=("Cell", "Experimental.time", "Genotype", "dur.4sU", "has4.U", "Replicate"))
+    print(banp)
 
-qc = get_table_qc(grand_obj, slot="count")
-print(qc.head())
+    qc = get_table_qc(grand_obj, slot="count")
+    print(qc.head())
 
-url = "https://zenodo.org/record/7612564/files/chase_notrescued.tsv.gz?download=1"
-gp_url = read_grand(url, design=("Condition", "dur.4sU", "Replicate"))
-print(gp_url)
+    url = "https://zenodo.org/record/7612564/files/chase_notrescued.tsv.gz?download=1"
+    gp_url = read_grand(url, design=("Condition", "dur.4sU", "Replicate"))
+    print(gp_url)
+
+    grand = read_grand("test-datasets/test_sparse.targets", design=("Time", "Replicate"))
+    qc = get_table_qc(grand)
+    print(qc.head())
 
 
 # ------------------------------------------------------------------------------
-# TODO: Write tests for reading in all test data sets that you have. You could implement that as a single function with nested loops over data sets and estimators.
-# dense wird nicht erkannt (?) - bin noch dran
+
 DATASETS_ROOT = Path(__file__).resolve().parents[1] / "test-datasets"
 ESTIMATORS     = [None, "MAP", "Binom", "TbBinom", "TbBinomShape"]
 SKIP_FRAGMENTS = {
@@ -291,10 +306,17 @@ def is_result_ds(p: Path) -> bool:
 
     if p.is_dir():
         files = {q.name.lower() for q in p.iterdir()}
+
+        # sparse
         has_mtx = any(fn.endswith((".mtx", ".mtx.gz")) for fn in files)
         has_barcodes = {"barcodes.tsv", "barcodes.tsv.gz"} & files
         has_features = {"features.tsv", "features.tsv.gz"} & files
-        return has_mtx and has_barcodes and has_features
+        if has_mtx and has_barcodes and has_features:
+            return True
+
+        # dense
+        if "data.tsv" in files or "data.tsv.gz" in files:
+            return True
 
     return False
 
