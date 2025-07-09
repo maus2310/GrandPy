@@ -525,15 +525,64 @@ def _normalize_rpm(
     # Füge neuen Slot ein
     return data.with_slot(name, rpm, set_to_default=set_to_default)
 
+# def _normalize_baseline(data: "GrandPy",
+#                         reference = None,
+#                         name: str = "baseline",
+#                         slot: str = None,
+#                         set_to_default: bool = False,
+#                         LFC_func = None) -> "GrandPy":
+#
+#     if reference is None: reference = data.get_references(reference="condition", )
+#     matrix_for_baseline = data.get_matrix(mode_slot=slot)
 
-def compute_expression_percentage(
+
+
+def _compute_absolute(
+        data: "GrandPy",
+        dilution: float = 4e4,
+        volume: float = 10.0,
+        slot: str = "tpm",
+        name: str = "absolute"
+) -> "GrandPy":
+    """
+    Schätzt absolute Molekülzahlen aus TPM-Daten mithilfe von ERCC-Spike-ins.
+    Annäherung an monocle::relative2abs auf Basis von Spike-Summen.
+    """
+
+    # Hole TPM-Matrix (angenommen: numpy-Array mit shape (n_genes, n_cells))
+    mat = data.get_matrix(slot)
+    gene_types = data.gene_info["Type"]
+    is_ercc = (gene_types == "ERCC")
+
+    if not np.any(is_ercc):
+        raise ValueError("Keine ERCC-Gene im Datensatz gefunden.")
+
+    ercc_mat = mat[is_ercc, :]  # TPMs nur der ERCCs
+    ercc_tpm_sum = np.nansum(ercc_mat, axis=0)  # Summe je Zelle
+
+    # Ersetze Nullen durch np.nan, um Division durch 0 zu vermeiden
+    ercc_tpm_sum[ercc_tpm_sum == 0] = np.nan
+
+    # Berechne Skalierungsfaktor je Zelle
+    scaling_factor = (dilution * volume) / ercc_tpm_sum  # shape: (n_cells,)
+
+    # Multipliziere jede Spalte mit passendem Skalierungsfaktor
+    absolute = mat * scaling_factor[np.newaxis, :]  # Broadcasting erzwingen
+
+    # Setze absolute = 0, wo TPM = 0 war
+    absolute[mat == 0] = 0
+
+    # Ergebnis als neuen Slot speichern
+    return data.with_slot(name, absolute)
+
+def _compute_expression_percentage(
     data,
     name: str,
-    genes: Optional[list] = None,
-    mode_slot: Optional[str] = None,
-    genes_total: Optional[list] = None,
-    mode_slot_total: Optional[str] = None,
-    multiply_by_100: bool = True,
+    genes: Union[str, Sequence[str]] = None,
+    slot: str = None,
+    genes_total: Union[str, Sequence[str]] = None,
+    slot_total: str = None,
+    float_to_percent: bool = True,
 ):
     """
     Compute the percentage of expression for a set of genes per column and
@@ -551,16 +600,16 @@ def compute_expression_percentage(
         List of genes for which to compute expression fraction.
         Defaults to all genes.
 
-    mode_slot : str, optional
+    slot : str, optional
         Data slot to use for numerator values. Defaults to data.default_slot.
 
     genes_total : list, optional
         List of genes to use for total expression. Defaults to all genes.
 
-    mode_slot_total : str, optional
-        Data slot to use for total expression. Defaults to mode_slot.
+    slot_total : str, optional
+        Data slot to use for total expression. Defaults to slot.
 
-    multiply_by_100 : bool, default=True
+    percent_to_float : bool, default=True
         If True, percentages are scaled to [0, 100].
 
     Returns
@@ -568,21 +617,59 @@ def compute_expression_percentage(
     GrandPy
         The modified GrandPy object with a new column in coldata.
     """
-    if mode_slot is None:
-        mode_slot = data.default_slot
-    if mode_slot_total is None:
-        mode_slot_total = mode_slot
-    if genes is None:
-        genes = data.genes
-    if genes_total is None:
-        genes_total = data.genes
 
-    numerator = data.get_matrix(mode_slot=mode_slot, genes=genes).sum(axis=0)
-    denominator = data.get_matrix(mode_slot=mode_slot_total, genes=genes_total).sum(axis=0)
+    numerator = data.get_matrix(mode_slot=slot, genes=genes).sum(axis=0)
+    denominator = data.get_matrix(mode_slot=slot_total, genes=genes_total).sum(axis=0)
 
     percentage = numerator / denominator
-    if multiply_by_100:
+    if float_to_percent:
         percentage *= 100
 
     data = data.with_coldata(column=name, value=percentage)
     return data
+
+def _filter_genes(
+    data: "GrandPy",
+    mode_slot: Union[str, "ModeSlot"] = None,
+    *,
+    min_expression: Number = 100,
+    min_columns: int = None,
+    min_condition: int = None,
+    keep: Union[str, int, Sequence[Union[int, str]]] = None,
+    use: Union[str, int, Sequence[Union[int, str, bool]]] = None,
+    return_genes: bool = False
+) -> Union["GrandPy", list[int]]:
+    """
+    Filter genes based on expression/value thresholds.
+
+    Parameters
+    ----------
+    mode_slot : str or ModeSlot, optional
+        Which data slot to use.
+
+    min_expression : Number, default 100
+        Minimum value threshold to consider a gene expressed.
+
+    min_columns : int, optional
+        Minimum number of samples the gene must meet `min_expression` in.
+        Defaults to half the number of columns in the matrix.
+        Will be ignored if `min_condition` is provided
+
+    min_condition : int, optional
+        Overrides `min_columns` if set.
+
+    keep : str or int or Sequence[str or int], optional
+        Genes to force-keep, regardless of threshold filtering.
+
+    use : str or int or Sequence[bool or int or str], optional
+        Only these genes will be kept if provided (boolean mask, indices, or names).
+        Filtering will not be applied to them. (Basically just subsetting)
+
+    return_genes : bool, default False
+        If True, return the list of selected gene indices instead of a filtered GrandPy object.
+
+    Returns
+    -------
+    list[str] or GrandPy
+    """
+    return filter_genes(data, mode_slot, min_expression=min_expression, min_columns=min_columns, min_condition=min_condition, use=use, keep=keep, return_genes=return_genes)

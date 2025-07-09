@@ -1026,52 +1026,6 @@ class GrandPy:
             indices = self.get_index(genes, regex=regex)
             return self.gene_info.iloc[indices]["Gene"].tolist()
 
-    def filter_genes(
-        self,
-        mode_slot: Union[str, "ModeSlot"] = None,
-        *,
-        min_expression: Number = 100,
-        min_columns: int = None,
-        min_condition: int = None,
-        keep: Union[str, int, Sequence[Union[int, str]]] = None,
-        use: Union[str, int, Sequence[Union[int, str, bool]]] = None,
-        return_genes: bool = False
-    ) -> Union["GrandPy", list[int]]:
-        """
-        Filter genes based on expression/value thresholds.
-
-        Parameters
-        ----------
-        mode_slot : str or ModeSlot, optional
-            Which data slot to use.
-
-        min_expression : Number, default 100
-            Minimum value threshold to consider a gene expressed.
-
-        min_columns : int, optional
-            Minimum number of samples the gene must meet `min_expression` in.
-            Defaults to half the number of columns in the matrix.
-            Will be ignored if `min_condition` is provided
-
-        min_condition : int, optional
-            Overrides `min_columns` if set.
-
-        keep : str or int or Sequence[str or int], optional
-            Genes to force-keep, regardless of threshold filtering.
-
-        use : str or int or Sequence[bool or int or str], optional
-            Only these genes will be kept if provided (boolean mask, indices, or names).
-            Filtering will not be applied to them. (Basically just subsetting)
-
-        return_genes : bool, default False
-            If True, return the list of selected gene indices instead of a filtered GrandPy object.
-
-        Returns
-        -------
-        list[str] or GrandPy
-        """
-        return filter_genes(self, mode_slot, min_expression=min_expression, min_columns=min_columns, min_condition=min_condition, use=use, keep=keep, return_genes=return_genes)
-
     # TODO: get_significant_genes() doc string umschreiben
     def get_significant_genes(
             self,
@@ -2087,6 +2041,11 @@ class GrandPy:
 
         return _compute_steady_state_half_lives(self, time, name=name ,columns=columns, max_hl=max_hl, ci_size=ci_size, compute_ci=compute_ci, as_analysis=as_analysis)
 
+    def compute_absolute(self, dilution: float= 4e4, volume: float = 10.0, slot: str = "tpm", name: str = "absolute") -> "GrandPy":
+        from Py.processing import _compute_absolute
+
+        return _compute_absolute(self, dilution=dilution, volume=volume, slot=slot, name=name)
+
     def normalize(self, genes = None, name: str = "norm", slot: str = "count", set_to_default = True, size_factors = None, return_size_factors = False):
         from Py.processing import _normalize
 
@@ -2102,11 +2061,20 @@ class GrandPy:
 
         return _normalize_tpm(self, genes=genes, name=name, slot=slot, set_to_default=set_to_default, total_len=total_len)
 
-    def normalize_rpm(self, genes= None, name: str = "norm", slot: str = "count", set_to_default = True, factor = 1e6):
+    def normalize_rpm(self, genes= None, name: str = "rpm", slot: str = "count", set_to_default = True, factor = 1e6):
         from Py.processing import _normalize_rpm
 
-        return _normalize_rpm(self, genes=genes, name=name, slot=slot, factor=factor)
+        return _normalize_rpm(self, genes=genes, name=name, slot=slot, set_to_default=set_to_default, factor=factor)
 
+    def compute_expression_percentage(self, name: str = "expression_percentage", genes: list = None, slot: str = None, genes_total: list = None, slot_total: str = None, float_to_percent: bool = True):
+        from Py.processing import _compute_expression_percentage
+
+        return _compute_expression_percentage(self, name=name, genes=genes, slot=slot, genes_total=genes_total, slot_total=slot_total, float_to_percent=float_to_percent)
+
+    def filter_genes(self, mode_slot: Union[str, "ModeSlot"] = None, *, min_expression: Number = 100, min_columns: int = None, min_condition: int = None, keep: Union[str, int, Sequence[Union[int,str]]] = None, use: Union[str, int, Sequence[Union[int, str, bool]]]= None, return_genes: bool = False) -> "GrandPy":
+        from Py.processing import _filter_genes
+
+        return _filter_genes(self, mode_slot=mode_slot, min_expression=min_expression, min_columns=min_columns, min_condition=min_condition, keep=keep, use=use, return_genes=return_genes)
 
     # ----- modeling functions -----
     def fit_kinetics(
