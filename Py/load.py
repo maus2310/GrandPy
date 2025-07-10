@@ -379,14 +379,24 @@ def build_coldata(names, design=None):
             coldata[col] = coldata[col].map(parse_time_string)
             time_cols.append(orig)
 
-    if time_cols:
-        flag_col = time_cols[0]
-        coldata["no4sU"] = coldata[flag_col].isin(["no4sU", "nos4U", "-"])
-    else:
+    if "has.4sU" in coldata.columns:
+        coldata["no4sU"] = coldata["has.4sU"].astype(str).str.lower() == "no4su"
+    elif "no4sU" not in coldata.columns:
         coldata["no4sU"] = False
+        coldata["no4sU"] = (pd.Series(coldata.index, index=coldata.index).str.lower().str.contains("no4su"))
 
-    ordered = (["Name"] + list(design) + [f"{c}.original" for c in design if f"{c}.original" in coldata.columns] + ["no4sU"])
+
+    # für geordnete Ausgabe:
+    pairs = []
+    for c in design:
+        pairs.append(c)
+        orig = f"{c}.original"
+        if orig in coldata.columns:
+            pairs.append(orig)
+
+    ordered = ["Name"] + pairs + ["no4sU"]
     coldata = coldata[ordered]
+
     return apply_design_semantics(coldata)
 
 
