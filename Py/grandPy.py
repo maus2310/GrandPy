@@ -11,7 +11,6 @@ import scipy.sparse as sp
 from Py.slot_tool import SlotTool, ModeSlot
 from Py.plot_tool import PlotTool, Plot
 from Py.analysis_tool import AnalysisTool
-from Py.diffexp import get_summary_matrix
 from Py.processing import _filter_genes
 from Py.utils import _ensure_list, _make_unique, _reindex_by_index_name, _subset_dense_or_sparse
 
@@ -1805,38 +1804,6 @@ class GrandPy:
 
         return result_df
 
-    def get_summary_matrix(
-            self,
-            *,
-            no4sU: bool = False,
-            columns: Union[None, str, list[str]] = None,
-            average: bool = True
-    ) -> pd.DataFrame:
-        """
-        Return a summarization matrix for averaging or aggregation.
-
-        If this matrix is multiplied with a count table,
-        either the average (average=TRUE) or the sum (average=FALSE) of all columns (samples or cells)
-        belonging to the same Condition is computed.
-
-        Parameters
-        ----------
-        no4sU : bool, default False
-            If True, no4sU columns will be included in the summary matrix.
-            Otherwise, they will be ignored and returned as zeros.
-
-        columns : str or list of str, optional
-            Column names (samples) to include. Can be condition names or column filters.
-
-        average : bool, default True
-            If True, normalize columns to sum to 1 (i.e., compute group-wise average).
-
-        Returns
-        -------
-        pd.DataFrame
-            A (samples × conditions) matrix indicating group membership (optionally normalized).
-        """
-        return get_summary_matrix(self, no4sU, columns, average)
 
     # TODO Beispiele für get_references schreiben
     def get_references(
@@ -2038,16 +2005,18 @@ class GrandPy:
 
         return result
 
-    def to_anndata(self, x: str = None, original: bool = False) -> ad.AnnData:
+    def to_anndata(self, x: Union[str, ModeSlot] = None, original: bool = False) -> ad.AnnData:
         """
         Extracts an Anndata instance from GrandPy.
 
-        In the unstructured data(.uns), `analyses`, `metadata` and the `prefix` are stored.
+        In the unstructured data (uns), `analyses`, `metadata` and the `prefix` are stored.
+        Can also be a ModeSlot
 
         Parameters
         ----------
-        x: str, optional
-            The name of the slot to be set as the main data matrix X; by default `default_slot`
+        x: str or ModeSlot, optional
+            The name of the slot to be set as the main data matrix X; by default `default_slot`.
+            Can also be a `ModeSlot`.
 
         original: bool, default False
             If False, AnnData will be returned scanpy compatible.
@@ -2179,6 +2148,7 @@ class GrandPy:
             time: Union[str, np.ndarray, pd.Series, Sequence] = "Time",
             ci_size: float = 0.95,
             genes: Union[str, Sequence[str]] = None,
+            max_processes: int = None,
             show_progress: bool = True,
             **kwargs
     ) -> "GrandPy":
@@ -2219,7 +2189,7 @@ class GrandPy:
             - `"conf_upper"`: Upper bounds of confidence intervals for s, d, and half-life.
             - `"rmse"`: Root mean square error over all timepoints.
 
-            Additional fields `"nlls"` and `"chase"`:
+            Additional fields for `"nlls"` and `"chase"`:
 
             - `"rmse_old"`: RMSE for old RNA timepoints.
             - `"rmse_new"`: RMSE for new RNA timepoints.
@@ -2234,6 +2204,10 @@ class GrandPy:
         genes: Union[str or int or Sequence[str or int or bool], optional
             Gene(s) to fit. Uses all by default. Specified either by their index, their symbol, their ensamble id, or a boolean mask.
 
+        max_processes: int, optional
+            This function decides dynamically how many processes to use.
+            By default, up to available CPUs - 1 (e.g. 8 cores -> 7 processes).
+
         show_progress: bool, default True
             If True, a progress bar will be displayed.
 
@@ -2245,11 +2219,17 @@ class GrandPy:
                 - steady_state: Whether to use the steady-state model. Can be set for each condition individually by using a dict. By default True
 
             For `"ntr"`:
-                - transformed_ntr_map: Whether to assume that NTR values are MAP transformed, by default True.
-                - exact_ci: Whether to use exact confidence intervals, by default False.
+                - transformed_ntr_map: Whether to assume that NTR values are MAP transformed; by default True.
+                - exact_ci: Whether to use exact confidence intervals; by default False.
+                - total_function: Function to reduce total expression across time points (e.g., mean, median); by default `numpy.median`.
 
             For `"chase"`:
                 - max_iter: Maximum number of optimization iterations, by default 250.
+
+        Notes
+        -----
+        This function will create as many worker processes as the machine has processors for larger datasets.
+        See the `processes` parameter for more control.
 
         See Also
         --------
@@ -2265,7 +2245,7 @@ class GrandPy:
 
         kinetics = fit_kinetics(data=self, fit_type=fit_type, slot=slot, return_fields=return_fields,
                                 name_prefix=name_prefix, time=time, ci_size=ci_size, genes=genes,
-                                show_progress=show_progress, **kwargs)
+                                max_processes=max_processes, show_progress=show_progress, **kwargs)
 
         new_gp = self
         for name, analysis in kinetics.items():
@@ -2274,7 +2254,41 @@ class GrandPy:
         return new_gp
 
 
+    # ----- Differential Expression functions -----
+    def get_summary_matrix(
+            self,
+            *,
+            no4sU: bool = False,
+            columns: Union[None, str, list[str]] = None,
+            average: bool = True
+    ) -> pd.DataFrame:
+        """
+        Return a summarization matrix for averaging or aggregation.
 
+        If this matrix is multiplied with a count table,
+        either the average (average=TRUE) or the sum (average=FALSE) of all columns (samples or cells)
+        belonging to the same Condition is computed.
+
+        Parameters
+        ----------
+        no4sU : bool, default False
+            If True, no4sU columns will be included in the summary matrix.
+            Otherwise, they will be ignored and returned as zeros.
+
+        columns : str or list of str, optional
+            Column names (samples) to include. Can be condition names or column filters.
+
+        average : bool, default True
+            If True, normalize columns to sum to 1 (i.e., compute group-wise average).
+
+        Returns
+        -------
+        pd.DataFrame
+            A (samples × conditions) matrix indicating group membership (optionally normalized).
+        """
+        from Py.diffexp import _get_summary_matrix
+
+        return _get_summary_matrix(self, no4sU, columns, average)
 
 
 
@@ -2296,7 +2310,7 @@ def anndata_to_grandpy(anndata: ad.AnnData, transpose: bool = True) -> "GrandPy"
         Notes
         -----
         The internal AnnData has to be transposed, relative to what you would usually expect.
-        Meaning obs relates to the rows of X (coldata) and var to the columns (gene_info).
+        Meaning obs has to relate to the rows of X (coldata) and var to the columns (gene_info).
 
         See Also
         --------

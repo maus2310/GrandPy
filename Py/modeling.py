@@ -1,3 +1,5 @@
+import os
+import warnings
 import numpy as np
 import pandas as pd
 from collections.abc import Sequence, Mapping
@@ -24,11 +26,12 @@ def fit_kinetics(
     time: Union[str, np.ndarray, pd.Series, list] = "Time",
     ci_size: float = 0.95,
     genes: Union[str, Sequence[str]] = None,
+    max_processes: int = None,
     show_progress: bool = True,
     **kwargs
 ) -> dict[str, pd.DataFrame]:
     """
-    Wrapper for fit_kinetics_nlls and fit_kinetics_ntr.
+    Wrapper for fit_kinetics_nlls, fit_kinetics_chase, and fit_kinetics_ntr.
 
     For detailed documentation, see grandPy.GrandPy.fit_kinetics.
     """
@@ -44,24 +47,68 @@ def fit_kinetics(
     if isinstance(time, str):
         time = data.coldata[time]
 
-    time = np.array(time)
+    time = np.array(time).squeeze()
 
-    # ntr and nlls have been implemented separately for easier optimization and better readability
-    if fit_type == "ntr":
-        kinetics = fit_kinetics_ntr(data=data, slot=slot, genes=genes, name_prefix=name_prefix, time=time,
-                                    ci_size=ci_size, show_progress=show_progress, return_fields=return_fields, **kwargs)
-    else:
-        kinetics = fit_kinetics_nlls(data=data, fit_type=fit_type, slot=slot, genes=genes, name_prefix=name_prefix, time=time,
-                                ci_size=ci_size, return_fields=return_fields, show_progress=show_progress, **kwargs)
+    fit_function = {
+        "nlls": fit_kinetics_nlls,
+        "ntr": fit_kinetics_ntr,
+        "chase": fit_kinetics_chase,
+    }.get(fit_type, None)
+
+    if fit_function is None:
+        raise ValueError(f"Unknown fit type: {fit_type}. Available functions are: `nlls`, `ntr`, `chase`.")
+
+    kinetics = fit_function(data=data, slot=slot, name_prefix=name_prefix, return_fields=return_fields, time=time,
+                            ci_size=ci_size, genes=genes, max_processes=max_processes, show_progress=show_progress, **kwargs)
 
     return kinetics
+
+
+def get_dynamic_process_count(data_size: int, max_processes: int = None) -> int:
+    """
+    Dynamically determine the number of processes based on data size and available CPUs.
+
+    Parameters
+    ----------
+    data_size: int
+        Size of the data.
+
+    max_processes: int, optional
+        Maximum limit for amount of processes.
+
+    Returns
+    -------
+    int
+        Recommended number of processes
+    """
+    available_cores = max(os.cpu_count()-1, 1)
+
+    if max_processes is None:
+        # Arbitrary threshold for amount of processes approximated by testing. (Probably different for other systems)
+        num_processes = min(available_cores, data_size // 1000)
+    else:
+        num_processes = min(max_processes, available_cores)
+
+    num_processes = max(1, num_processes)
+
+    return num_processes
+
+
+def correct(all_expressions: np.ndarray, time: np.ndarray) -> np.ndarray:
+    """
+    Applies a correction to every row of `all_expressions`.
+    """
+    for i in range(all_expressions.shape[0]):
+        if np.max(all_expressions[i, :]) == 0:
+            all_expressions[i, time == 1] = 0.01
+    return all_expressions
+
 
 
 # ----- nlls and chase kinetic modeling -----
 def fit_kinetics_nlls(
     data: "GrandPy",
     slot: str,
-    fit_type: Literal["nlls", "chase"] = "nlls",
     *,
     genes: Union[str, int, Sequence[Union[str, int, bool]]] = None,
     name_prefix: Union[str, None] = None,
@@ -69,13 +116,12 @@ def fit_kinetics_nlls(
     ci_size: float = 0.95,
     return_fields: Sequence[str] = None,
     steady_state: Union[bool, Mapping[str, bool]] = True,
+    max_processes: int = None,
     show_progress: bool = True,
     **kwargs
 ) -> dict[str, pd.DataFrame]:
     """
     For a detailed documentation, see grandpy.GrandPy.fit_kinetics.
-
-    This function will automatically switch to parallel processing if the number of genes is greater than 1500.
     """
     if show_progress:
         from tqdm import tqdm
@@ -83,45 +129,31 @@ def fit_kinetics_nlls(
     genes_to_fit = data.get_genes(genes)
 
     condition_vector = data.coldata["Condition"].values
+    unique_conditions = np.unique(condition_vector)
 
-    # An arbitrary threshold, where parallelization is probably slower.
-    if len(genes_to_fit) > 1500:
+    # --- Decide on parallelisation ---
+    datasize = len(genes_to_fit) * len(unique_conditions)
+
+    max_workers = get_dynamic_process_count(datasize, max_processes)
+
+    if max_workers == 1:
+        parallel = False
+    else:
         from concurrent.futures import ProcessPoolExecutor
 
         parallel = True
-    else:
-        parallel = False
-
-    # --- Select a fit function ---
-    fit_func = {
-        "nlls": fit_kinetics_gene_least_squares,
-        "chase": fit_kinetics_gene_least_squares_chase
-    }.get(fit_type)
-    if fit_func is None:
-        raise ValueError(f"Unknown fit type: {fit_type}")
-
-    unique_conditions = np.unique(condition_vector)
 
     # --- Map steady_state to each condition ---
     if isinstance(steady_state, bool):
         steady_state = {cond: steady_state for cond in unique_conditions}
 
     # --- Retrieve expression matrices ---
-    new_slot = "ntr" if fit_type == "chase" else ModeSlot("new", slot)
-    new_expression = data.get_matrix(mode_slot=new_slot, genes=genes_to_fit)
-    old_expression = data.get_matrix(mode_slot=ModeSlot("old", slot), genes=genes_to_fit)
-
-    if fit_type == "chase":
-        slot_matrix = data.get_matrix(slot, genes=genes_to_fit)
-        slot_values_per_gene = {
-            gene: np.mean(slot_matrix[i, :])
-            for i, gene in enumerate(genes_to_fit)
-        }
-    else:
-        slot_values_per_gene = {}
+    new_expression = correct(data.get_matrix(mode_slot=ModeSlot("new", slot), genes=genes_to_fit), time=time)
+    old_expression = correct(data.get_matrix(mode_slot=ModeSlot("old", slot), genes=genes_to_fit), time=time)
 
     result = {}
 
+    # --- Call the fitting function for each gene for each condition. ---
     for condition in unique_conditions:
         idx = np.where(condition_vector == condition)[0]
         time_cond = time[idx]
@@ -131,19 +163,19 @@ def fit_kinetics_nlls(
 
         if parallel:
             jobs = []
-            with ProcessPoolExecutor() as executor:
+            with ProcessPoolExecutor(max_workers=max_workers) as executor:
                 for gene_index, gene in enumerate(genes_to_fit):
-                    values_new = new_cond[gene_index, :]
-                    values_old = old_cond[gene_index, :]
-                    total_value = slot_values_per_gene.get(gene,None)
+                    new_values = new_cond[gene_index, :]
+                    old_values = old_cond[gene_index, :]
 
                     job = executor.submit(
-                        fit_func,
-                        values_new=values_new,
-                        values_old=values_old,
+                        fit_kinetics_gene_least_squares,
+                        new_values=new_values,
+                        old_values=old_values,
                         time=time_cond,
                         ci_size=ci_size,
-                        total_value=total_value,
+                        chase=False,
+                        total_value=None,
                         steady_state=condition_steady_state,
                         **kwargs
                     )
@@ -174,14 +206,156 @@ def fit_kinetics_nlls(
                 gene_index_iterator = tqdm(gene_index_iterator, total=len(genes_to_fit), desc=f"Fitting {condition}")
 
             for gene_index, gene in gene_index_iterator:
-                values_new = new_cond[gene_index, :]
-                values_old = old_cond[gene_index, :]
+                new_values = new_cond[gene_index, :]
+                old_values = old_cond[gene_index, :]
 
-                res = fit_func(
-                    values_new=values_new,
-                    values_old=values_old,
+                res = fit_kinetics_gene_least_squares(
+                    new_values=new_values,
+                    old_values=old_values,
                     time=time_cond,
                     ci_size=ci_size,
+                    chase=False,
+                    total_value=None,
+                    steady_state=condition_steady_state,
+                    **kwargs
+                )
+                series = res.to_series(condition=condition, prefix=name_prefix, fields=return_fields)
+                rows.append(series.values)
+                symbols.append(gene)
+
+        df = pd.DataFrame(np.vstack(rows), index=symbols, columns=series.index)
+        df.index.name = "Symbol"
+        result[f"{name_prefix}kinetics_{condition}"] = df
+
+    return result
+
+def fit_kinetics_chase(
+    data: "GrandPy",
+    slot: str,
+    *,
+    genes: Union[str, int, Sequence[Union[str, int, bool]]] = None,
+    name_prefix: Union[str, None] = None,
+    time: Union[np.ndarray, pd.Series, list] = None,
+    ci_size: float = 0.95,
+    return_fields: Sequence[str] = None,
+    steady_state: Union[bool, Mapping[str, bool]] = True,
+    max_processes: int = None,
+    show_progress: bool = True,
+    **kwargs
+) -> dict[str, pd.DataFrame]:
+    """
+    For a detailed documentation, see grandpy.GrandPy.fit_kinetics.
+    """
+    if show_progress:
+        from tqdm import tqdm
+
+    genes_to_fit = data.get_genes(genes)
+
+    condition_vector = data.coldata["Condition"].values
+    unique_conditions = np.unique(condition_vector)
+
+    # --- Decide on parallelisation ---
+    datasize = len(genes_to_fit) * len(unique_conditions)
+
+    max_workers = get_dynamic_process_count(datasize, max_processes)
+
+    if max_workers == 1:
+        parallel = False
+    else:
+        from concurrent.futures import ProcessPoolExecutor
+
+        parallel = True
+
+    # --- Map steady_state to each condition ---
+    if isinstance(steady_state, bool):
+        steady_state = {cond: steady_state for cond in unique_conditions}
+
+    for cond, state in steady_state.items(): # Ensure steady-state for all conditions
+        if state != True:
+            warnings.warn(f"'steady_state' for condition {cond} is set to False. This is not supported for pulse chase designs. Continuing with steady-state assumption.")
+            steady_state[cond] = True
+
+    # --- Retrieve expression matrix ---
+    new_expression = correct(data.get_matrix(mode_slot="ntr", genes=genes_to_fit), time=time)
+
+    # --- chase-specific preprocessing ---
+    no4sU_mask = data.coldata["no4sU"].values
+    new_expression = new_expression[:, ~no4sU_mask]
+
+    condition_vector = condition_vector[~no4sU_mask]
+    time = time[~no4sU_mask]
+
+    slot_matrix = data.get_matrix(slot, genes=genes_to_fit)
+    slot_matrix = slot_matrix[:, ~no4sU_mask]
+
+    slot_values_per_gene = {
+        gene: np.median(slot_matrix[i, :])
+        for i, gene in enumerate(genes_to_fit)
+    }
+
+    result = {}
+
+    # --- Call the fitting function for each gene for each condition. ---
+    for condition in unique_conditions:
+        idx = np.where(condition_vector == condition)[0]
+        time_cond = time[idx]
+        new_cond = new_expression[:, idx]
+        condition_steady_state = steady_state[condition]
+
+        if parallel:
+            jobs = []
+            with ProcessPoolExecutor(max_workers=max_workers) as executor:
+                for gene_index, gene in enumerate(genes_to_fit):
+                    new_values = new_cond[gene_index, :]
+                    total_value = slot_values_per_gene.get(gene, None)
+
+                    job = executor.submit(
+                        fit_kinetics_gene_least_squares,
+                        new_values=new_values,
+                        old_values=None,
+                        time=time_cond,
+                        ci_size=ci_size,
+                        chase=True,
+                        total_value=total_value,
+                        steady_state=condition_steady_state,
+                        **kwargs
+                    )
+                    jobs.append((gene, job))
+
+                rows = []
+                symbols = []
+
+                if show_progress:
+                    for gene, future in tqdm(jobs, desc=f"Fitting {condition}", total=len(jobs)):
+                        res = future.result()
+                        series = res.to_series(condition=condition, prefix=name_prefix, fields=return_fields)
+                        rows.append(series.values)
+                        symbols.append(gene)
+                else:
+                    for gene, future in jobs:
+                        res = future.result()
+                        series = res.to_series(condition=condition, prefix=name_prefix, fields=return_fields)
+                        rows.append(series.values)
+                        symbols.append(gene)
+
+        else:
+            rows = []
+            symbols = []
+
+            gene_index_iterator = enumerate(genes_to_fit)
+            if show_progress:
+                gene_index_iterator = tqdm(gene_index_iterator, total=len(genes_to_fit),
+                                           desc=f"Fitting {condition}")
+
+            for gene_index, gene in gene_index_iterator:
+                new_values = new_cond[gene_index, :]
+
+                res = fit_kinetics_gene_least_squares(
+                    new_values=new_values,
+                    old_values=None,
+                    time=time_cond,
+                    ci_size=ci_size,
+                    chase=True,
                     total_value=slot_values_per_gene.get(gene, None),
                     steady_state=condition_steady_state,
                     **kwargs
@@ -196,10 +370,11 @@ def fit_kinetics_nlls(
 
     return result
 
+
 def fit_kinetics_gene_least_squares(
-    values_new: np.ndarray,
-    values_old: np.ndarray,
+    new_values: np.ndarray,
     time: np.ndarray,
+    old_values: np.ndarray = None,
     *,
     ci_size: float = 0.95,
     max_iter: int = 250,
@@ -215,14 +390,14 @@ def fit_kinetics_gene_least_squares(
 
     Parameters
     ----------
-    values_new : np.ndarray
+    new_values : np.ndarray
        Observed values of new RNA.
-
-    values_old : np.ndarray
-       Observed values of old RNA.
 
     time : np.ndarray
        Time points
+
+    old_values : np.ndarray, optional
+       Observed values of old RNA. Irrelevant for chase.
 
     ci_size : float, default 0.95
        Confidence interval level.
@@ -255,18 +430,18 @@ def fit_kinetics_gene_least_squares(
 
     # --- Define residual and Jacobian functions ---
     if steady_state:
-        res_fun, jac = get_residuals_and_jacobian_equi(time, values_old, time, values_new, chase)
+        res_fun, jac = get_residuals_and_jacobian_equi(time, old_values, time, new_values, chase)
         if chase:
-            x0 = guess_chase_start(values_new, time)
+            x0 = guess_chase_start(new_values, time)
             bounds = ([1e-8, 1e-3], [np.inf, 2.0])
         else:
-            x0 = [np.mean(values_old), 0.1]
+            x0 = [np.mean(old_values), 0.1]
             bounds = ([0, 1e-4], [np.inf, np.inf])
     else:
-        res_fun, jac = get_residuals_and_jacobian_nonequi(time, values_old, time, values_new)
-        s0 = np.maximum(np.max(values_new[time > 0] / time[time > 0]), 1e-3)
-        d0 = guess_d0_from_old(values_old, time)
-        f00 = np.mean(values_old[time == 0]) if np.any(time == 0) else np.mean(values_old)
+        res_fun, jac = get_residuals_and_jacobian_nonequi(time, old_values, time, new_values)
+        s0 = np.maximum(np.max(new_values[time > 0] / time[time > 0]), 1e-3)
+        d0 = guess_d0_from_old(old_values, time)
+        f00 = np.mean(old_values[time == 0]) if np.any(time == 0) else np.mean(old_values)
         x0 = [s0, d0, f00]
         bounds = ([0, 1e-4, 0], [np.inf, np.inf, np.inf])
 
@@ -279,13 +454,14 @@ def fit_kinetics_gene_least_squares(
         max_nfev=max_iter
     )
     if not result.success or result.nfev >= max_iter:
+        warnings.warn(f"The least squares optimization failed with the following message: {result.message}")
         return FitResult()
 
     # --- Construct FitResult object ---
     return FitResult(
         time=time,
-        values_new=values_new,
-        values_old=values_old,
+        new_values=new_values,
+        old_values=old_values,
         chase=chase,
         slot_total=total_value,
         opt_result=result,
@@ -293,16 +469,6 @@ def fit_kinetics_gene_least_squares(
         steady_state=steady_state
     )
 
-def fit_kinetics_gene_least_squares_chase(*, values_new: np.ndarray, values_old: np.ndarray, time: np.ndarray,
-                                          ci_size: float = 0.95, max_iter: int = 250, steady_state: bool = None,
-                                          total_value: float = None, slot_names: np.ndarray = None
-                                          ) -> "FitResult":
-    """
-    This function only exists due to parallelization issues.
-    """
-    return fit_kinetics_gene_least_squares(values_new=values_new, values_old=values_old, time=time,
-                                           ci_size=ci_size, max_iter=max_iter, chase=True, total_value=total_value,
-                                           steady_state=steady_state)
 
 @dataclass
 class FitResult:
@@ -314,10 +480,10 @@ class FitResult:
     time : np.ndarray
         Time points.
 
-    values_new : np.ndarray
+    new_values : np.ndarray
         Observed values of new RNA.
 
-    values_old : np.ndarray
+    old_values : np.ndarray
         Observed values of old RNA.
 
     chase : bool
@@ -336,8 +502,8 @@ class FitResult:
         Whether steady-state assumption was used during fitting.
     """
     time: np.ndarray = np.nan
-    values_new: np.ndarray = np.nan
-    values_old: np.ndarray = np.nan
+    new_values: np.ndarray = np.nan
+    old_values: np.ndarray = np.nan
     chase: bool = False
     slot_total: float = None
     opt_result: OptimizeResult = None
@@ -347,6 +513,11 @@ class FitResult:
     # --- Core Parameters ---
     @cached_property
     def synthesis(self) -> float:
+        if self.chase:
+            if self.slot_total is not None:
+                return self.slot_total * self.degradation
+            else:
+                return np.nan
         return self.opt_result.x[0] if self.opt_result is not None else np.nan
 
     @cached_property
@@ -383,20 +554,20 @@ class FitResult:
     @cached_property
     def residuals_raw(self) -> np.ndarray:
         if self.chase:
-            return self.values_new - self.pred_new
+            return self.new_values - self.pred_new
         return np.concatenate([
-            self.values_old - self.pred_old,
-            self.values_new - self.pred_new
+            self.old_values - self.pred_old,
+            self.new_values - self.pred_new
         ])
 
     @cached_property
     def residuals(self) -> dict[str, np.ndarray]:
         if self.chase:
             expected = self.pred_new
-            observed = self.values_new
+            observed = self.new_values
         else:
             expected = np.concatenate([self.pred_old, self.pred_new])
-            observed = np.concatenate([self.values_old, self.values_new])
+            observed = np.concatenate([self.old_values, self.new_values])
 
         rel = expected / (observed + 1e-8)
 
@@ -412,15 +583,15 @@ class FitResult:
 
     @cached_property
     def rmse_old(self) -> float:
-        if self.chase or self.values_old.size == 0:
+        if self.chase or self.old_values.size == 0:
             return np.nan
-        return np.sqrt(np.mean((self.values_old - self.pred_old) ** 2))
+        return np.sqrt(np.mean((self.old_values - self.pred_old) ** 2))
 
     @cached_property
     def rmse_new(self) -> float:
-        if self.values_new.size == 0:
+        if self.new_values.size == 0:
             return np.nan
-        return np.sqrt(np.mean((self.values_new - self.pred_new) ** 2))
+        return np.sqrt(np.mean((self.new_values - self.pred_new) ** 2))
 
     @cached_property
     def half_life(self) -> float:
@@ -434,7 +605,7 @@ class FitResult:
     def total_expr(self) -> float:
         if self.chase and self.slot_total is not None:
             return self.slot_total
-        return np.sum(self.values_old) + np.sum(self.values_new)
+        return np.sum(self.old_values) + np.sum(self.new_values)
 
     @cached_property
     def f0(self) -> float:
@@ -457,7 +628,7 @@ class FitResult:
             J = self.opt_result.jac
             if J.shape[1] > 2:
                 J = J[:, :2]
-            dof = len(self.values_old) + len(self.values_new) - J.shape[1]
+            dof = len(self.old_values) + len(self.new_values) - J.shape[1]
             if dof <= 0:
                 return np.full(2, np.nan), np.full(2, np.nan)
             cov = np.linalg.pinv(J.T @ J)
@@ -588,32 +759,43 @@ def get_residuals_and_jacobian_equi(t_old: np.ndarray, v_old: np.ndarray, t_new:
     tuple
         A tuple (residual_function, jacobian_function) for least-squares optimization.
     """
+    if chase:
+        def residual_function(par):
+            s, d = par
+            pred = s / d * np.exp(-d * t_new)
+            return v_new - pred
 
-    def residual_function(par):
-        s, d = par
-        ro = np.zeros_like(v_old) if chase else v_old - f_old_equi(t_old, s, d)
-        rn = v_new - (f_old_equi(t_new, s, d) if chase else f_new(t_new, s, d))
-        return np.concatenate([ro, rn])
+        def jacobian_function(par):
+            s, d = par
+            exp_n = np.exp(-d * t_new)
 
-    def jacobian_function(par):
-        s, d = par
-        if chase:
-            j_old_s = np.zeros_like(t_old)
-            j_old_d = np.zeros_like(t_old)
-        else:
+            j_new_s = -exp_n / d
+            j_new_d = s / d ** 2 * exp_n + s / d * (t_new * exp_n)
+
+            return np.vstack([j_new_s, j_new_d]).T
+
+    else:
+        def residual_function(par):
+            s, d = par
+            ro = np.zeros_like(v_old) if chase else v_old - f_old_equi(t_old, s, d)
+            rn = v_new - (f_old_equi(t_new, s, d) if chase else f_new(t_new, s, d))
+            return np.concatenate([ro, rn])
+
+        def jacobian_function(par):
+            s, d = par
+
             exp_o = np.exp(-d * t_old)
             j_old_s = -exp_o / d
             j_old_d = -(-s / d ** 2 * exp_o + s / d * (-t_old * exp_o))
-        exp_n = np.exp(-d * t_new)
-        if chase:
-            j_new_s = -exp_n / d
-            j_new_d = s / d ** 2 * exp_n - s / d * (t_new * exp_n)
-        else:
+
+            exp_n = np.exp(-d * t_new)
             one_me = 1 - exp_n
+
             j_new_s = -one_me / d
             j_new_d = -(-s / d ** 2 * one_me + s / d * (t_new * exp_n))
-        return np.vstack([np.concatenate([j_old_s, j_new_s]),
-                          np.concatenate([j_old_d, j_new_d])]).T
+
+            return np.vstack([np.concatenate([j_old_s, j_new_s]),
+                              np.concatenate([j_old_d, j_new_d])]).T
 
     return residual_function, jacobian_function
 
@@ -745,12 +927,13 @@ def fit_kinetics_ntr(
         return_fields: Sequence[str] = None,
         exact_ci: bool = False,
         transformed_ntr_map: bool = True,
+        max_processes: int = None,
         show_progress: bool = True
 ) -> dict[str, pd.DataFrame]:
     """
     For detailed documentation, see grandpy.GrandPy.fit_kinetics.
 
-    This function will automatically switch to parallel processing if the number of genes is greater than 1500.
+    This function switches between serialisation and parallelisation based on `processes`.
     """
     if not ("alpha" in data.slots and "beta" in data.slots):
         raise ValueError("NTR-basierte Anpassung erfordert alpha-, beta-Slots.")
@@ -760,15 +943,20 @@ def fit_kinetics_ntr(
 
     genes_to_fit = data.get_genes(genes)
 
-    # Arbitrary threshold
-    if len(genes_to_fit) > 1500:
+    condition_vector = data.coldata["Condition"].values
+    unique_conditions = np.unique(condition_vector)
+
+    # --- Decide on parallelisation ---
+    datasize = len(genes_to_fit) * len(unique_conditions)
+
+    max_workers = get_dynamic_process_count(datasize, max_processes)
+
+    if max_workers == 1:
+        parallel = False
+    else:
         from concurrent.futures import ProcessPoolExecutor
 
         parallel = True
-    else:
-        parallel = False
-
-    condition_vector = data.coldata["Condition"].values
 
     # --- Retrieve matrices ---
     alpha = data.get_matrix(mode_slot="alpha", genes=genes_to_fit)
@@ -778,7 +966,7 @@ def fit_kinetics_ntr(
 
     result = {}
 
-    for condition in np.unique(condition_vector):
+    for condition in unique_conditions:
         cond_mask = np.where(condition_vector == condition)[0]
         time_cond = time[cond_mask]
 
@@ -792,7 +980,7 @@ def fit_kinetics_ntr(
 
         if parallel:
             jobs = []
-            with ProcessPoolExecutor() as executor:
+            with ProcessPoolExecutor(max_workers=max_workers) as executor:
                 for gene_index, gene in enumerate(genes_to_fit):
                     alpha_values = alpha_cond[gene_index, :]
                     beta_values = beta_cond[gene_index, :]
@@ -873,7 +1061,7 @@ def fit_kinetics_gene_ntr(
         ci_size: float = 0.95,
         transformed_map_ntr: bool = True,
         exact_ci: bool = False,
-        total_fun: Callable = np.median
+        total_function: Callable = np.median
 ) -> "NTRFitResult":
     """
     Fit degradation rate using the NTR model for a single gene and condition.
@@ -904,7 +1092,7 @@ def fit_kinetics_gene_ntr(
     exact_ci : bool, default=False
         If True, compute exact confidence intervals via posterior integration.
 
-    total_fun : Callable, default=np.median
+    total_function : Callable, default=np.median
         Function to reduce total expression across time points (e.g., mean, median).
 
     Returns
@@ -929,7 +1117,10 @@ def fit_kinetics_gene_ntr(
 
     result = minimize_scalar(lambda d: -loglik(d), bounds=bounds, method="bounded")
 
-    f0 = total_fun(total_values)
+    if not result.success:
+        warnings.warn(f"The NTR optimization failed with the following message: {result.message}")
+
+    f0 = total_function(total_values)
 
     return NTRFitResult(
         result=result.x,
