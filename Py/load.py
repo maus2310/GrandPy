@@ -4,7 +4,7 @@ import shutil
 import gzip
 import re
 import warnings
-from typing import Any, Optional
+from typing import Any, Optional, Callable
 
 import numpy as np
 import pandas as pd
@@ -260,7 +260,7 @@ def parse_time_string(s):
     if isinstance(s, (int, float)):
         return float(s)
 
-    s = str(s).strip().lower()
+    s = str(s).strip().lower().replace("_", ".") # Problematik mit 0_5 hiermit versucht zu umgehen?
     if s.endswith("min"):
         return float(s.replace("min", "")) / 60
     elif s.endswith("h"):
@@ -695,7 +695,8 @@ def read_dense(file_path: str,
     classification_genes=None,
     classification_genes_label: str = "Unknown",
     classify_genes_func=None,
-    estimator: str = "Binom") -> GrandPy:
+    estimator: str = "Binom",
+    rename_sample: Optional[Callable[[str], str]] = None) -> GrandPy:
 
     """
     Reads a GRAND-SLAM TSV file into dense NumPy arrays and return GrandPy.
@@ -723,6 +724,10 @@ def read_dense(file_path: str,
     estimator : str, default "Binom"
         Keyword to infer NTR/alpha/beta suffixes.
 
+    rename_sample : Callable[[str], str], optional
+        Function to rename sample names before coldata is built
+        (e.g. regex or string replacements).
+
     Returns
     -------
     GrandPy
@@ -739,7 +744,7 @@ def read_dense(file_path: str,
         design_arg = None
     return _read(file_path, sparse=False, default_slot=default_slot, design=design_arg,
                  classification_genes=classification_genes, classification_genes_label=classification_genes_label,
-                 classify_genes_func=classify_genes_func, estimator=estimator)
+                 classify_genes_func=classify_genes_func, estimator=estimator, rename_sample=rename_sample)
 
 
 def read_sparse(folder_path,
@@ -750,7 +755,8 @@ def read_sparse(folder_path,
     classify_genes_func=None,
     pseudobulk: Optional[str] = None,
     targets: Optional[str] = None,
-    estimator: str = "Binom") -> GrandPy:
+    estimator: str = "Binom",
+    rename_sample: Optional[Callable[[str], str]] = None) -> GrandPy:
 
     """
     Reads a directory of GRAND-SLAM Matrix Market files into sparse CSR matrices.
@@ -784,6 +790,10 @@ def read_sparse(folder_path,
     estimator : str, default "Binom"
         Keyword to load only matching Matrix Market slots.
 
+    rename_sample : Callable[[str], str], optional
+        Function to rename sample names before coldata is built
+        (e.g. regex or string replacements).
+
     Returns
     -------
     GrandPy
@@ -816,7 +826,7 @@ def read_sparse(folder_path,
     return _read(base, sparse=True, default_slot=default_slot, design=design_arg,
                  classification_genes=classification_genes, classification_genes_label=classification_genes_label,
                  classify_genes_func=classify_genes_func,
-                 pseudobulk=pseudobulk, targets=targets, estimator=estimator)
+                 pseudobulk=pseudobulk, targets=targets, estimator=estimator, rename_sample=rename_sample)
 
 
 def read_grand(prefix, pseudobulk=None, targets=None, **kwargs):
@@ -839,7 +849,10 @@ def read_grand(prefix, pseudobulk=None, targets=None, **kwargs):
 
     **kwargs :
         Passed through to _read(), read_dense() or read_sparse()
-        (e.g. default_slot, design, classification_genes, estimator, etc.).
+        Supported keys include:
+        default_slot, design, classification_genes,
+        classification_genes_label, classify_genes_func,
+        estimator, rename_sample.
 
     Returns
     -------
@@ -910,7 +923,8 @@ def find_existing_file(path: Path, base_name: str, extensions=(".gz", "", ".tsv"
 
 def _read(file_path, sparse, default_slot, design,
           classification_genes, classification_genes_label,
-          classify_genes_func=None, pseudobulk=None, targets=None, estimator="Binom"):
+          classify_genes_func=None, pseudobulk=None, targets=None, estimator="Binom",
+          rename_sample: Optional [Callable[[str], str]] = None) -> GrandPy:
     """
     Internal loader for GRAND-SLAM TSV or Matrix Market data.
 
@@ -946,6 +960,10 @@ def _read(file_path, sparse, default_slot, design,
 
     estimator : str, default "Binom"
         Estimator keyword to filter or infer slot suffixes.
+
+    rename_sample : callable [[str] -> str], optional
+        Function to rename sample names before building coldata
+        (e.g. regex or string replacements).
 
     Returns
     -------
@@ -1050,6 +1068,13 @@ def _read(file_path, sparse, default_slot, design,
 
         slot_suffixes = infer_suffixes_from_df(df, estimator=estimator, sparse=False)
         slots, sample_names, slot_sample_names = parse_slots(df, slot_suffixes, sparse)
+
+        if rename_sample is not None:
+            sample_names = [rename_sample(v) for v in sample_names]
+            slot_sample_names = {
+                slot: [rename_sample(v) for v in names]
+                for slot, names in slot_sample_names.items()
+            }
 
         if "count" in slot_sample_names:
             sample_names = slot_sample_names["count"]
@@ -1159,3 +1184,12 @@ def get_table_qc(grand, slot="count"):
     df = df.merge(coldata, on="Name", how="left")
 
     return df
+
+
+gp = read_grand(
+    "https://zenodo.org/record/7612564/files/chase_notrescued.tsv.gz?download=1",
+    design=("Condition", "Time", "Replicate"),
+    rename_sample=lambda v: re.sub(r"\.chase$", "", re.sub(r"0\.5h", "0_5h", v))
+)
+
+print(gp.coldata)
