@@ -1186,10 +1186,10 @@ def get_table_qc(grand, slot="count"):
     return df
 
 
-gp = read_grand(
-    "https://zenodo.org/record/7612564/files/chase_notrescued.tsv.gz?download=1",
-    design=("Condition", "Time", "Replicate"),
-    rename_sample=lambda v: re.sub(r"\.chase$", "", re.sub(r"0\.5h", "0_5h", v))
-)
-
-print(gp.coldata)
+# gp = read_grand(
+#     "https://zenodo.org/record/7612564/files/chase_notrescued.tsv.gz?download=1",
+#     design=("Condition", "Time", "Replicate"),
+#     rename_sample=lambda v: re.sub(r"\.chase$", "", re.sub(r"0\.5h", "0_5h", v))
+# )
+#
+# print(gp.coldata)
