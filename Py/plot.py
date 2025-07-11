@@ -10,7 +10,6 @@ import matplotlib.colors as mcolors
 from matplotlib import cm
 from typing import Optional, Union, Callable
 from scipy.stats import gaussian_kde, iqr
-from scipy.ndimage import gaussian_filter
 from sklearn.decomposition import PCA
 from pydeseq2.dds import DeseqDataSet
 from IPython.core.pylabtools import figsize
@@ -74,7 +73,7 @@ def _plot_diagonal(ax, diag, x_range):
         for offset in diag:
             ax.plot(x_range, x_range + offset, linestyle="--", color="gray", label=f"y = x + {offset}")
 
-def _highlight_points(ax, data, x_vals, y_vals, highlight, size):
+def _highlight_points(ax, data, x_vals, y_vals, highlight, size, highlight_size):
     def get_indices(genes):
         return data.get_index(genes, regex=False)
     if isinstance(highlight, dict):
@@ -85,7 +84,7 @@ def _highlight_points(ax, data, x_vals, y_vals, highlight, size):
     else:
         idxs = get_indices(highlight)
         if idxs:
-            ax.scatter(x_vals[idxs], y_vals[idxs], color="red", s=size * 3)
+            ax.scatter(x_vals[idxs], y_vals[idxs], color="red", s=size * highlight_size)
 
 def _setup_default_aes(data: GrandPy, aest: dict | None = None) -> dict:
     if aest is None:
@@ -236,11 +235,7 @@ def _transform_vst(data, selected_columns: list, mode_slot, genes) -> pd.DataFra
     vst_df = pd.DataFrame(vst_array, index=slotmat.index, columns=slotmat.columns)
     return vst_df
 
-def _logfc_transform(
-    m: np.ndarray,
-    reference_columns: Optional[list[int]] = None,
-    lfc_fun: Optional[Callable[[np.ndarray, np.ndarray], np.ndarray]] = None
-) -> np.ndarray:
+def _transform_logFC(m: np.ndarray, reference_columns: Optional[list[int]] = None, lfc_fun: Optional[Callable[[np.ndarray, np.ndarray], np.ndarray]] = None) -> np.ndarray:
     """
     Compute log2 fold changes for a matrix against a reference (e.g., mean of columns).
 
@@ -310,8 +305,10 @@ def plot_scatter(
     cross: Optional[bool] = None,
     diagonal: Optional[bool | float | tuple] = None,
     highlight: Optional[Union[list[str], dict[str, list[str]]]] = None,
+    highlight_size: float = 3,
     analysis: str = None,
     path_for_save: Optional[str] = None,
+    figsize: tuple[float, float] = (10, 6)
 ):
     """
     ScatterPlot
@@ -351,8 +348,12 @@ def plot_scatter(
     highlight: list[str] | dict[str, list[str]]
         A list of gene names or a dictionary mapping colors to gene lists.
         Genes will be highlighted in the plot with size 3× the default
+    highlight_size: float
+        Defines the size of the highlight lines in points
     analysis: str
         Analysis name
+    path_for_save: str
+        Saves the plot as a PNG to the specified directory
 
     """
 
@@ -445,7 +446,7 @@ def plot_scatter(
     idx = density.argsort()
     x_vals, y_vals, density = x_vals[idx], y_vals[idx], density[idx]
 
-    fig, ax = plt.subplots(figsize=(10, 6))
+    fig, ax = plt.subplots(figsize=figsize)
 
     # Plot outliers
     if remove_outlier and show_outlier:
@@ -479,7 +480,7 @@ def plot_scatter(
 
     # Highlight
     if highlight:
-        _highlight_points(ax, data, x_vals_all, y_vals_all, highlight, size)
+        _highlight_points(ax, data, x_vals_all, y_vals_all, highlight, size, highlight_size)
 
     ax.grid(False)
     plt.tight_layout()
@@ -635,7 +636,7 @@ def plot_heatmap(
             if selected_columns is None or len(selected_columns) == 0:
                 raise ValueError("Need columns=... to compute logFC reference")
             ref_cols = list(range(len(selected_columns)))
-            mat = _transform_logfc(mat, ref_columns=ref_cols)
+            mat = _transform_logFC(mat)
             label = "log2 FC"
         else:
             raise ValueError(f"Unknown transform: {transform}")
@@ -664,7 +665,7 @@ def plot_heatmap(
     norm = Normalize(vmin=min_break, vmax=max_break)
 
 
-    sns.clustermap(
+    g = sns.clustermap(
         df,
         figsize=(10, 6),
         cmap=cmap,
@@ -674,14 +675,16 @@ def plot_heatmap(
         yticklabels=label_genes,
         xticklabels=True,
         cbar_kws={"label": label},
-
+        cbar_pos=(0.000002, 0.08, 0.02, 0.84),
     )
+    # Write the number of genes on the y-axis
+    g.ax_heatmap.set_ylabel(f"n = {df.shape[0]}")
 
     if return_matrix:
         print(df)
     if title:
         plt.title(title, y=1.05)
-    plt.tight_layout()
+    #plt.tight_layout()     # Makes cbar way to big :(
     if path_for_save:
         fig.savefig(f"{path_for_save}/Heatmap_{mode_slot}.png", format="png", dpi=300)
     plt.show()
@@ -747,12 +750,9 @@ def plot_pca(
     mat = mat.loc[:, mat.notna().any(axis=0)]
     coldata = coldata.loc[mat.columns]
 
-    if str(mode_slot).lower() == "count":
-        slotmat = mat.T.round().astype(int)
-    else:
-        slotmat = mat.T
+    slotmat = mat.T.round().astype(int)
 
-    if do_vst and str(mode_slot).lower() == "count":
+    if do_vst:
         try:
             dds = DeseqDataSet(counts=slotmat, metadata=coldata, design_factors="Condition")
 
@@ -787,12 +787,12 @@ def plot_pca(
     sns.scatterplot(data=df, x=f"PC{x}", y=f"PC{y}", style=style, hue=hue, s=50)
     plt.xlabel(f"PC{x}: {percent_var[x - 1] * 100:.1f}% variance")
     plt.ylabel(f"PC{y}: {percent_var[y - 1] * 100:.1f}% variance")
-    plt.title(f"PCA_({mode_slot})")
+    plt.title(f"PCA({mode_slot})")
     plt.gca().set_aspect("equal", adjustable="box")
     plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0.)
     plt.tight_layout()
     if path_for_save:
-        plt.savefig(f"{path_for_save}/PCA_{mode_slot}.png", dpi=300)
+        plt.savefig(f"{path_for_save}/PCA{mode_slot}.png", dpi=300)
     plt.show()
 
 #Beispielaufruf: plot_gene_old_vs_new(sars, "UHMK1", show_ci=True)
@@ -1485,7 +1485,7 @@ def plot_gene_groups_bars(
 def plot_gene_snapshot_timecourse(
     data: GrandPy,
     gene: str,
-    time: str = "Time.original",
+    time: str = "Time",
     mode_slot: Union[str, ModeSlot, None] = None,
     columns: Optional[Union[str, list]] = None,
     average_lines: bool = True,
@@ -1557,7 +1557,7 @@ def plot_gene_snapshot_timecourse(
 
     if time not in df.columns:
         raise ValueError(f"Column '{time}' not found in coldata!")
-    x_vals_numeric = df[time].apply(_parse_time_to_float)
+    x_vals_numeric = df[time] # TODO: .apply(_parse_time_to_float) war da erst checken ob es schon float ist bevor machen
 
     if not exact_tics:
         x_breaks = sorted(df[time].unique())
@@ -1903,7 +1903,6 @@ def plot_gene_progressive_timecourse( # TODO docstring mit see also fit kinets w
                 (df_fitted["condition"] == cond) &
                 (df_fitted["Type"] == line_type)
                 ]
-            print(df_fit)
             ax.plot(
                 df_fit["time_numeric"],
                 df_fit["Expression"],
@@ -2018,7 +2017,7 @@ def plot_expression_test(
     n = n[valid]
 
     m = np.vstack([w, n]).T
-    lfc_mat = _logfc_transform(m, reference_columns=[1])
+    lfc_mat = _transform_logFC(m, reference_columns=[1])
     lfc = lfc_mat[:, 0]
     M = (np.log10(w + 1) + np.log10(n + 1)) / 2
     xy = np.vstack([M, lfc])
