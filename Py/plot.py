@@ -21,26 +21,80 @@ from Py.slot_tool import ModeSlot, _parse_as_mode_slot
 # TODO Plots: PlotAnalyses, FormatCorrelation
 # TODO Plots: Datentypen bei parametern von allen funktionen hinzufügen
 
-def _is_sparse_matrix(mat):
+def _is_sparse_matrix(mat)-> bool:
+    """
+        Check whether a matrix is a SciPy sparse matrix.
+
+        Parameters
+        ----------
+        mat : any
+            Object to check for sparse matrix type.
+
+        Returns
+        -------
+        bool
+            True if `mat` is a SciPy sparse matrix, False otherwise.
+        """
     return issparse(mat)
 
-def _get_plot_limits(vals, override_lim=None):
-    """Compute IQR-based limits if not overridden."""
-    if override_lim is not None:
-        return override_lim
-    q1, q3 = np.percentile(vals[np.isfinite(vals)], [25, 75])
-    iqr = q3 - q1
-    return q1 - 1.5 * iqr, q3 + 1.5 * iqr
+def _parse_time_to_float(t)-> float:
+    """
+        Convert a time string like '24h' or '1.5h' to a float (in hours).
 
-def _parse_time_to_float(t):
+        Parameters
+        ----------
+        t : str
+            Time string expected to end with 'h', e.g. '12h' or '0.5h'.
+
+        Returns
+        -------
+        float
+            Parsed numeric value in hours. Returns 0.0 if the format is invalid.
+
+        Examples
+        --------
+        >>> _parse_time_to_float("24h")
+        24.0
+        >>> _parse_time_to_float("1.5h")
+        1.5
+        >>> _parse_time_to_float("invalid")
+        0.0
+        """
     match = re.match(r"(\d+(\.\d+)?)h", t)
     if match:
         return float(match.group(1))
     else:
         return 0.0
 
-def _apply_outlier_filter(x_vals, y_vals, remove):
-    """Return filtered masks and updated axis limits based on actual min/max."""
+def _apply_outlier_filter(x_vals, y_vals, remove)-> tuple[np.ndarray, tuple | None, tuple | None]:
+    """
+    Apply IQR-based outlier filtering to x and y values.
+
+    Parameters
+    ----------
+    x_vals : np.ndarray
+        Array of x-values.
+    y_vals : np.ndarray
+        Array of y-values.
+    remove : bool
+        Whether to apply outlier filtering. If False, all data points are kept.
+
+    Returns
+    -------
+    mask : np.ndarray of bool
+        Boolean mask indicating which data points are kept after filtering.
+    x_auto_lim : tuple of float or None
+        Auto-scaled x-axis limits (min, max) based on non-outlier x-values.
+        Returns None if `remove` is False.
+    y_auto_lim : tuple of float or None
+        Auto-scaled y-axis limits (min, max) based on non-outlier y-values.
+        Returns None if `remove` is False.
+
+    Notes
+    -----
+    Outliers are identified using the interquartile range (IQR) method:
+    values outside [Q1 - 1.5 * IQR, Q3 + 1.5 * IQR] are considered outliers.
+    """
     mask = np.ones_like(x_vals, dtype=bool)
 
     if not remove:
@@ -64,7 +118,15 @@ def _apply_outlier_filter(x_vals, y_vals, remove):
     return mask, x_auto_lim, y_auto_lim
 
 def _plot_diagonal(ax, diag, x_range):
-    """Draw identity or offset lines."""
+    """
+    Draw one or more diagonal reference lines on the given axis.
+
+    Parameters:
+        ax (matplotlib.axes.Axes): The matplotlib axis to draw on.
+        diag (bool | int | float | list | tuple): If True, draw y = x. If numeric, draw y = x + offset.
+                                                  If list/tuple, draw multiple y = x + offset lines.
+        x_range (array-like): The x-values over which to draw the lines.
+    """
     if diag is True:
         ax.plot(x_range, x_range, linestyle="--", color="gray", label="y = x")
     elif isinstance(diag, (int, float)):
@@ -74,6 +136,19 @@ def _plot_diagonal(ax, diag, x_range):
             ax.plot(x_range, x_range + offset, linestyle="--", color="gray", label=f"y = x + {offset}")
 
 def _highlight_points(ax, data, x_vals, y_vals, highlight, size, highlight_size):
+    """
+        Highlight specific points on a scatter plot.
+
+        Parameters:
+            ax (matplotlib.axes.Axes): The axis object to draw on.
+            data (GrandPy): The data object providing index lookup via `get_index()`.
+            x_vals (np.ndarray): X-values of the points.
+            y_vals (np.ndarray): Y-values of the points.
+            highlight (list[str] | dict[str, list[str]] | None): List of gene names to highlight in red,
+                                                                  or a dict mapping colors to gene lists.
+            size (float): Base size of the scatter points.
+            highlight_size (float): Scaling factor for highlighted points.
+        """
     def get_indices(genes):
         return data.get_index(genes, regex=False)
     if isinstance(highlight, dict):
@@ -86,7 +161,42 @@ def _highlight_points(ax, data, x_vals, y_vals, highlight, size, highlight_size)
         if idxs:
             ax.scatter(x_vals[idxs], y_vals[idxs], color="red", s=size * highlight_size)
 
+def _label_points(ax, data, x_vals, y_vals, label, size, highlight_size, y_label_offset):
+    """
+        Label specific points on a scatter plot.
+
+        Parameters:
+            ax (matplotlib.axes.Axes): The axis object to draw on.
+            data (GrandPy): The data object providing index lookup via `get_index()`.
+            x_vals (np.ndarray): X-values of the points.
+            y_vals (np.ndarray): Y-values of the points.
+            label (list[str] | dict[str, list[str]] | None): List of gene names to label
+            size (float): Base size of the scatter points.
+            highlight_size (float): Scaling factor for labels.
+        """
+    def get_indices(genes):
+        return data.get_index(genes, regex=False)
+
+    idxs = get_indices(label)
+    if isinstance(label, list) and all(isinstance(g, str) for g in label):
+        gene_names = label
+    else:
+        gene_names = [data.genes[i] for i in idxs]
+    y_offset = (np.max(y_vals) - np.min(y_vals)) * y_label_offset
+    for x_, y_, name in zip(x_vals[idxs], y_vals[idxs], gene_names):
+        ax.text(x_, y_ + y_offset, name, fontsize=size * highlight_size/1.8, ha='center', va='bottom', bbox=dict(boxstyle="round,pad=0.3", edgecolor='black', facecolor='white', linewidth=0.5))
+
 def _setup_default_aes(data: GrandPy, aest: dict | None = None) -> dict:
+    """
+       Set up default aesthetics dictionary for plotting based on data coldata.
+
+       Parameters:
+           data (GrandPy): The data object containing metadata in `coldata`.
+           aest (dict | None): Optional initial aesthetics dictionary to update.
+
+       Returns:
+           dict: Updated aesthetics dictionary with default keys added if missing.
+       """
     if aest is None:
         aest = {}
 
@@ -103,7 +213,23 @@ def _setup_default_aes(data: GrandPy, aest: dict | None = None) -> dict:
 
     return aest
 
-def _density2d(x, y, n=100, margin='n'):
+def _density2d(x, y, n=100, margin='n')-> np.ndarray:
+    """
+        Compute a 2D kernel density estimate (KDE) for points (x, y).
+
+        Parameters:
+            x (array-like): 1D array of x coordinates.
+            y (array-like): 1D array of y coordinates.
+            n (int): Number of points for KDE grid (not used directly here but kept for API compatibility).
+            margin (str): Margin normalization, options:
+                          'x' - normalize densities along unique x values,
+                          'y' - normalize densities along unique y values,
+                          'n' - normalize overall density.
+
+        Returns:
+            np.ndarray: Density values for each (x, y) point, same shape as input.
+                        NaN where input is invalid or KDE could not be computed.
+        """
     x = np.asarray(x)
     y = np.asarray(y)
     xy = np.vstack([x, y])
@@ -138,7 +264,29 @@ def _density2d(x, y, n=100, margin='n'):
 
     return density
 
-def _make_continuous_colors(values, colors=None, breaks=None):
+def _make_continuous_colors(values, colors=None, breaks=None)-> dict:
+    """
+       Generate color breaks and corresponding colors for continuous values.
+
+       The function determines appropriate quantiles or breaks for the given values,
+       distinguishes between values that contain negatives and positives, and chooses
+       a diverging or sequential color scheme accordingly. It can also handle color maps
+       by name and optionally reverse them.
+
+       Parameters:
+           values (array-like): Numeric values for which colors should be generated.
+           colors (str or sequence of str, optional): Color map name (e.g. 'viridis', 'revRdBu') or
+               list of hex colors. If a string starts with 'rev', the color map will be reversed.
+           breaks (str, int, or array-like, optional): Specifies how to calculate breaks:
+               - 'minmax': use min/max for breaks evenly spaced,
+               - int: number of breaks to generate,
+               - array-like: explicit break points.
+
+       Returns:
+           dict: Dictionary with keys:
+               'breaks' : array of break points for the color scale,
+               'colors' : list of colors corresponding to the breaks.
+       """
     values = np.asarray(values, dtype=np.float64)
     values = values[np.isfinite(values)]
 
@@ -199,9 +347,29 @@ def _make_continuous_colors(values, colors=None, breaks=None):
     return {"breaks": breaks, "colors": colors}
 
 def _transform_no(matrix: np.ndarray) -> np.ndarray:
+    """
+        Identity transform: returns the input matrix unchanged.
+
+        Parameters:
+            matrix (np.ndarray): Input matrix.
+
+        Returns:
+            np.ndarray: The same input matrix without any modifications.
+        """
     return matrix
 
 def _transform_z(matrix: np.ndarray, center: bool = True, scale: bool = True) -> np.ndarray:
+    """
+        Apply z-score transformation to each row of the input matrix.
+
+        Parameters:
+            matrix (np.ndarray): Input 2D array (samples x features).
+            center (bool): If True, subtract the mean (center the data).
+            scale (bool): If True, divide by the standard deviation (scale the data).
+
+        Returns:
+            np.ndarray: Transformed matrix with z-score normalization applied row-wise.
+        """
     if not center and not scale:
         return matrix.astype(np.float64)
 
@@ -209,6 +377,18 @@ def _transform_z(matrix: np.ndarray, center: bool = True, scale: bool = True) ->
     return zscore(matrix, axis=1, ddof=1, nan_policy='omit' if (center or scale) else 'propagate')
 
 def _transform_vst(data, selected_columns: list, mode_slot, genes) -> pd.DataFrame:
+    """
+        Perform variance stabilizing transformation (VST) on selected gene expression data.
+
+        Parameters:
+            data: GrandPy-like object with `get_table` and `coldata`.
+            selected_columns (list): Columns to select from the data.
+            mode_slot (str): Mode slot, e.g., "count" or others.
+            genes (list): Genes to include in the transformation.
+
+        Returns:
+            pd.DataFrame: VST-transformed data frame (samples x genes).
+        """
     mat = data.get_table(mode_slots=mode_slot, columns=selected_columns, genes=genes)
     mat = mat.loc[:, mat.notna().any(axis=0)]
 
@@ -266,15 +446,56 @@ def _transform_logFC(m: np.ndarray, reference_columns: Optional[list[int]] = Non
     result = np.apply_along_axis(lambda v: lfc_fun(v, ref), axis=0, arr=m)
     return result
 
-def _f_old_nonequi(t, f0, ks, kd):
+def _f_old_nonequi(t, f0, ks, kd)-> float | np.ndarray:
+    """
+        Calculate concentration decay over time from an initial amount without synthesis.
+
+        Models exponential decay of a substance starting at initial concentration `f0`
+        with degradation rate `kd`. The synthesis rate `ks` is not used in this model.
+
+        Parameters
+        ----------
+        t : float or np.ndarray
+            Time point(s) at which to evaluate the function.
+        f0 : float
+            Initial concentration at time zero.
+        ks : float
+            Synthesis rate (not used in this function).
+        kd : float
+            Degradation rate constant.
+
+        Returns
+        -------
+        float or np.ndarray
+            Concentration at time `t`, calculated as `f0 * exp(-kd * t)`.
+        """
     return f0 * np.exp(-t * kd)
 
-def _f_new(t, ks, kd):
+def _f_new(t, ks, kd)-> float | np.ndarray:
+    """
+        Calculate concentration over time with synthesis and degradation reaching equilibrium.
+
+        Models the concentration change over time given a synthesis rate `ks` and degradation
+        rate `kd`, converging to the steady-state level `ks / kd`.
+
+        Parameters
+        ----------
+        t : float or np.ndarray
+            Time point(s) at which to evaluate the function.
+        ks : float
+            Synthesis rate.
+        kd : float
+            Degradation rate constant.
+
+        Returns
+        -------
+        float or np.ndarray
+            Concentration at time `t`, calculated as `ks / kd * (1 - exp(-kd * t))`.
+        """
     return ks / kd * (1 - np.exp(-t * kd))
 
 #TODO bei lim farbe checken
-# TODO Log noch weiter testen
-# parameter die noch fehlen:
+#parameter die noch fehlen:
     # 2. xcol/ycol
     # 3. log_x, log_y
     # 4. axis, axis_x, axis_y
@@ -282,11 +503,9 @@ def _f_new(t, ks, kd):
     # 6. filter
     # 7. genes
     # 8. highlight_label
-    # 9. label, label_repel
     # 10. facet
     # 11. color, collorpalette, colorbreaks, color_label, na_color
     # 12. density_margin, density_n
-    # 13. rastersize
     # 14. correlation, correlation_x/_y/_hjust/_vjust
     # 15. layers.below
 #Beispielaufruf: plot_scatter(sars, mode_slot="count", remove_outlier=True, show_outlier=True, highlight="UHMK1")
@@ -304,9 +523,12 @@ def plot_scatter(
     y_limit: Optional[tuple[float, float]] = None,
     cross: Optional[bool] = None,
     diagonal: Optional[bool | float | tuple] = None,
-    highlight: Optional[Union[list[str], dict[str, list[str]]]] = None,
+    highlight: Optional[Union[list[str], dict[str, list[str]]]] = None,            #TODO outlier werden nicht behandelt
     highlight_size: float = 3,
+    label: Optional[Union[list[int], list[str]]] = None,                #TODO outlier werden nicht behandelt
+    y_label_offset: float = 0.001,
     analysis: str = None,
+    rasterized: bool = False,
     path_for_save: Optional[str] = None,
     figsize: tuple[float, float] = (10, 6)
 ):
@@ -456,7 +678,7 @@ def plot_scatter(
         ax.scatter(clipped_x, clipped_y, color="grey", s=size + 10, alpha=1, label="Outliers")
 
     # Main scatter
-    scatter = ax.scatter(x_vals, y_vals, c=density, s=size, cmap="viridis", alpha=1, rasterized=True, antialiased=True)
+    scatter = ax.scatter(x_vals, y_vals, c=density, s=size, cmap="viridis", alpha=1, rasterized=rasterized, antialiased=True)
     fig.colorbar(scatter, ax=ax, label="Density")
 
     # Axis labels and title
@@ -480,7 +702,16 @@ def plot_scatter(
 
     # Highlight
     if highlight:
-        _highlight_points(ax, data, x_vals_all, y_vals_all, highlight, size, highlight_size)
+        if log:
+            _highlight_points(ax, data, x_vals_log, y_vals_log, highlight, size, highlight_size)
+        else:
+            _highlight_points(ax, data, x_vals_all, y_vals_all, highlight, size, highlight_size)
+
+    if label:
+        if log:
+            _label_points(ax, data, x_vals_log, y_vals_log, label, size, highlight_size, y_label_offset)
+        else:
+            _label_points(ax, data, x_vals_all, y_vals_all, label, size, highlight_size, y_label_offset)
 
     ax.grid(False)
     plt.tight_layout()
@@ -562,22 +793,19 @@ def plot_heatmap(
          Value to substitute for missing (NA) values before plotting.
      path_for_save : str, optional
         Saves the plot as a PNG to the specified directory
-
      See Also
-        --------
-        GrandPy.plots
-            Get the names of all stored plot functions.
+     --------
+     GrandPy.plots
+         Get the names of all stored plot functions.
 
-        GrandPy.with_plot
-            Add a plot function.
+     GrandPy.with_plot
+         Add a plot function.
 
-        GrandPy.with_dropped_plots
-            Remove plots matching a regex.
+     GrandPy.with_dropped_plots
+         Remove plots matching a regex.
 
-        GrandPy.plot_global
-            Executes a stored global plot function.
-
-
+     GrandPy.plot_global
+         Executes a stored global plot function.
      """
 
     if mode_slot is None:
@@ -733,6 +961,19 @@ def plot_pca(
             (only if mode_slot is 'count').
         path_for_save : str or None, optional
             If given, saves the PCA plot as a PNG in the specified directory.
+        See Also
+        --------
+        GrandPy.plots
+            Get the names of all stored plot functions.
+
+        GrandPy.with_plot
+            Add a plot function.
+
+        GrandPy.with_dropped_plots
+            Remove plots matching a regex.
+
+        GrandPy.plot_global
+            Executes a stored global plot function.
         """
     if mode_slot is None:
         mode_slot = data.default_slot
@@ -836,6 +1077,19 @@ def plot_gene_old_vs_new(
             Size of scatter points.
         path_for_save : str or None, optional
             If provided, saves the resulting plot as a PNG in the given directory.
+        See Also
+        --------
+        GrandPy.plots
+            Get the names of all stored plot functions.
+
+        GrandPy.with_plot
+            Add a plot function.
+
+        GrandPy.with_dropped_plots
+            Remove plots matching a regex.
+
+        GrandPy.plot_global
+            Executes a stored global plot function.
         """
     if slot is None:
         slot = data.default_slot
@@ -1002,6 +1256,19 @@ def plot_gene_total_vs_ntr(
             Size of scatter points.
         path_for_save : str or None, optional
             If provided, saves the resulting plot as a PNG in the given directory.
+        See Also
+        --------
+        GrandPy.plots
+            Get the names of all stored plot functions.
+
+        GrandPy.with_plot
+            Add a plot function.
+
+        GrandPy.with_dropped_plots
+            Remove plots matching a regex.
+
+        GrandPy.plot_global
+            Executes a stored global plot function.
         """
     if slot is None:
         slot = data.default_slot
@@ -1174,6 +1441,19 @@ def plot_gene_groups_points(
         - If `show_ci=True`, confidence interval slots (`lower` and `upper`) must be available.
         - If `dodge=True`, replicate samples (by `Replicate` column) are slightly shifted
           to avoid overplotting within the same group.
+        See Also
+        --------
+        GrandPy.plots
+            Get the names of all stored plot functions.
+
+        GrandPy.with_plot
+            Add a plot function.
+
+        GrandPy.with_dropped_plots
+            Remove plots matching a regex.
+
+        GrandPy.plot_global
+            Executes a stored global plot function.
         """
     if mode_slot is None:
         mode_slot = data.default_slot
@@ -1370,6 +1650,19 @@ def plot_gene_groups_bars(
             or a custom Python function for advanced users.
         path_for_save : str or None, optional
             If provided, saves the plot as PNG in the given path.
+        See Also
+        --------
+        GrandPy.plots
+            Get the names of all stored plot functions.
+
+        GrandPy.with_plot
+            Add a plot function.
+
+        GrandPy.with_dropped_plots
+            Remove plots matching a regex.
+
+        GrandPy.plot_global
+            Executes a stored global plot function.
         """
     if slot is None:
         slot = data.default_slot
@@ -1537,6 +1830,19 @@ def plot_gene_snapshot_timecourse(
             Whether to horizontally jitter points by hue to reduce overlap.
         path_for_save : str or None, optional
             Directory path to save the plot image. If None, does not save.
+        See Also
+        --------
+        GrandPy.plots
+            Get the names of all stored plot functions.
+
+        GrandPy.with_plot
+            Add a plot function.
+
+        GrandPy.with_dropped_plots
+            Remove plots matching a regex.
+
+        GrandPy.plot_global
+            Executes a stored global plot function.
         """
     if mode_slot is None:
         mode_slot = data.default_slot
@@ -1781,7 +2087,7 @@ def plot_vulcano(
 
 
 # Beispielaufruf: plot_gene_progressive_timecourse(sars, "UHMK1")
-def plot_gene_progressive_timecourse( # TODO docstring mit see also fit kinets wegen kwargs
+def plot_gene_progressive_timecourse(
     data: GrandPy,
     gene: str,
     slot: Optional[str] = None,
@@ -1792,7 +2098,50 @@ def plot_gene_progressive_timecourse( # TODO docstring mit see also fit kinets w
     path_for_save: Optional[str] = None,
     **kwargs
 ):
+    """
+        Plot progressive time course of gene expression including fits for synthesis and degradation.
 
+        Visualizes the total, new, and old RNA expression of a gene over time with fitted kinetic curves
+        based on synthesis and degradation parameters. Supports multiple conditions if available.
+
+        Parameters
+        ----------
+        data : GrandPy
+            The GrandPy object containing the expression and metadata.
+        gene : str
+            Gene name to plot.
+        slot : str, optional
+            Data slot to use for expression values. Defaults to the data's default slot.
+        time : str, default="Time.original"
+            Column name in coldata containing time points.
+        fit_type : str, default="nlls"
+            Type of fit to perform. Passed to the kinetics fitting function.
+        size : float, default=50
+            Marker size for scatter points.
+        exact_tics : bool, default=True
+            Whether to use exact original time labels on the x-axis ticks.
+        path_for_save : str, optional
+            Directory path to save the plot PNG. If None, plot is not saved.
+        **kwargs
+            Additional keyword arguments passed to the kinetics fitting function.
+
+        See Also
+        --------
+        :func:`GrandPy.fit_kinetics`
+            Function used to fit synthesis and degradation kinetics to the data.
+
+        GrandPy.plots
+            Get the names of all stored plot functions.
+
+        GrandPy.with_plot
+            Add a plot function.
+
+        GrandPy.with_dropped_plots
+            Remove plots matching a regex.
+
+        GrandPy.plot_global
+            Executes a stored global plot function.
+        """
     if slot is None:
         slot = data.default_slot
 
@@ -1947,7 +2296,46 @@ def plot_ma(
     annotate_numbers: bool = True,
     path_for_save: Optional[str] = None
 ):
-#TODO Docstring
+    """
+    Create an MA plot from a GrandPy analysis result.
+
+    The MA plot shows the log2 fold changes (LFC) versus total expression levels,
+    highlighting genes with significant differential expression.
+
+    Parameters
+    ----------
+    data : GrandPy
+        The GrandPy object containing analysis results and expression data.
+
+    analysis : str, optional
+        Name of the analysis to use for plotting. Defaults to the first available analysis.
+
+    p_cutoff : float, default=0.05
+        Significance cutoff for adjusted p-values (Q-values). Genes with Q < p_cutoff are highlighted.
+
+    lfc_cutoff : float, default=1.0
+        Fold-change cutoff for highlighting genes with substantial up/down regulation.
+        Horizontal reference lines are drawn at ±lfc_cutoff.
+
+    annotate_numbers : bool, default=True
+        Whether to annotate the plot with counts of significantly up- and down-regulated genes.
+
+    path_for_save : str, optional
+        If specified, saves the plot as a PNG file to this directory.
+    See Also
+        --------
+        GrandPy.plots
+            Get the names of all stored plot functions.
+
+        GrandPy.with_plot
+            Add a plot function.
+
+        GrandPy.with_dropped_plots
+            Remove plots matching a regex.
+
+        GrandPy.plot_global
+            Executes a stored global plot function.
+    """
     if analysis is None:
         analysis = data.analyses[0]
 
@@ -2005,7 +2393,49 @@ def plot_expression_test(
     size: float = 10,
     path_for_save: Optional[str] = None
 ):
-#TODO Docstring
+    """
+        Generate a scatter plot comparing expression between 4sU-labeled and non-labeled samples.
+
+        The plot shows log2 fold changes (4sU vs no4sU) versus mean log10 expression,
+        colored by point density to visualize expression distribution and fold-change relationships.
+
+        Parameters
+        ----------
+        data : GrandPy
+            The GrandPy object containing expression data.
+
+        w4sU : str
+            Column name or identifier(s) for 4sU-labeled samples.
+
+        no4sU : str or int
+            Column name(s) or a constant value representing non-4sU samples.
+            If an int/float, treated as a constant expression value.
+
+        ylim : tuple of float, default=(-1, 1)
+            Y-axis limits for log2 fold change values.
+
+        hl_quantile : float, default=0.8
+            Quantile to determine half-life cutoff. (Currently unused in the plot)
+
+        size : float, default=10
+            Size of scatter points.
+
+        path_for_save : str, optional
+            Path to save the plot as PNG, if provided.
+        See Also
+        --------
+        GrandPy.plots
+            Get the names of all stored plot functions.
+
+        GrandPy.with_plot
+            Add a plot function.
+
+        GrandPy.with_dropped_plots
+            Remove plots matching a regex.
+
+        GrandPy.plot_global
+            Executes a stored global plot function.
+        """
 
     w = data.get_matrix(mode_slot="count", columns=w4sU)
     if isinstance(no4sU, (int, float)):
@@ -2044,12 +2474,14 @@ def plot_type_distribution(
     data,
     mode_slot: Optional[str] = None,
     relative: bool = False,
-    return_fig: bool = False,
     palette: str = "Dark2",
     path_for_save: Optional[str] = None,
 ):
     """
     Plot the distribution of gene types across conditions.
+
+    Displays a barplot showing the sum (or relative percentage) of expression values
+    for each gene type grouped by condition.
 
     Parameters
     ----------
@@ -2058,15 +2490,33 @@ def plot_type_distribution(
         Expected to have methods:
           - get_table(mode_slot) -> pd.DataFrame (genes × conditions)
         and attribute:
-          - gene_info : pd.DataFrame with column 'Type' (gene types per gene)
+          - gene_info : pd.DataFrame with a 'Type' column specifying gene types.
 
     mode_slot : str, optional
-        Data slot to use for the expression matrix.
-        If None, uses a default slot (must be defined on the `data` object).
+        Data slot to use for expression matrix retrieval.
+        If None, uses the default slot defined on the data object.
 
-    relative : bool, default False
-        If True, plot relative percentages per condition instead of raw sums.
+    relative : bool, default=False
+        If True, plots relative percentages per condition instead of absolute sums.
 
+    palette : str, default="Dark2"
+        Color palette for the gene types.
+
+    path_for_save : str, optional
+        If provided, saves the plot as a PNG file to this path.
+    See Also
+    --------
+    GrandPy.plots
+        Get the names of all stored plot functions.
+
+    GrandPy.with_plot
+        Add a plot function.
+
+    GrandPy.with_dropped_plots
+        Remove plots matching a regex.
+
+    GrandPy.plot_global
+        Executes a stored global plot function.
     """
     if mode_slot is None:
         mode_slot = data.default_slot
