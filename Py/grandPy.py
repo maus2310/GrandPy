@@ -368,7 +368,7 @@ class GrandPy:
 
     # ----- All slot methods ------
     @property
-    def _slot_manager(self) -> SlotTool:
+    def _slot_tool(self) -> SlotTool:
         return SlotTool(self._adata, self._is_sparse)
 
     @property
@@ -376,7 +376,7 @@ class GrandPy:
         """
         Get the names of all available slots.
         """
-        return self._slot_manager.slots()
+        return self._slot_tool.slots()
 
     @property
     def _slot_data(self) -> dict[str, Union[np.ndarray, sp.csr_matrix]]:
@@ -388,7 +388,7 @@ class GrandPy:
         dict[str, Union[np.ndarray, sp.csr_matrix]]
             The data of all available slots.
         """
-        return self._slot_manager.slot_data()
+        return self._slot_tool.slot_data()
 
     def _check_slot(self, slot: str, *, allow_ntr: bool = True) -> bool:
         """
@@ -407,7 +407,7 @@ class GrandPy:
         bool:
             True if the slot exists, False otherwise.
         """
-        return self._slot_manager.check_slot(slot, allow_ntr=allow_ntr)
+        return self._slot_tool.check_slot(slot, allow_ntr=allow_ntr)
 
     def _resolve_mode_slot(self, mode_slot: Union[str, ModeSlot], *, allow_ntr: bool = True, ntr_nan: bool = False) -> Union[np.ndarray, sp.csr_matrix]:
         """
@@ -431,7 +431,7 @@ class GrandPy:
         Union[np.ndarray, sp.csr_matrix]
             The resulting slot after the mode has been applied.
         """
-        return self._slot_manager.resolve_mode_slot(mode_slot, allow_ntr=allow_ntr, ntr_nan=ntr_nan)
+        return self._slot_tool.resolve_mode_slot(mode_slot, allow_ntr=allow_ntr, ntr_nan=ntr_nan)
 
     def with_dropped_slots(self, slots_to_remove: Union[str, Sequence[str]]) -> "GrandPy":
         """
@@ -449,7 +449,7 @@ class GrandPy:
         """
         slots_to_remove = _ensure_list(slots_to_remove)
 
-        new_slots, new_metadata = self._slot_manager.with_dropped_slots(slots_to_remove)
+        new_slots, new_metadata = self._slot_tool.with_dropped_slots(slots_to_remove)
 
         return self._dev_replace(slots=new_slots, metadata=new_metadata)
 
@@ -478,7 +478,7 @@ class GrandPy:
         GrandPy
             A new GrandPy object with the new slot added.
         """
-        new_slots, new_metadata = self._slot_manager.with_slot(name, new_slot, set_to_default=set_to_default)
+        new_slots, new_metadata = self._slot_tool.with_slot(name, new_slot, set_to_default=set_to_default)
 
         return self._dev_replace(slots=new_slots, metadata=new_metadata)
 
@@ -521,14 +521,14 @@ class GrandPy:
         ValueError
             When the given name for ntr is not valid.
         """
-        new_slots = self._slot_manager.with_ntr_slot(as_ntr, save_ntr_as=save_ntr_as)
+        new_slots = self._slot_tool.with_ntr_slot(as_ntr, save_ntr_as=save_ntr_as)
 
         return self._dev_replace(slots=new_slots)
 
 
     # ----- All analysis methods -----
     @property
-    def _analysis_manager(self):
+    def _analysis_tool(self):
         return AnalysisTool(self._adata)
 
     @property
@@ -552,7 +552,7 @@ class GrandPy:
         GrandPy.with_analysis:
             Add an analysis to the object. Usually not to be used directly.
         """
-        return self._analysis_manager.analyses()
+        return self._analysis_tool.analyses()
 
     def get_analyses(self, pattern: Union[str, int, Sequence[Union[str, int, bool]]] = None, regex: bool = True, description: bool = False) -> list[str]:
         """
@@ -590,7 +590,7 @@ class GrandPy:
         GrandPy.with_analysis:
             Add an analysis to the object. Usually not to be used directly.
         """
-        return self._analysis_manager.get_analyses(pattern, regex=regex, description=description)
+        return self._analysis_tool.get_analyses(pattern, regex=regex, description=description)
 
     def with_analysis(self, name: str, table: pd.DataFrame, by: str = None) -> "GrandPy":
         """
@@ -627,7 +627,7 @@ class GrandPy:
         GrandPy.with_dropped_analyses:
             Remove analyses with a regex pattern.
         """
-        new_analyses = self._analysis_manager.with_analysis(name, table, by=by)
+        new_analyses = self._analysis_tool.with_analysis(name, table, by=by)
 
         return self._dev_replace(analyses=new_analyses)
 
@@ -657,14 +657,14 @@ class GrandPy:
         GrandPy.with_analysis:
             Add an analysis to the object. Usually not to be used directly.
         """
-        new_analyses = self._analysis_manager.drop_analyses(pattern)
+        new_analyses = self._analysis_tool.drop_analyses(pattern)
 
         return self._dev_replace(analyses=new_analyses)
 
 
     # ----- All plot methods -----
     @property
-    def _plot_manager(self):
+    def _plot_tool(self):
         return PlotTool(self._adata)
 
     @property
@@ -685,7 +685,7 @@ class GrandPy:
         GrandPy.with_dropped_plots
             Remove plots matching a regex pattern.
         """
-        return self._plot_manager.plots()
+        return self._plot_tool.plots()
 
     def with_plot(self, name: str, function: Union[Plot, Callable]) -> "GrandPy":
         """
@@ -751,7 +751,7 @@ class GrandPy:
         GrandPy.with_dropped_plots
             Remove plots matching a regex.
         """
-        new_plots = self._plot_manager.add_plot(name, function)
+        new_plots = self._plot_tool.add_plot(name, function)
 
         return self._dev_replace(plots=new_plots)
 
@@ -830,7 +830,7 @@ class GrandPy:
         GrandPy.with_plot
             Add a plot function.
         """
-        new_plots = self._plot_manager.drop_plot(pattern)
+        new_plots = self._plot_tool.drop_plot(pattern)
 
         return self._dev_replace(plots=new_plots)
 
@@ -2224,8 +2224,8 @@ class GrandPy:
             Gene(s) to fit. Uses all by default. Specified either by their index, their symbol, their ensamble id, or a boolean mask.
 
         max_processes: int, optional
-            This function decides dynamically how many processes to use.
-            By default, up to available CPUs - 1 (e.g. 8 cores -> 7 processes).
+            The maximum number of processes this function will use.
+            If None or not provided, it will start up to available cores - 1 processes (e.g. 8 cores -> 7 processes)
 
         show_progress: bool, default True
             If True, a progress bar will be displayed.
@@ -2235,10 +2235,10 @@ class GrandPy:
 
             For `"nlls"`:
                 - max_iter: Maximum number of optimization iterations, by default 250.
-                - steady_state: Whether to use the steady-state model. Can be set for each condition individually by using a dict. By default True
+                - steady_state: Whether to use the steady-state model. It can be set for each condition individually by using a dict. By default, True
 
             For `"ntr"`:
-                - transformed_ntr_map: Whether to assume that NTR values are MAP transformed; by default True.
+                - transformed_ntr_map: Whether to assume that NTR values are MAP transformed; by default, True.
                 - exact_ci: Whether to use exact confidence intervals; by default False.
                 - total_function: Function to reduce total expression across time points (e.g., mean, median); by default `numpy.median`.
 
@@ -2247,18 +2247,18 @@ class GrandPy:
 
         Notes
         -----
-        This function will create as many worker processes as the machine has processors for larger datasets.
-        See the `processes` parameter for more control.
+        This function decides dynamically how many processes to use.
+        By default, up to: available CPUs - 1. For more control see the `max_processes` parameter.
 
         See Also
         --------
-        GrandPy.get_analysis_table: Retrieve analyses from the object.
+        GrandPy.get_analysis_table: Retrieves stored analyses.
         GrandPy.normalize: Normalizes the expression data.
 
         Returns
         -------
         GrandPy
-            A new GrandPy object with analysis results added per condition.
+            A GrandPy instance with analysis results added per condition.
         """
         from Py.modeling import fit_kinetics
 

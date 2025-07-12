@@ -312,7 +312,7 @@ def fit_kinetics_chase(
                     job = executor.submit(
                         fit_kinetics_gene_least_squares,
                         new_values=new_values,
-                        old_values=None,
+                        old_values=np.zeros_like(new_values),
                         time=time_cond,
                         ci_size=ci_size,
                         chase=True,
@@ -352,7 +352,7 @@ def fit_kinetics_chase(
 
                 res = fit_kinetics_gene_least_squares(
                     new_values=new_values,
-                    old_values=None,
+                    old_values=np.zeros_like(new_values),
                     time=time_cond,
                     ci_size=ci_size,
                     chase=True,
@@ -430,7 +430,7 @@ def fit_kinetics_gene_least_squares(
 
     # --- Define residual and Jacobian functions ---
     if steady_state:
-        res_fun, jac = get_residuals_and_jacobian_equi(time, old_values, time, new_values, chase)
+        res_fun, jac = get_residuals_and_jacobian_equi(time, old_values, new_values, chase)
         if chase:
             x0 = guess_chase_start(new_values, time)
             bounds = ([1e-8, 1e-3], [np.inf, 2.0])
@@ -438,7 +438,7 @@ def fit_kinetics_gene_least_squares(
             x0 = [np.mean(old_values), 0.1]
             bounds = ([0, 1e-4], [np.inf, np.inf])
     else:
-        res_fun, jac = get_residuals_and_jacobian_nonequi(time, old_values, time, new_values)
+        res_fun, jac = get_residuals_and_jacobian_nonequi(time, old_values, new_values)
         s0 = np.maximum(np.max(new_values[time > 0] / time[time > 0]), 1e-3)
         d0 = guess_d0_from_old(old_values, time)
         f00 = np.mean(old_values[time == 0]) if np.any(time == 0) else np.mean(old_values)
@@ -513,12 +513,14 @@ class FitResult:
     # --- Core Parameters ---
     @cached_property
     def synthesis(self) -> float:
-        if self.chase:
-            if self.slot_total is not None:
-                return self.slot_total * self.degradation
-            else:
-                return np.nan
         return self.opt_result.x[0] if self.opt_result is not None else np.nan
+
+    @cached_property
+    def return_synthesis(self):
+        if self.chase:
+            return self.slot_total * self.degradation
+        else:
+            return self.synthesis
 
     @cached_property
     def degradation(self) -> float:
@@ -553,8 +555,6 @@ class FitResult:
     # --- Residuals ---
     @cached_property
     def residuals_raw(self) -> np.ndarray:
-        if self.chase:
-            return self.new_values - self.pred_new
         return np.concatenate([
             self.old_values - self.pred_old,
             self.new_values - self.pred_new
@@ -579,7 +579,10 @@ class FitResult:
     # --- Metrics ---
     @cached_property
     def rmse(self) -> float:
-        return np.sqrt(np.mean(self.residuals_raw ** 2)) if self.residuals_raw.size > 0 else np.nan
+        if self.chase:
+            return np.sqrt(np.sum(self.residuals_raw ** 2)/(self.residuals_raw.size))
+        return np.sqrt(np.sum(self.residuals_raw ** 2)/self.residuals_raw.size)
+        # return np.sqrt(np.mean(self.residuals_raw ** 2)) if self.residuals_raw.size > 0 else np.nan
 
     @cached_property
     def rmse_old(self) -> float:
@@ -599,7 +602,12 @@ class FitResult:
 
     @cached_property
     def log_likelihood(self) -> float:
-        return -0.5 * np.sum(self.residuals_raw ** 2)
+        if self.chase:
+            N = self.residuals_raw.size/2
+        else:
+            N = self.residuals_raw.size
+        return -N * (np.log(2 * np.pi) + 1 - np.log(N) + np.log(sum(self.residuals_raw ** 2)))/2
+        # return -0.5 * np.sum(self.residuals_raw ** 2)
 
     @cached_property
     def total_expr(self) -> float:
@@ -622,21 +630,27 @@ class FitResult:
         if self.opt_result is None or self.opt_result.jac is None:
             return np.full(2, np.nan), np.full(2, np.nan)
 
-        from scipy.stats import t
-
         try:
+            from scipy.stats import t
+
             J = self.opt_result.jac
-            if J.shape[1] > 2:
-                J = J[:, :2]
-            dof = len(self.old_values) + len(self.new_values) - J.shape[1]
+            if J.shape[1] != 2:
+                return np.full(2, np.nan), np.full(2, np.nan)
+
+            res = self.residuals_raw
+            dof = len(res) - J.shape[1]
             if dof <= 0:
                 return np.full(2, np.nan), np.full(2, np.nan)
-            cov = np.linalg.pinv(J.T @ J)
+
+            sigma2 = np.sum(res ** 2) / dof
+            cov = sigma2 * np.linalg.pinv(J.T @ J)
             se = np.sqrt(np.diag(cov))
             tval = t.ppf(1 - (1 - self.ci_size) / 2, df=dof)
+
             lower = self.opt_result.x[:2] - tval * se
             upper = self.opt_result.x[:2] + tval * se
             return lower, upper
+
         except (np.linalg.LinAlgError, ValueError):
             return np.full(2, np.nan), np.full(2, np.nan)
 
@@ -663,7 +677,7 @@ class FitResult:
     # --- Serialization ---
     def to_dict(self, fields: list[str]) -> dict[str, object]:
         field_funcs = {
-            "Synthesis": lambda: self.synthesis,
+            "Synthesis": lambda: self.return_synthesis,
             "Degradation": lambda: self.degradation,
             "Half-life": lambda: self.half_life,
             "rmse": lambda: self.rmse,
@@ -737,18 +751,16 @@ class FitResult:
         return pd.Series(flat)
 
 
-def get_residuals_and_jacobian_equi(t_old: np.ndarray, v_old: np.ndarray, t_new: np.ndarray, v_new: np.ndarray, chase: bool):
+def get_residuals_and_jacobian_equi(time: np.ndarray, v_old: np.ndarray, v_new: np.ndarray, chase: bool):
     """
     Constructs residual and Jacobian functions assuming steady-state kinetics.
 
     Parameters
     ----------
-    t_old : np.ndarray
-        Time points for old RNA.
+    time : np.ndarray
+        Time points for RNA.
     v_old : np.ndarray
         Observed values for old RNA.
-    t_new : np.ndarray
-        Time points for new RNA.
     v_new : np.ndarray
         Observed values for new RNA.
     chase : bool
@@ -762,55 +774,53 @@ def get_residuals_and_jacobian_equi(t_old: np.ndarray, v_old: np.ndarray, t_new:
     if chase:
         def residual_function(par):
             s, d = par
-            pred = s / d * np.exp(-d * t_new)
+            pred = s / d * np.exp(-d * time)
             return v_new - pred
 
         def jacobian_function(par):
             s, d = par
-            exp_n = np.exp(-d * t_new)
+            exp_n = np.exp(-d * time)
 
             j_new_s = -exp_n / d
-            j_new_d = s / d ** 2 * exp_n + s / d * (t_new * exp_n)
+            j_new_d = s / d ** 2 * exp_n + s / d * (time * exp_n)
 
             return np.vstack([j_new_s, j_new_d]).T
 
     else:
         def residual_function(par):
             s, d = par
-            ro = np.zeros_like(v_old) if chase else v_old - f_old_equi(t_old, s, d)
-            rn = v_new - (f_old_equi(t_new, s, d) if chase else f_new(t_new, s, d))
+            ro = np.zeros_like(v_old) if chase else v_old - f_old_equi(time, s, d)
+            rn = v_new - (f_old_equi(time, s, d) if chase else f_new(time, s, d))
             return np.concatenate([ro, rn])
 
         def jacobian_function(par):
             s, d = par
 
-            exp_o = np.exp(-d * t_old)
+            exp_o = np.exp(-d * time)
             j_old_s = -exp_o / d
-            j_old_d = -(-s / d ** 2 * exp_o + s / d * (-t_old * exp_o))
+            j_old_d = -(-s / d ** 2 * exp_o + s / d * (-time * exp_o))
 
-            exp_n = np.exp(-d * t_new)
+            exp_n = np.exp(-d * time)
             one_me = 1 - exp_n
 
             j_new_s = -one_me / d
-            j_new_d = -(-s / d ** 2 * one_me + s / d * (t_new * exp_n))
+            j_new_d = -(-s / d ** 2 * one_me + s / d * (time * exp_n))
 
             return np.vstack([np.concatenate([j_old_s, j_new_s]),
                               np.concatenate([j_old_d, j_new_d])]).T
 
     return residual_function, jacobian_function
 
-def get_residuals_and_jacobian_nonequi(t_old: np.ndarray, v_old: np.ndarray, t_new: np.ndarray, v_new: np.ndarray):
+def get_residuals_and_jacobian_nonequi(time: np.ndarray, v_old: np.ndarray, v_new: np.ndarray):
     """
     Constructs residual and Jacobian functions assuming non steady-state kinetics.
 
     Parameters
     ----------
-    t_old : np.ndarray
-        Time points for old RNA.
+    time : np.ndarray
+        Time points for RNA.
     v_old : np.ndarray
         Observed values for old RNA.
-    t_new : np.ndarray
-        Time points for new RNA.
     v_new : np.ndarray
         Observed values for new RNA.
 
@@ -822,24 +832,24 @@ def get_residuals_and_jacobian_nonequi(t_old: np.ndarray, v_old: np.ndarray, t_n
 
     def residual_function(par):
         s, d, f0 = par
-        pred_old = f_old_nonequi(t_old, f0, s, d)
-        pred_new = s / d * (1 - np.exp(-d * t_new))
+        pred_old = f_old_nonequi(time, f0, s, d)
+        pred_new = s / d * (1 - np.exp(-d * time))
         return np.concatenate([v_old - pred_old, v_new - pred_new])
 
     def jocobian_function(par):
         s, d, f0 = par
-        exp_o = np.exp(-d * t_old)
-        exp_n = np.exp(-d * t_new)
+        exp_o = np.exp(-d * time)
+        exp_n = np.exp(-d * time)
 
         # r_old derivatives
-        j_old_s = np.zeros_like(t_old)
-        j_old_d = f0 * t_old * exp_o
+        j_old_s = np.zeros_like(time)
+        j_old_d = f0 * time * exp_o
         j_old_f0 = -exp_o
 
         # r_new derivatives
         j_new_s = -(1 - exp_n) / d
-        j_new_d = s / d ** 2 * (1 - exp_n) - s / d * t_new * exp_n
-        j_new_f0 = np.zeros_like(t_new)
+        j_new_d = s / d ** 2 * (1 - exp_n) - s / d * time * exp_n
+        j_new_f0 = np.zeros_like(time)
 
         J = np.vstack([
             np.concatenate([j_old_s, j_new_s]),
@@ -947,16 +957,18 @@ def fit_kinetics_ntr(
     unique_conditions = np.unique(condition_vector)
 
     # --- Decide on parallelisation ---
-    datasize = len(genes_to_fit) * len(unique_conditions)
-
-    max_workers = get_dynamic_process_count(datasize, max_processes)
-
-    if max_workers == 1:
-        parallel = False
-    else:
-        from concurrent.futures import ProcessPoolExecutor
-
-        parallel = True
+    # datasize = (len(genes_to_fit) * len(unique_conditions)) // 5
+    #
+    # max_workers = get_dynamic_process_count(datasize, max_processes)
+    #
+    # print(max_workers)
+    #
+    # if max_workers == 1:
+    #     parallel = False
+    # else:
+    #     from concurrent.futures import ProcessPoolExecutor
+    #
+    #     parallel = True
 
     # --- Retrieve matrices ---
     alpha = data.get_matrix(mode_slot="alpha", genes=genes_to_fit)
@@ -978,73 +990,72 @@ def fit_kinetics_ntr(
         rows = []
         symbols = []
 
-        if parallel:
-            jobs = []
-            with ProcessPoolExecutor(max_workers=max_workers) as executor:
-                for gene_index, gene in enumerate(genes_to_fit):
-                    alpha_values = alpha_cond[gene_index, :]
-                    beta_values = beta_cond[gene_index, :]
-                    ntr_values = ntr_cond[gene_index, :]
-                    total_values = total_cond[gene_index, :]
+        # if parallel:
+        #     jobs = []
+        #     with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        #         for gene_index, gene in enumerate(genes_to_fit):
+        #             alpha_values = alpha_cond[gene_index, :]
+        #             beta_values = beta_cond[gene_index, :]
+        #             ntr_values = ntr_cond[gene_index, :]
+        #             total_values = total_cond[gene_index, :]
+        #
+        #             job = executor.submit(
+        #                 fit_kinetics_gene_ntr,
+        #                 alpha = alpha_values,
+        #                 beta = beta_values,
+        #                 time=time_cond,
+        #                 ntr_values=ntr_values,
+        #                 total_values=total_values,
+        #                 ci_size=ci_size,
+        #                 exact_ci=exact_ci,
+        #                 transformed_ntr_map=transformed_ntr_map,
+        #             )
+        #             jobs.append((gene, job))
+        #
+        #         rows = []
+        #         symbols = []
+        #
+        #         if show_progress:
+        #             for gene, future in tqdm(jobs, desc=f"Fitting {condition}", total=len(jobs)):
+        #                 res = future.result()
+        #                 series = res.to_series(condition=condition, prefix=name_prefix, fields=return_fields)
+        #                 rows.append(series.values)
+        #                 symbols.append(gene)
+        #         else:
+        #             for gene, future in jobs:
+        #                 res = future.result()
+        #                 series = res.to_series(condition=condition, prefix=name_prefix, fields=return_fields)
+        #                 rows.append(series.values)
+        #                 symbols.append(gene)
 
-                    job = executor.submit(
-                        fit_kinetics_gene_ntr,
-                        alpha = alpha_values,
-                        beta = beta_values,
-                        time=time_cond,
-                        ntr_values=ntr_values,
-                        total_values=total_values,
-                        ci_size=ci_size,
-                        exact_ci=exact_ci,
-                        transformed_map_ntr=transformed_ntr_map,
-                    )
-                    jobs.append((gene, job))
+        gene_iter = enumerate(genes_to_fit)
+        if show_progress:
+            gene_iter = tqdm(gene_iter, total=len(genes_to_fit), desc=f"Fitting {condition}")
 
-                rows = []
-                symbols = []
+        for gene_index, gene_id in gene_iter:
+            alpha_values = alpha_cond[gene_index, :]
+            beta_values = beta_cond[gene_index, :]
+            ntr_values = ntr_cond[gene_index, :]
+            total_values = total_cond[gene_index, :]
 
-                if show_progress:
-                    for gene, future in tqdm(jobs, desc=f"Fitting {condition}", total=len(jobs)):
-                        res = future.result()
-                        series = res.to_series(condition=condition, prefix=name_prefix, fields=return_fields)
-                        rows.append(series.values)
-                        symbols.append(gene)
-                else:
-                    for gene, future in jobs:
-                        res = future.result()
-                        series = res.to_series(condition=condition, prefix=name_prefix, fields=return_fields)
-                        rows.append(series.values)
-                        symbols.append(gene)
+            res = fit_kinetics_gene_ntr(
+                alpha=alpha_values,
+                beta=beta_values,
+                time=time_cond,
+                ntr_values=ntr_values,
+                total_values=total_values,
+                ci_size=ci_size,
+                exact_ci=exact_ci,
+                transformed_ntr_map=transformed_ntr_map,
+            )
 
-        else:
-            gene_iter = enumerate(genes_to_fit)
-            if show_progress:
-                gene_iter = tqdm(gene_iter, total=len(genes_to_fit), desc=f"Fitting {condition}")
-
-            for gene_index, gene_id in gene_iter:
-                alpha_values = alpha_cond[gene_index, :]
-                beta_values = beta_cond[gene_index, :]
-                ntr_values = ntr_cond[gene_index, :]
-                total_values = total_cond[gene_index, :]
-
-                res = fit_kinetics_gene_ntr(
-                    alpha=alpha_values,
-                    beta=beta_values,
-                    time=time_cond,
-                    ntr_values=ntr_values,
-                    total_values=total_values,
-                    ci_size=ci_size,
-                    exact_ci=exact_ci,
-                    transformed_map_ntr=transformed_ntr_map,
-                )
-
-                series = res.to_series(
-                    condition=condition,
-                    prefix=name_prefix,
-                    fields=return_fields
-                )
-                rows.append(series.values)
-                symbols.append(gene_id)
+            series = res.to_series(
+                condition=condition,
+                prefix=name_prefix,
+                fields=return_fields
+            )
+            rows.append(series.values)
+            symbols.append(gene_id)
 
         df = pd.DataFrame(np.vstack(rows), index=symbols, columns=series.index)
         df.index.name = "Symbol"
@@ -1059,7 +1070,7 @@ def fit_kinetics_gene_ntr(
         ntr_values: np.ndarray,
         total_values: np.ndarray,
         ci_size: float = 0.95,
-        transformed_map_ntr: bool = True,
+        transformed_ntr_map: bool = True,
         exact_ci: bool = False,
         total_function: Callable = np.median
 ) -> "NTRFitResult":
@@ -1086,7 +1097,7 @@ def fit_kinetics_gene_ntr(
     ci_size : float, default=0.95
         Confidence interval size.
 
-    transformed_map_ntr : bool, default=True
+    transformed_ntr_map : bool, default=True
         Whether the NTR has been transformed via MAP estimation.
 
     exact_ci : bool, default=False
@@ -1103,15 +1114,14 @@ def fit_kinetics_gene_ntr(
     from scipy.optimize import minimize_scalar
 
     def loglik(d):
-        td = time * d
-        safe_exp = np.exp(-td)
-        safe_exp = np.clip(safe_exp, 1e-10, 1 - 1e-10)
+        exp = np.exp(-time * d)
+        safe_exp = np.clip(exp, 1e-10, 1 - 1e-10)
         log_term = np.log1p(-safe_exp)
 
-        if transformed_map_ntr:
-            return np.sum((alpha - 1) * log_term - td * (beta - 1))
+        if transformed_ntr_map:
+            return np.sum((alpha - 1) * log_term - (time * d) * (beta - 1))
         else:
-            return np.sum((alpha - 1) * log_term - td * beta)
+            return np.sum((alpha - 1) * log_term - (time * d) * beta)
 
     bounds = (np.log(2) / 48, np.log(2) / 0.01)
 
@@ -1131,7 +1141,7 @@ def fit_kinetics_gene_ntr(
         exact_ci=exact_ci,
         ci_size=ci_size,
         f0 = f0,
-        transformed_ntr_map=transformed_map_ntr,
+        transformed_ntr_map=transformed_ntr_map,
     )
 
 @dataclass
@@ -1179,14 +1189,15 @@ class NTRFitResult:
     transformed_ntr_map: bool = True
     model_type: Literal["ntr"] = "ntr"
 
-    def loglik(self, d: float) -> float:
-        td = self.time * d
-        safe_exp = np.clip(np.exp(-td), 1e-10, 1 - 1e-10)
+    def loglik(self, d):
+        exp = np.exp(-self.time * d)
+        safe_exp = np.clip(exp, 1e-10, 1 - 1e-10)
         log_term = np.log1p(-safe_exp)
+
         if self.transformed_ntr_map:
-            return np.sum((self.alpha - 1) * log_term - td * (self.beta - 1))
+            return np.sum((self.alpha - 1) * log_term - (self.time * d) * (self.beta - 1))
         else:
-            return np.sum((self.alpha - 1) * log_term - td * self.beta)
+            return np.sum((self.alpha - 1) * log_term - (self.time * d) * self.beta)
 
     @cached_property
     def degradation(self) -> float:
@@ -1246,18 +1257,31 @@ class NTRFitResult:
 
             crit = chi2.ppf(self.ci_size, df=2) / 2
             cutoff = self.log_likelihood - crit
-            lower = uniroot_safe(lambda d: self.loglik(d) - cutoff, *self._ci_bounds)
-            upper = uniroot_safe(lambda d: self.loglik(d) - cutoff, self.degradation, self._ci_bounds[1])
+
+            lower = uniroot_safe(
+                lambda d: self.loglik(d) - cutoff,
+                self._ci_bounds[0],
+                self.degradation
+            )
+
+            upper = uniroot_safe(
+                lambda d: self.loglik(d) - cutoff,
+                self.degradation,
+                self._ci_bounds[1]
+            )
+
             return lower, upper
 
         from scipy.interpolate import interp1d
 
         # --- FAST posterior CDF via precomputed grid ---
-        n_grid = 150 if self.exact_ci else 300
-        grid = np.linspace(*self._ci_bounds, n_grid)
+        n_grid = 150
+        center = self.degradation
+        span = center * 2
+        grid = np.linspace(center - span / 2, center + span / 2, n_grid)
         logpost = np.array([self.loglik(d) for d in grid])
-        post = np.exp(logpost - np.max(logpost))  # prevent overflow
-        area = np.trapz(post, grid)
+        post = np.exp(logpost - np.max(logpost))
+        area = np.trapezoid(post, grid)
         cdf_vals = np.cumsum(post) * (grid[1] - grid[0]) / area
 
         cdf_interp = interp1d(grid, cdf_vals, bounds_error=False, fill_value=(0.0, 1.0))
@@ -1270,7 +1294,8 @@ class NTRFitResult:
 
     @cached_property
     def _ci_bounds(self):
-        return np.log(2) / 48, np.log(2) / 0.01
+        span = self.degradation * 3
+        return max(1e-6, self.degradation - span), self.degradation + span
 
     def to_dict(self, fields: list[str]) -> dict[str, object]:
         field_funcs = {
@@ -1308,18 +1333,11 @@ class NTRFitResult:
 
         return pd.Series(flat)
 
-def uniroot_safe(fun, lower: float, upper: float):
-    """
-    Safely compute the root of a function using Brent's method.
 
-    Returns
-    -------
-    float
-        Approximate root within [lower, upper].
-    """
+def uniroot_safe(fun, lower, upper):
     try:
         if fun(lower) * fun(upper) >= 0:
-            return 0.5 * (lower + upper)
+            return (lower + upper) / 2
         return brentq(fun, lower, upper)
     except Exception:
-        return np.nan
+        return (lower + upper) / 2
