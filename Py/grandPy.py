@@ -346,6 +346,25 @@ class GrandPy:
 
         return self._dev_replace(metadata=new_metadata)
 
+    def get_classified_genes(self, classification_label: str) -> list:
+        """
+        Returns a list of gene names corresponding to the given classification label.
+
+        Parameters
+        ----------
+        classification_label : str
+            The classification label to use.
+
+        Returns
+        -------
+        list:
+            A list of gene names corresponding to the given classification label.
+        Examples
+        --------
+        >>> get_classified_genes(data, "Unknown")
+        """
+        return self.gene_info[self.gene_info["Type"] == classification_label].index.tolist()
+
 
     # ----- All slot methods ------
     @property

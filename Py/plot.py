@@ -21,7 +21,7 @@ from Py.slot_tool import ModeSlot, _parse_as_mode_slot
 # TODO Plots: PlotAnalyses, FormatCorrelation
 # TODO Plots: Datentypen bei parametern von allen funktionen hinzufügen
 
-def _is_sparse_matrix(mat)-> bool:
+def _is_sparse_matrix(mat: any)-> bool:
     """
         Check whether a matrix is a SciPy sparse matrix.
 
@@ -37,7 +37,7 @@ def _is_sparse_matrix(mat)-> bool:
         """
     return issparse(mat)
 
-def _parse_time_to_float(t)-> float:
+def _parse_time_to_float(t: str)-> float:
     """
         Convert a time string like '24h' or '1.5h' to a float (in hours).
 
@@ -66,7 +66,7 @@ def _parse_time_to_float(t)-> float:
     else:
         return 0.0
 
-def _apply_outlier_filter(x_vals, y_vals, remove)-> tuple[np.ndarray, tuple | None, tuple | None]:
+def _apply_outlier_filter(x_vals: np.ndarray, y_vals: np.ndarray, remove: bool)-> tuple[np.ndarray, tuple | None, tuple | None]:
     """
     Apply IQR-based outlier filtering to x and y values.
 
@@ -1033,7 +1033,7 @@ def plot_pca(
     plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0.)
     plt.tight_layout()
     if path_for_save:
-        plt.savefig(f"{path_for_save}/PCA{mode_slot}.png", dpi=300)
+        plt.savefig(f"{path_for_save}/PCA_{mode_slot}.png", dpi=300)
     plt.show()
 
 #Beispielaufruf: plot_gene_old_vs_new(sars, "UHMK1", show_ci=True)
@@ -1133,9 +1133,9 @@ def plot_gene_old_vs_new(
         if "lower" not in data.slots or "upper" not in data.slots:
             raise ValueError("CI slots ('lower' and 'upper') are missing. Run compute_ntr_ci() first.")
 
-        ci_lower = data.get_matrix(mode_slot="lower", genes=gene, columns=selected_columns)
-        ci_upper = data.get_matrix(mode_slot="upper", genes=gene, columns=selected_columns)
-        total = data.get_matrix(mode_slot=slot, genes=gene, columns=selected_columns)
+        ci_lower = data.get_data(mode_slots="lower", genes=gene, columns=selected_columns, with_coldata=False)
+        ci_upper = data.get_data(mode_slots="upper", genes=gene, columns=selected_columns, with_coldata=False)
+        total = data.get_data(mode_slots=slot, genes=gene, columns=selected_columns, with_coldata=False)
 
         plot_df["ci_lower"] = ci_lower
         plot_df["ci_upper"] = ci_upper
@@ -1319,8 +1319,8 @@ def plot_gene_total_vs_ntr(
         if "lower" not in data.slots or "upper" not in data.slots:
             raise ValueError("CI slots ('lower' and 'upper') are missing. Run compute_ntr_ci() first.")
 
-        ci_lower = data.get_matrix(mode_slot="lower", genes=gene, columns=selected_columns)
-        ci_upper = data.get_matrix(mode_slot="upper", genes=gene, columns=selected_columns)
+        ci_lower = data.get_data(mode_slots="lower", genes=gene, columns=selected_columns, with_coldata=False)
+        ci_upper = data.get_data(mode_slots="upper", genes=gene, columns=selected_columns, with_coldata=False)
 
         plot_ci = plot_df.assign(ci_lower=ci_lower, ci_upper=ci_upper)
 
@@ -1494,7 +1494,7 @@ def plot_gene_groups_points(
     if group not in plot_df.columns:
         raise ValueError(f"Group column '{group}' not found in coldata!")
 
-    if transform is not None: #TODO Was tut das? In R: if (!is.null(transform)) df=transform(df)
+    if transform is not None:
         plot_df = transform(plot_df)
 
     aest = _setup_default_aes(data, aest)
@@ -1540,8 +1540,8 @@ def plot_gene_groups_points(
         if "lower" not in data.slots or "upper" not in data.slots:
             raise ValueError("CI slots ('lower' and 'upper') are missing. Run compute_ntr_ci() first.")
 
-        ci_lower = data.get_matrix(mode_slot="lower", genes=gene, columns=selected_columns)
-        ci_upper = data.get_matrix(mode_slot="upper", genes=gene, columns=selected_columns)
+        ci_lower = data.get_data(mode_slots="lower", genes=gene, columns=selected_columns, with_coldata=False)
+        ci_upper = data.get_data(mode_slots="upper", genes=gene, columns=selected_columns, with_coldata=False)
 
         plot_df = plot_df.assign(lower=ci_lower, upper=ci_upper)
 
@@ -1740,10 +1740,9 @@ def plot_gene_groups_bars(
         if "lower" not in data.slots or "upper" not in data.slots:
             raise ValueError("CI slots ('lower' and 'upper') are missing. Run compute_ntr_ci() first.")
 
-        total = data.get_matrix(mode_slot=slot, genes=gene, columns=selected_columns)
-        lower = data.get_matrix(mode_slot="lower", genes=gene, columns=selected_columns)
-        upper = data.get_matrix(mode_slot="upper", genes=gene, columns=selected_columns)
-
+        total = data.get_matrix(mode_slot=slot, genes=gene, columns=selected_columns)[0] #TODO MARIUUUUSSSSS
+        lower = data.get_matrix(mode_slot="lower", genes=gene, columns=selected_columns)[0]
+        upper = data.get_matrix(mode_slot="upper", genes=gene, columns=selected_columns)[0]
 
         ymin = (1 - upper) * total
         ymax = (1 - lower) * total
@@ -1757,7 +1756,6 @@ def plot_gene_groups_bars(
                 np.isfinite(err_low) & np.isfinite(err_high) &
                 (lower <= upper)
         )
-
         if np.any(mask):
             x_valid = np.arange(len(total))[mask]
             total_valid = total[mask]
@@ -1778,7 +1776,7 @@ def plot_gene_groups_bars(
 def plot_gene_snapshot_timecourse(
     data: GrandPy,
     gene: str,
-    time: str = "Time",
+    time: str = "Time.original",
     mode_slot: Union[str, ModeSlot, None] = None,
     columns: Optional[Union[str, list]] = None,
     average_lines: bool = True,
@@ -1863,7 +1861,11 @@ def plot_gene_snapshot_timecourse(
 
     if time not in df.columns:
         raise ValueError(f"Column '{time}' not found in coldata!")
-    x_vals_numeric = df[time] # TODO: .apply(_parse_time_to_float) war da erst checken ob es schon float ist bevor machen
+
+    if isinstance(df[time][0], np.float64):
+        x_vals_numeric = df[time]
+    else:
+        x_vals_numeric = df[time].apply(_parse_time_to_float)
 
     if not exact_tics:
         x_breaks = sorted(df[time].unique())
@@ -1909,10 +1911,10 @@ def plot_gene_snapshot_timecourse(
             raise ValueError("CI slots ('lower' and 'upper') are missing. Run compute_ntr_ci() first.")
 
 
-        dfslot = data.get_matrix(mode_slot=slot, genes=gene, columns=selected_columns)
-        dfmode_slot = data.get_matrix(mode_slot=mode_slot, genes=gene, columns=selected_columns)
-        lower = data.get_matrix(mode_slot="lower", genes=gene, columns=selected_columns)
-        upper = data.get_matrix(mode_slot="upper", genes=gene, columns=selected_columns)
+        dfslot = data.get_matrix(mode_slot=slot, genes=gene, columns=selected_columns)[0]
+        dfmode_slot = data.get_matrix(mode_slot=mode_slot, genes=gene, columns=selected_columns)[0]
+        lower = data.get_matrix(mode_slot="lower", genes=gene, columns=selected_columns)[0]
+        upper = data.get_matrix(mode_slot="upper", genes=gene, columns=selected_columns)[0]
 
 
         if mode_slot.slot == "ntr":
@@ -1933,7 +1935,6 @@ def plot_gene_snapshot_timecourse(
         err_low = dfmode_slot - ymin
         err_high = ymax - dfmode_slot
 
-        x_all = df[time].apply(_parse_time_to_float).to_numpy()
 
         if dodge and hue and hue in df.columns:
             hue_vals = sorted(df[hue].unique())
@@ -1944,9 +1945,9 @@ def plot_gene_snapshot_timecourse(
             else:
                 offsets = {hue_vals[0]: 0.0}
             hue_col = df[hue].to_numpy()
-            x_dodged = np.array([x + offsets.get(h, 0.0) for x, h in zip(x_all, hue_col)])
+            x_dodged = np.array([x + offsets.get(h, 0.0) for x, h in zip(x_vals_numeric, hue_col)])
         else:
-            x_dodged = x_all
+            x_dodged = x_vals_numeric
 
         mask = (
                 np.isfinite(dfmode_slot) & np.isfinite(lower) & np.isfinite(upper) &
@@ -2283,7 +2284,7 @@ def plot_gene_progressive_timecourse(
             ax.set_xticklabels([f"{t:.2f}" for t in unique_times], rotation=45)
             ax.set_xlabel("4sU labeling [h]")
     if path_for_save:
-        fig.savefig(f"{path_for_save}/{gene}_Progrssive_Timecourse.png", format="png", dpi=300)
+        g.savefig(f"{path_for_save}/{gene}_Progrssive_Timecourse.png", format="png", dpi=300)
     plt.show()
     plt.close()
 
