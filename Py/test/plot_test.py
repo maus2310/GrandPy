@@ -16,7 +16,7 @@ def test_plot_test_run(sars=sars, gene = "UHMK1", pathforsave = None ): #"C:/Use
         plot_pca(sars, path_for_save=pathforsave)
         plot_gene_old_vs_new(sars, gene, show_ci=True, path_for_save=pathforsave)
         plot_gene_total_vs_ntr(sars, gene, show_ci=True, path_for_save=pathforsave)
-        plot_gene_groups_points(sars, gene, group="Time", show_ci=True, path_for_save=pathforsave)
+        plot_gene_groups_points(sars, gene, group="Time", show_ci=True, path_for_save=pathforsave)#TODO cisss
         plot_gene_groups_bars(sars, gene, xlabels="Condition + '.' + Replicate", show_ci=True, path_for_save=pathforsave)
         plot_gene_snapshot_timecourse(sars, gene, show_ci=True, path_for_save=pathforsave)
         plot_gene_progressive_timecourse(sars, gene, path_for_save=pathforsave)

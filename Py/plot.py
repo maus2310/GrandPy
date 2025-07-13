@@ -186,7 +186,7 @@ def _label_points(ax, data, x_vals, y_vals, label, size, highlight_size, y_label
     for x_, y_, name in zip(x_vals[idxs], y_vals[idxs], gene_names):
         ax.text(x_, y_ + y_offset, name, fontsize=size * highlight_size/1.8, ha='center', va='bottom', bbox=dict(boxstyle="round,pad=0.3", edgecolor='black', facecolor='white', linewidth=0.5))
 
-def _setup_default_aes(data: GrandPy, aest: dict | None = None) -> dict:
+def _setup_default_aes(data: GrandPy, aest: dict | None = None) -> dict:# TODO anschauen
     """
        Set up default aesthetics dictionary for plotting based on data coldata.
 
@@ -1740,9 +1740,9 @@ def plot_gene_groups_bars(
         if "lower" not in data.slots or "upper" not in data.slots:
             raise ValueError("CI slots ('lower' and 'upper') are missing. Run compute_ntr_ci() first.")
 
-        total = data.get_matrix(mode_slot=slot, genes=gene, columns=selected_columns)[0] #TODO MARIUUUUSSSSS
-        lower = data.get_matrix(mode_slot="lower", genes=gene, columns=selected_columns)[0]
-        upper = data.get_matrix(mode_slot="upper", genes=gene, columns=selected_columns)[0]
+        total = data.get_matrix(mode_slot=slot, genes=gene, columns=selected_columns).squeeze()
+        lower = data.get_matrix(mode_slot="lower", genes=gene, columns=selected_columns).squeeze()
+        upper = data.get_matrix(mode_slot="upper", genes=gene, columns=selected_columns).squeeze()
 
         ymin = (1 - upper) * total
         ymax = (1 - lower) * total
@@ -1911,10 +1911,10 @@ def plot_gene_snapshot_timecourse(
             raise ValueError("CI slots ('lower' and 'upper') are missing. Run compute_ntr_ci() first.")
 
 
-        dfslot = data.get_matrix(mode_slot=slot, genes=gene, columns=selected_columns)[0]
-        dfmode_slot = data.get_matrix(mode_slot=mode_slot, genes=gene, columns=selected_columns)[0]
-        lower = data.get_matrix(mode_slot="lower", genes=gene, columns=selected_columns)[0]
-        upper = data.get_matrix(mode_slot="upper", genes=gene, columns=selected_columns)[0]
+        dfslot = data.get_matrix(mode_slot=slot, genes=gene, columns=selected_columns).squeeze()
+        dfmode_slot = data.get_matrix(mode_slot=mode_slot, genes=gene, columns=selected_columns).squeeze()
+        lower = data.get_matrix(mode_slot="lower", genes=gene, columns=selected_columns).squeeze()
+        upper = data.get_matrix(mode_slot="upper", genes=gene, columns=selected_columns).squeeze()
 
 
         if mode_slot.slot == "ntr":
@@ -2155,9 +2155,9 @@ def plot_gene_progressive_timecourse(
         else pd.Series([gene] * len(timepoints))
     )
 
-    total = data.get_matrix(mode_slot=slot, genes=gene)
-    new = data.get_matrix(mode_slot=ModeSlot("new", slot), genes=gene)
-    old = data.get_matrix(mode_slot=ModeSlot("old", slot), genes=gene)
+    total = data.get_matrix(mode_slot=slot, genes=gene).squeeze()
+    new = data.get_matrix(mode_slot=ModeSlot("new", slot), genes=gene).squeeze()
+    old = data.get_matrix(mode_slot=ModeSlot("old", slot), genes=gene).squeeze()
 
     df = pd.DataFrame({
         "time": timepoints,
