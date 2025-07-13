@@ -92,7 +92,7 @@ class GrandPy:
 
         # obs and var are swapped to allow the data to be gene * sample instead of sample * gene
         self._adata = ad.AnnData(
-            X = sp.csr_matrix(np.zeros_like(slots["count"])),
+            X = sp.csr_matrix(np.zeros(slots["count"].shape)),
             obs = gene_info,
             var = coldata,
         )
@@ -1733,7 +1733,7 @@ class GrandPy:
         result_df.index = gene_names
         return result_df
 
-    # TODO: get_analysis_table() add the prefix thingey and by_rows
+    # TODO: get_analysis_table() add by_rows
     def get_analysis_table(
             self,
             analyses: Union[str, int, Sequence[Union[str, int, bool]]] = None,
@@ -1768,6 +1768,10 @@ class GrandPy:
         name_genes_by: str, default "Symbol"
             The name of the column in the gene_info DataFrame to be used as the name of the genes.
             Usually either `Symbol`(Symbols) or `Gene`(Ensembl IDs).
+
+        by_rows: bool, default False
+            If True, add rows if there are multiple analyses.
+            Otherwise, add columns.
 
         Returns
         -------
@@ -2074,6 +2078,86 @@ class GrandPy:
 
 
     # ----- Processing functions -----
+    def normalize(self, genes=None, name: str = "norm", slot: str = "count", set_to_default=True, size_factors=None,
+                  return_size_factors=False):
+        """
+        Normalize gene expression values across cells.
+
+        Parameters
+        ----------
+        genes : list[str], optional
+            A list of gene names to normalize. If None, all genes are normalized.
+
+        name : str, default "norm"
+            Name of the layer where the normalized data will be stored.
+
+        slot : str, default "count"
+            The name of the data slot to normalize (e.g., "count").
+
+        set_to_default : bool, default True
+            If True, set the normalized layer as the default for downstream analysis.
+
+        size_factors : array-like, optional
+            Precomputed size factors to use for normalization.
+            If None, size factors are computed automatically.
+
+        return_size_factors : bool, default False
+            If True, return the size factors used for normalization.
+
+        Returns
+        -------
+        Optional[grandPy, ndarray]
+            The size factors used for normalization if `return_size_factors` is True.
+            Otherwise, returns a grandPy object.
+        """
+        from Py.processing import _normalize
+
+        return _normalize(self, genes=genes, name=name, slot=slot, set_to_default=set_to_default,
+                          size_factors=size_factors, return_size_factors=return_size_factors)
+
+    def normalize_fpkm(self, genes=None, name: str = "norm", slot: str = "count", set_to_default=True, total_len=None):
+        """
+        Normalize gene expression data using the FPKM method (Fragments Per Kilobase Million).
+
+        This method computes FPKM values by normalizing raw counts by both gene length and
+        total library size. It is suitable for comparing expression levels across genes within
+        the same sample.
+
+        Parameters
+        ----------
+        genes : list[str], optional
+            A list of gene names to normalize. If None, all genes are included.
+
+        name : str, default "norm"
+            The name of the data layer where the normalized values will be stored.
+
+        slot : str, default "count"
+            The name of the data slot containing raw counts to normalize.
+
+        set_to_default : bool, default True
+            If True, sets the resulting normalized layer as the default for downstream analysis.
+
+        total_len : array-like, optional
+            Optional precomputed total transcript lengths per cell. If not provided, gene lengths
+            are inferred internally.
+
+        Returns
+        -------
+        GrandPy
+            A grandPy object with added normalize_fpkm slot.
+    """
+
+    def normalize_tpm(self, genes=None, name: str = "tpm", slot: str = "count", set_to_default=True, total_len=None):
+        from Py.processing import _normalize_tpm
+
+        return _normalize_tpm(self, genes=genes, name=name, slot=slot, set_to_default=set_to_default,
+                              total_len=total_len)
+
+    def normalize_rpm(self, genes=None, name: str = "norm", slot: str = "count", set_to_default=True, factor=1e6):
+        from Py.processing import _normalize_rpm
+
+        # return _normalize_rpm(self, genes=genes, name=name, slot=slot, set_to_default=set_to_default, factor=factor)
+
     def compute_ntr_ci(self, ci_size: float = 0.95, name_lower: str = "lower", name_upper: str = "upper")-> "GrandPy":
         from Py.processing import _compute_ntr_ci
 
@@ -2083,16 +2167,6 @@ class GrandPy:
         from Py.processing import _compute_steady_state_half_lives
 
         return _compute_steady_state_half_lives(self, time, name=name ,columns=columns, max_hl=max_hl, ci_size=ci_size, compute_ci=compute_ci, as_analysis=as_analysis)
-
-    def normalize_tpm(self, genes=None, name: str = "tpm", slot: str = "count", set_to_default=True, total_len=None):
-        from Py.processing import _normalize_tpm
-
-        return _normalize_tpm(self, genes=genes, name=name, slot=slot, set_to_default=set_to_default, total_len=total_len)
-
-    def normalize_rpm(self, genes= None, name: str = "norm", slot: str = "count", set_to_default = True, factor = 1e6):
-        from Py.processing import _normalize_rpm
-
-        return _normalize_rpm(self, genes=genes, name=name, slot=slot, factor=factor)
 
     def compute_absolute(self, dilution: float= 4e4, volume: float = 10.0, slot: str = "tpm", name: str = "absolute") -> "GrandPy":
         """
@@ -2132,73 +2206,6 @@ class GrandPy:
 
         return _compute_absolute(self, dilution=dilution, volume=volume, slot=slot, name=name)
 
-    def normalize(self, genes = None, name: str = "norm", slot: str = "count", set_to_default = True, size_factors = None, return_size_factors = False):
-        """
-        Normalize gene expression values across cells.
-
-        Parameters
-        ----------
-        genes : list[str], optional
-            A list of gene names to normalize. If None, all genes are normalized.
-
-        name : str, default "norm"
-            Name of the layer where the normalized data will be stored.
-
-        slot : str, default "count"
-            The name of the data slot to normalize (e.g., "count").
-
-        set_to_default : bool, default True
-            If True, set the normalized layer as the default for downstream analysis.
-
-        size_factors : array-like, optional
-            Precomputed size factors to use for normalization.
-            If None, size factors are computed automatically.
-
-        return_size_factors : bool, default False
-            If True, return the size factors used for normalization.
-
-        Returns
-        -------
-        Optional[grandPy, ndarray]
-            The size factors used for normalization if `return_size_factors` is True.
-            Otherwise, returns a grandPy object.
-        """
-        from Py.processing import _normalize
-
-        return _normalize(self, genes=genes, name=name, slot=slot, set_to_default=set_to_default, size_factors=size_factors, return_size_factors=return_size_factors)
-
-    def normalize_fpkm(self, genes = None, name: str = "norm", slot: str = "count", set_to_default = True, total_len = None):
-        """
-        Normalize gene expression data using the FPKM method (Fragments Per Kilobase Million).
-
-        This method computes FPKM values by normalizing raw counts by both gene length and
-        total library size. It is suitable for comparing expression levels across genes within
-        the same sample.
-
-        Parameters
-        ----------
-        genes : list[str], optional
-            A list of gene names to normalize. If None, all genes are included.
-
-        name : str, default "norm"
-            The name of the data layer where the normalized values will be stored.
-
-        slot : str, default "count"
-            The name of the data slot containing raw counts to normalize.
-
-        set_to_default : bool, default True
-            If True, sets the resulting normalized layer as the default for downstream analysis.
-
-        total_len : array-like, optional
-            Optional precomputed total transcript lengths per cell. If not provided, gene lengths
-            are inferred internally.
-
-        Returns
-        -------
-        GrandPy
-            A grandPy object with added normalize_fpkm slot.
-    """
-
     def compute_total_expression(self, column: str = "total_expression", genes: Union[str, Sequence[str]] = None, mode_slot: str = None) -> "GrandPy":
         from Py.processing import _compute_total_expression
 
@@ -2208,6 +2215,7 @@ class GrandPy:
         from Py.processing import _compute_expression_percentage
 
         return _compute_expression_percentage(self, name=name, genes=genes, slot=slot, genes_total=genes_total, slot_total=slot_total, float_to_percent=float_to_percent)
+
 
     def filter_genes(
         self,
@@ -2263,9 +2271,9 @@ class GrandPy:
             fit_type: Literal["nlls", "ntr", "chase"] = "nlls",
             *,
             slot: str = None,
+            time: Union[str, np.ndarray, pd.Series, Sequence] = "duration.4sU",
             name_prefix: Union[str, None] = None,
             return_fields: Union[str, Sequence[str]] = None,
-            time: Union[str, np.ndarray, pd.Series, Sequence] = "Time",
             ci_size: float = 0.95,
             genes: Union[str, Sequence[str]] = None,
             max_processes: int = None,
@@ -2293,6 +2301,9 @@ class GrandPy:
         slot: str, optional
             Name of the data slot used to extract old/new RNA expression. Defaults to the default slot.
 
+        time: str or array-like, default "Time"
+            Either a column name in `coldata` or a list of timepoints.
+
         name_prefix: str, optional
             Prefix added to the name of the fit result.
 
@@ -2314,9 +2325,6 @@ class GrandPy:
             - `"rmse_old"`: RMSE for old RNA timepoints.
             - `"rmse_new"`: RMSE for new RNA timepoints.
             - `"residuals"`: Dictionary of raw and relative residuals.
-
-        time: str or array-like, default "Time"
-            Either a column name in `coldata` or a list of timepoints.
 
         ci_size: float, default 0.95
             Confidence interval size to use in each fit.
@@ -2361,11 +2369,11 @@ class GrandPy:
         GrandPy
             A GrandPy instance with analysis results added per condition.
         """
-        from Py.modeling import fit_kinetics
+        from Py.modeling import _fit_kinetics
 
-        kinetics = fit_kinetics(data=self, fit_type=fit_type, slot=slot, return_fields=return_fields,
-                                name_prefix=name_prefix, time=time, ci_size=ci_size, genes=genes,
-                                max_processes=max_processes, show_progress=show_progress, **kwargs)
+        kinetics = _fit_kinetics(data=self, fit_type=fit_type, slot=slot, return_fields=return_fields,
+                                 name_prefix=name_prefix, time=time, ci_size=ci_size, genes=genes,
+                                 max_processes=max_processes, show_progress=show_progress, **kwargs)
 
         new_gp = self
         for name, analysis in kinetics.items():
@@ -2373,6 +2381,19 @@ class GrandPy:
 
         return new_gp
 
+    def calibrate_effective_labeling_time_kinetic_fit(
+            self,
+            slot: str = None,
+            name: str = "calibrated_time",
+            time: Union[str, np.ndarray, pd.Series, Sequence] = "duration.4sU",
+            compute_ci: bool = False,
+            name_ci: str = "calibrated_time",
+            ci_size: float = 0.95,
+            n_estimate: int = 1000,
+            n_iter: int = 10000,
+            show_progress: bool = True
+    ) -> "GrandPy":
+        ...
 
     # ----- Differential Expression functions -----
     def get_summary_matrix(

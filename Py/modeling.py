@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from Py.grandPy import GrandPy
 
 
-def fit_kinetics(
+def _fit_kinetics(
     data: "GrandPy",
     fit_type: Literal["nlls", "ntr", "chase"] = "nlls",
     *,
@@ -94,14 +94,30 @@ def get_dynamic_process_count(data_size: int, max_processes: int = None) -> int:
     return num_processes
 
 
-def correct(all_expressions: np.ndarray, time: np.ndarray) -> np.ndarray:
+# TODO: Verhalten von correct überprüfen
+def correct_new(new_expressions: np.ndarray, time: np.ndarray) -> np.ndarray:
+    """
+    Applies a correction to every row of `all_expressions`, where time = 1.
+    """
+    zero_rows = np.max(new_expressions, axis=1) == 0
+
+    time_1 = time == 1
+
+    if np.any(zero_rows) and np.any(time_1):
+        new_expressions[zero_rows, time_1] = 0.01
+
+    return new_expressions
+
+def correct_old(old_expressions: np.ndarray) -> np.ndarray:
     """
     Applies a correction to every row of `all_expressions`.
     """
-    for i in range(all_expressions.shape[0]):
-        if np.max(all_expressions[i, :]) == 0:
-            all_expressions[i, time == 1] = 0.01
-    return all_expressions
+    zero_rows = np.max(old_expressions, axis=1) == 0
+
+    if np.any(zero_rows):
+        old_expressions[zero_rows, :] = 0.01
+
+    return old_expressions
 
 
 
@@ -148,8 +164,8 @@ def fit_kinetics_nlls(
         steady_state = {cond: steady_state for cond in unique_conditions}
 
     # --- Retrieve expression matrices ---
-    new_expression = correct(data.get_matrix(mode_slot=ModeSlot("new", slot), genes=genes_to_fit), time=time)
-    old_expression = correct(data.get_matrix(mode_slot=ModeSlot("old", slot), genes=genes_to_fit), time=time)
+    new_expression = correct_new(data.get_matrix(mode_slot=ModeSlot("new", slot), genes=genes_to_fit), time=time)
+    old_expression = correct_old(data.get_matrix(mode_slot=ModeSlot("old", slot), genes=genes_to_fit))
 
     result = {}
 
@@ -276,7 +292,7 @@ def fit_kinetics_chase(
             steady_state[cond] = True
 
     # --- Retrieve expression matrix ---
-    new_expression = correct(data.get_matrix(mode_slot="ntr", genes=genes_to_fit), time=time)
+    new_expression = correct_new(data.get_matrix(mode_slot="ntr", genes=genes_to_fit), time=time)
 
     # --- chase-specific preprocessing ---
     no4sU_mask = data.coldata["no4sU"].values
@@ -924,7 +940,6 @@ def f_new(t: float, s: float, d: float) -> float:
 
 
 
-
 # ----- ntr kinetic modeling -----
 def fit_kinetics_ntr(
         data: "GrandPy",
@@ -1342,3 +1357,21 @@ def uniroot_safe(fun, lower, upper):
         return brentq(fun, lower, upper)
     except Exception:
         return (lower + upper) / 2
+
+
+
+
+# ----- time calibration functions -----
+def calibrate_effective_labeling_time_kinetic_fit(
+            self,
+            slot: str = None,
+            name: str = "calibrated_time",
+            time: Union[str, np.ndarray, pd.Series, Sequence] = "duration.4sU",
+            compute_ci: bool = False,
+            name_ci: str = "calibrated_time",
+            ci_size: float = 0.95,
+            n_estimate: int = 1000,
+            n_iter: int = 10000,
+            show_progress: bool = True
+    ) -> "GrandPy":
+    ...

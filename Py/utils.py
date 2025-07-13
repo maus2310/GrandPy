@@ -237,16 +237,16 @@ def _get_kinetics_data(
     time: Union[str, np.ndarray, pd.Series, list] = "Time",
     ci_size: float = 0.95,
     genes: Union[str, Sequence[str]] = None,
-    show_progress: bool = True,
+    show_progress: bool = False,
     **kwargs
 ) -> dict[str, pd.DataFrame]:
     """
     This function is almost the same as `GrandPy.fit_kinetics`.
     The only difference is that it returns the kinetics data instead of a GrandPy object.
     """
-    from Py.modeling import fit_kinetics
+    from Py.modeling import _fit_kinetics
 
-    kinetics = fit_kinetics(data=data, fit_type=fit_type, slot=slot, genes=genes, name_prefix=name_prefix, time=time,
-                            ci_size=ci_size, return_fields=return_fields, show_progress=show_progress, **kwargs)
+    kinetics = _fit_kinetics(data=data, fit_type=fit_type, slot=slot, genes=genes, name_prefix=name_prefix, time=time,
+                             ci_size=ci_size, return_fields=return_fields, show_progress=show_progress, **kwargs)
 
     return kinetics
