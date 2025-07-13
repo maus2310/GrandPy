@@ -471,6 +471,12 @@ def _f_old_nonequi(t, f0, ks, kd)-> float | np.ndarray:
         """
     return f0 * np.exp(-t * kd)
 
+def _f_old_equi(t: float, s: float, d: float) -> float:
+    """
+    Computes the expected amount of old RNA under steady-state assumptions.
+    """
+    return s / d * np.exp(-t * d)
+
 def _f_new(t, ks, kd)-> float | np.ndarray:
     """
         Calculate concentration over time with synthesis and degradation reaching equilibrium.
@@ -2092,10 +2098,11 @@ def plot_gene_progressive_timecourse(
     data: GrandPy,
     gene: str,
     slot: Optional[str] = None,
-    time: str = "Time.original",
+    time: str = "duration.4sU",
     fit_type: str = "nlls",
     size: float = 50,
     exact_tics: bool = True,
+    rescale: bool = True,
     path_for_save: Optional[str] = None,
     **kwargs
 ):
@@ -2147,7 +2154,7 @@ def plot_gene_progressive_timecourse(
         slot = data.default_slot
 
     timepoints = data.coldata[time].values
-    time_numeric = np.array([_parse_time_to_float(t) for t in timepoints])
+    time_numeric = data.coldata[time].values
 
     condition = (
         data.coldata["Condition"]
@@ -2168,7 +2175,6 @@ def plot_gene_progressive_timecourse(
         "condition": condition
     })
 
-
     from Py.utils import _get_kinetics_data
     fit_results = _get_kinetics_data(
         data,
@@ -2179,29 +2185,58 @@ def plot_gene_progressive_timecourse(
         show_progress=True,
         **kwargs
     )
-    if condition.nunique() == 1:
-        fit_results = {gene: fit_results}
 
-    tt = np.linspace(0, df["time_numeric"].max(), 200)
+    if rescale and fit_type.lower() in ["ntr", "chase"]: #TODO rescale nicht richtig
+        fac = []
+        for i in range(len(df)):
+            cond = str(df["condition"].iloc[i])
+            fit = fit_results.get(f"kinetics_{cond}", fit_results.get(gene))
+            if fit is None or gene not in fit.index:
+                fac.append(1.0)
+                continue
+            f0 = fit.loc[gene, f"{cond}_f0"]
+            ks = fit.loc[gene, f"{cond}_Synthesis"]
+            kd = fit.loc[gene, f"{cond}_Degradation"]
+            t = df["time_numeric"].iloc[i]
+            val = _f_old_nonequi(t, f0, ks, kd) + _f_new(t, ks, kd)
+            fac.append(val / df["total"].iloc[i] if df["total"].iloc[i] != 0 else 1.0)
+
+        fac = np.array(fac)
+        df["total"] *= fac
+        df["new"] *= fac
+        df["old"] *= fac
+
+
+    tt = np.linspace(0, df["time_numeric"].max(), 100)
     fitted = []
     for cond in df["condition"].unique():
         fit = fit_results.get(f"kinetics_{cond}")
         if fit is None:
             continue
-
         f0 = fit.loc[gene, f"{cond}_f0"]
         ks = fit.loc[gene, f"{cond}_Synthesis"]
         kd = fit.loc[gene, f"{cond}_Degradation"]
 
+        if fit_type == "chase":
+            expr_old = ks / kd - _f_old_equi(tt, ks, kd)
+            expr_new = _f_old_equi(tt, ks, kd)
+        else:
+            expr_old = _f_old_nonequi(tt, f0, ks, kd)
+            expr_new = _f_new(tt, ks, kd)
+
+        if fit_type == "chase" and "no4sU" in data.coldata.columns:
+            mask = ~data.coldata["no4sU"].values
+            df = df[mask]
+
         fitted.append(pd.DataFrame({
             "time_numeric": tt,
-            "Expression": _f_old_nonequi(tt, f0, ks, kd),
+            "Expression": expr_old,
             "Type": "old",
             "condition": cond
         }))
         fitted.append(pd.DataFrame({
             "time_numeric": tt,
-            "Expression": _f_new(tt, ks, kd),
+            "Expression": expr_new,
             "Type": "new",
             "condition": cond
         }))
@@ -2220,6 +2255,8 @@ def plot_gene_progressive_timecourse(
         col="condition",
         sharey=True,
         sharex=True,
+        height=6,
+        aspect=10/6
     )
 
     # Plot total, new, old points
@@ -2268,7 +2305,7 @@ def plot_gene_progressive_timecourse(
     # Exact tics
     if exact_tics:
         time_original = data.coldata[time]
-        time_numeric = np.array([_parse_time_to_float(t) for t in time_original])
+        time_numeric = data.coldata[time]
         brdf = pd.DataFrame({
             "time_numeric": time_numeric,
             "time_original": time_original.str.replace("_", ".", regex=False)
