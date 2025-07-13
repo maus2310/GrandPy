@@ -2202,10 +2202,15 @@ class GrandPy:
             A grandPy object with added normalize_fpkm slot.
     """
 
-    def compute_total_expression(self, column: str = "total_expression", genes: str | list[str] =None, mode_slot: str = None) -> "GrandPy":
+    def compute_total_expression(self, column: str = "total_expression", genes: Union[str, Sequence[str]] = None, mode_slot: str = None) -> "GrandPy":
         from Py.processing import _compute_total_expression
 
         return _compute_total_expression(self, column=column, genes=genes, mode_slot=mode_slot)
+
+    def compute_percentage_expression(self,name: str, genes: Union[str, Sequence[str]] = None, slot: str = None, genes_total: Union[str, Sequence[str]] = None, slot_total: str = None, float_to_percent: bool = True):
+        from Py.processing import _compute_expression_percentage
+
+        return _compute_expression_percentage(self, name=name, genes=genes, slot=slot, genes_total=genes_total, slot_total=slot_total, float_to_percent=float_to_percent)
 
     def filter_genes(
         self,
