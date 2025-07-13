@@ -535,7 +535,12 @@ def _normalize_rpm(
 #     if reference is None: reference = data.get_references(reference="condition", )
 #     matrix_for_baseline = data.get_matrix(mode_slot=slot)
 
+def _compute_total_expression(data: "GrandPy", column: str = "total_expression", genes: str | list[str] =None, mode_slot: str = None) -> "GrandPy":
 
+    matrix = data.get_matrix(mode_slot=mode_slot, genes=genes)
+    total_expression = matrix.sum(axis=0)  # Summe über Zeilen (Gene), pro Spalte (Zelle)
+
+    return data.with_coldata(column = column, value = total_expression)
 
 def _compute_absolute(
         data: "GrandPy",

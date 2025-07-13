@@ -2087,16 +2087,6 @@ class GrandPy:
 
         return _compute_steady_state_half_lives(self, time, name=name ,columns=columns, max_hl=max_hl, ci_size=ci_size, compute_ci=compute_ci, as_analysis=as_analysis)
 
-    def normalize(self, genes = None, name: str = "norm", slot: str = "count", set_to_default = True, size_factors = None, return_size_factors = False):
-        from Py.processing import _normalize
-
-        return _normalize(self, genes=genes, name=name, slot=slot, set_to_default=set_to_default, size_factors=size_factors, return_size_factors=return_size_factors)
-
-    def normalize_fpkm(self, genes = None, name: str = "norm", slot: str = "count", set_to_default = True, total_len = None):
-        from Py.processing import _normalize_fpkm
-
-        return _normalize_fpkm(self, genes=genes, name=name, slot=slot, set_to_default=set_to_default, total_len = total_len)
-
     def normalize_tpm(self, genes=None, name: str = "tpm", slot: str = "count", set_to_default=True, total_len=None):
         from Py.processing import _normalize_tpm
 
@@ -2107,6 +2097,115 @@ class GrandPy:
 
         return _normalize_rpm(self, genes=genes, name=name, slot=slot, factor=factor)
 
+    def compute_absolute(self, dilution: float= 4e4, volume: float = 10.0, slot: str = "tpm", name: str = "absolute") -> "GrandPy":
+        """
+        Estimate absolute molecule counts from TPM data using ERCC spike-ins.
+
+        This function approximates absolute transcript counts per cell by scaling TPM values
+        based on the total ERCC signal. The method is inspired by `monocle::relative2abs`.
+
+        Parameters
+        ----------
+        data : GrandPy
+            A GrandPy data object containing gene expression matrices and gene annotations.
+
+        dilution : float, default 4e4
+             The dilution factor of the ERCC spike-in mix (molecules/µL).
+
+        volume : float, default 10.0
+             The volume (in µL) of ERCC spike-in solution added to each sample.
+
+        slot : str, default "tpm"
+             The name of the data slot containing TPM values to be converted to absolute counts.
+
+        name : str, default "absolute"
+             The name of the new slot in which to store the computed absolute expression matrix.
+
+        Returns
+        -------
+        GrandPy
+             A copy of the input `data` object with the new absolute expression matrix added as a slot.
+
+        Raises
+         ------
+        ValueError
+             If no ERCC genes are found in the dataset.
+        """
+        from Py.processing import _compute_absolute
+
+        return _compute_absolute(self, dilution=dilution, volume=volume, slot=slot, name=name)
+
+    def normalize(self, genes = None, name: str = "norm", slot: str = "count", set_to_default = True, size_factors = None, return_size_factors = False):
+        """
+        Normalize gene expression values across cells.
+
+        Parameters
+        ----------
+        genes : list[str], optional
+            A list of gene names to normalize. If None, all genes are normalized.
+
+        name : str, default "norm"
+            Name of the layer where the normalized data will be stored.
+
+        slot : str, default "count"
+            The name of the data slot to normalize (e.g., "count").
+
+        set_to_default : bool, default True
+            If True, set the normalized layer as the default for downstream analysis.
+
+        size_factors : array-like, optional
+            Precomputed size factors to use for normalization.
+            If None, size factors are computed automatically.
+
+        return_size_factors : bool, default False
+            If True, return the size factors used for normalization.
+
+        Returns
+        -------
+        Optional[grandPy, ndarray]
+            The size factors used for normalization if `return_size_factors` is True.
+            Otherwise, returns a grandPy object.
+        """
+        from Py.processing import _normalize
+
+        return _normalize(self, genes=genes, name=name, slot=slot, set_to_default=set_to_default, size_factors=size_factors, return_size_factors=return_size_factors)
+
+    def normalize_fpkm(self, genes = None, name: str = "norm", slot: str = "count", set_to_default = True, total_len = None):
+        """
+        Normalize gene expression data using the FPKM method (Fragments Per Kilobase Million).
+
+        This method computes FPKM values by normalizing raw counts by both gene length and
+        total library size. It is suitable for comparing expression levels across genes within
+        the same sample.
+
+        Parameters
+        ----------
+        genes : list[str], optional
+            A list of gene names to normalize. If None, all genes are included.
+
+        name : str, default "norm"
+            The name of the data layer where the normalized values will be stored.
+
+        slot : str, default "count"
+            The name of the data slot containing raw counts to normalize.
+
+        set_to_default : bool, default True
+            If True, sets the resulting normalized layer as the default for downstream analysis.
+
+        total_len : array-like, optional
+            Optional precomputed total transcript lengths per cell. If not provided, gene lengths
+            are inferred internally.
+
+        Returns
+        -------
+        GrandPy
+            A grandPy object with added normalize_fpkm slot.
+    """
+
+    def compute_total_expression(self, column: str = "total_expression", genes: str | list[str] =None, mode_slot: str = None) -> "GrandPy":
+        from Py.processing import _compute_total_expression
+
+        return _compute_total_expression(self, column=column, genes=genes, mode_slot=mode_slot)
 
     def filter_genes(
         self,
