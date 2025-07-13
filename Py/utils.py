@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 def concat(
         objects: Sequence["GrandPy"],
         *,
-        axis: Literal["gene_info", 0, "coldata", 1] = 1,
+        axis: Literal["gene_info", 0, "coldata", 1] = 0,
         join: Literal["inner", "outer"] = "inner",
         merge: Union[Literal["same", "unique", "first", "only"], Callable] = "unique",
 ) -> "GrandPy":
@@ -29,7 +29,7 @@ def concat(
     objects : Sequence[GrandPy]
         The GrandPy objects to be concatenated.
 
-    axis: {"gene_info" or 0 or "coldata" or 1}, default 1
+    axis: {"gene_info" or 0 or "coldata" or 1}, default 0
         The axis along which to concatenate.
 
     join: {"inner" or "outer"}, default "inner"
@@ -50,8 +50,6 @@ def concat(
     GrandPy
         A new concatenated GrandPy object.
     """
-    from collections import Counter
-
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", message="(Observation|Variable) names are not unique.*",
                                 category=UserWarning, module="anndata")
@@ -71,6 +69,8 @@ def concat(
     merged_analyses = {}
 
     if all(obj.analyses is not None for obj in objects):
+        from collections import Counter
+
         analyses = [a for obj in objects for a in obj.analyses]
         duplikates = [item for item, count in Counter(analyses).items() if count > 1]
 

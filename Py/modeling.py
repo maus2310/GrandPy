@@ -956,6 +956,7 @@ def fit_kinetics_ntr(
     condition_vector = data.coldata["Condition"].values
     unique_conditions = np.unique(condition_vector)
 
+    # Paralellisation proved superfluous, as even for large datasets (>20000 genes) it showed no improvements in runtime over serialisation.
     # --- Decide on parallelisation ---
     # datasize = (len(genes_to_fit) * len(unique_conditions)) // 5
     #

@@ -92,11 +92,11 @@ class GrandPy:
 
         # obs and var are swapped to allow the data to be gene * sample instead of sample * gene
         self._adata = ad.AnnData(
-            X = slots["count"],
+            X = sp.csr_matrix(np.zeros_like(slots["count"])),
             obs = gene_info,
             var = coldata,
         )
-        self._is_sparse = True if isinstance(slots["count"], sp.csr_matrix) else False
+        self._is_sparse = True if sp.issparse(slots["count"]) else False
 
         self._initialize_slots(slots)
         self._initialize_uns_data(prefix, metadata, analyses, plots)
@@ -314,8 +314,8 @@ class GrandPy:
         """
         Get the column and row names of the data.
         """
-        row_names = self._adata.var_names.tolist()
-        column_names = self._adata.obs_names.tolist()
+        row_names = self.gene_info.index.tolist()
+        column_names = self.coldata.index.tolist()
         return row_names, column_names
 
     @property
@@ -323,26 +323,27 @@ class GrandPy:
         """
         Get the name of the default slot
         """
-        return self._adata.uns.get('metadata').get('default_slot')
+        return self.metadata.get('default_slot')
 
-    def with_default_slot(self, value: str) -> "GrandPy":
+    def with_default_slot(self, name: str) -> "GrandPy":
         """
-        Returns a copy of the GrandPy object with the default slot set to `value`.
+        Sets the default slot set to `name`.
 
         Parameters
         ----------
-        value: str
-            Sets the default slot to this value.
+        name: str
+            Sets the default slot to this slot.
 
         Returns
         -------
         "GrandPy"
-            Returns a new GrandPy object having the new default slot.
+            Returns a GrandPy instance having the new default slot.
         """
-        assert value in self._adata.layers.keys(), "Trying to set a default_slot that is not an available slot"
+        if name not in self.slots:
+            raise ValueError(f"The name '{name}' is not a valid slot name. Please use one of the following names: {self.slots}")
 
-        new_metadata = self._adata.uns.get('metadata', {}).copy()
-        new_metadata['default_slot'] = value
+        new_metadata = self.metadata
+        new_metadata['default_slot'] = name
 
         return self._dev_replace(metadata=new_metadata)
 
@@ -781,7 +782,10 @@ class GrandPy:
         GrandPy.plot_global
             Executes a stored global plot function.
         """
-        return self._adata.uns["plots"]["gene"][name](self, gene)
+        try:
+            return self._adata.uns["plots"]["gene"][name](self, gene)
+        except KeyError:
+            raise KeyError(f"No plot named, '{name}' was found. These are all available gene plots: {self.plots.get('gene', None)}")
 
     def plot_global(self, name: str):
         """
@@ -806,7 +810,11 @@ class GrandPy:
         GrandPy.plot_gene
             Executes a stored plot function for a given gene.
         """
-        return self._adata.uns["plots"]["global"][name](self)
+        try:
+            return self._adata.uns["plots"]["global"][name](self)
+        except KeyError:
+            raise KeyError(
+                f"No plot named '{name}' was found. These are all available global plots: {self.plots.get('global', None)}")
 
     def with_dropped_plots(self, pattern: str = None) -> "GrandPy":
         """
@@ -1271,7 +1279,7 @@ class GrandPy:
             raise TypeError("The input must be either string, int or a boolean mask. They cannot be mixed")
 
         if reorder:
-            result = result.reindex(self._adata.var.index).dropna()
+            result = result.reindex(coldata.index).dropna()
 
         return list(result)
 
@@ -1311,7 +1319,7 @@ class GrandPy:
         """
         Returns a new GrandPy object with the values of two columns swapped in all slots.
 
-        This is what you call when samples/calls have been mislabeled.
+        This is what you call when samples/cells have been mislabeled.
 
         Parameters
         ----------
@@ -1348,14 +1356,14 @@ class GrandPy:
                 matrix = sp.hstack(idx).tocsr()
 
             else:
-                raise TypeError("A Matrix in the GrandPy Object has an unexpected type. Only pd.DataFrame, np.ndarray and scipy.sparse.csr_matrix are supported")
+                raise TypeError("A Matrix in the GrandPy Object has an unexpected type. Only numpy ndarray and scipy sparse matrices are supported")
 
             return matrix
 
         if isinstance(column1, str):
-            column1 = self._adata.var.index.get_loc(column1)
+            column1 = self.coldata.index.get_loc(column1)
         if isinstance(column2, str):
-            column2 = self._adata.var.index.get_loc(column2)
+            column2 = self.coldata.index.get_loc(column2)
 
         return self._apply(swap, col1=column1, col2=column2)
 
@@ -1387,46 +1395,35 @@ class GrandPy:
             New GrandPy object with transformed data.
 
         """
-        old_obs_index = self._adata.obs.index
-        old_var_index = self._adata.var.index
+        old_geneinfo_index = self.gene_info.index
+        old_coldata_index = self.coldata.index
 
         new_adata = self._adata.copy()
 
         # Apply function to gene_info
         if function_gene_info is not None:
-            new_gene_info = function_gene_info(new_adata.obs, **kwargs)
-            new_obs_index = new_gene_info.index
+            new_geneinfo = function_gene_info(new_adata.obs, **kwargs)
+            new_geneinfo_index = new_geneinfo.index
         else:
-            new_gene_info = new_adata.obs
-            new_obs_index = old_obs_index
+            new_geneinfo = new_adata.obs
+            new_geneinfo_index = old_geneinfo_index
 
         # Apply function to coldata
         if function_coldata is not None:
             new_coldata = function_coldata(new_adata.var, **kwargs)
-            new_var_index = new_coldata.index
+            new_coldata_index = new_coldata.index
         else:
             new_coldata = new_adata.var
-            new_var_index = old_var_index
+            new_coldata_index = old_coldata_index
 
-        # # Retrieve index for reordering
-        # row_reorder = None if new_obs_index.equals(old_obs_index) else new_obs_index.get_indexer(old_obs_index)
-        # col_reorder = None if new_var_index.equals(old_var_index) else new_var_index.get_indexer(old_var_index)
 
-        row_indices = old_obs_index.get_indexer_for(new_obs_index)
-        column_indices = old_var_index.get_indexer_for(new_var_index)
+        row_indices = old_geneinfo_index.get_indexer_for(new_geneinfo_index)
+        column_indices = old_coldata_index.get_indexer_for(new_coldata_index)
 
         new_layers = {}
 
         for key in self._adata.layers.keys():
             matrix = function(self._adata.layers[key], **kwargs)
-
-            # # Adjust row order if necessary
-            # if row_reorder is not None:
-            #     matrix = matrix[row_reorder, :]
-            #
-            # # Adjust column order if necessary
-            # if col_reorder is not None:
-            #     matrix = matrix[:, col_reorder]
 
             matrix = matrix[np.ix_(row_indices, column_indices)]
 
@@ -1436,11 +1433,11 @@ class GrandPy:
         # Also fix analysis reindexing if needed
         if new_adata.uns['analyses'] is not None:
             new_adata.uns['analyses'] = {
-                key: _reindex_by_index_name(value, new_gene_info)
+                key: _reindex_by_index_name(value, new_geneinfo)
                 for key, value in new_adata.uns['analyses'].items()
             }
 
-        return self._dev_replace(gene_info=new_gene_info, coldata=new_coldata, slots=new_layers, analyses=new_analyses)
+        return self._dev_replace(gene_info=new_geneinfo, coldata=new_coldata, slots=new_layers, analyses=new_analyses)
 
 
     def get_matrix(
@@ -1494,7 +1491,7 @@ class GrandPy:
         data = self._resolve_mode_slot(mode_slot)
 
         row_indices = self.get_index(genes)
-        column_indices = [self._adata.var.index.get_loc(column) for column in self.get_columns(columns)]
+        column_indices = [self.coldata.index.get_loc(column) for column in self.get_columns(columns)]
 
         data_subset = _subset_dense_or_sparse(data, row_indices, column_indices, force_numpy=force_numpy)
 
@@ -1794,13 +1791,14 @@ class GrandPy:
         analyses = self.get_analyses(analyses, regex = regex)
 
         row_indices = self.get_index(genes)
+        gene_info = self.gene_info
 
         result_df = pd.DataFrame()
 
         for name in analyses:
             analysis_data = self._adata.uns["analyses"][name]
 
-            analysis_data.index = pd.Index(self._adata.obs[name_genes_by])
+            analysis_data.index = pd.Index(gene_info[name_genes_by])
 
             # Only take rows that match 'genes', if specified.
             if genes is not None:
@@ -1809,8 +1807,7 @@ class GrandPy:
             # Only take columns that match 'columns', if specified.
             if columns is not None:
                 if regex:
-                    matching_cols = [col for col in analysis_data.columns if
-                                     any(re.search(pat, col) for pat in columns)]
+                    matching_cols = [col for col in analysis_data.columns if any(re.search(pat, col) for pat in columns)]
                 else:
                     matching_cols = [col for col in columns if col in analysis_data.columns]
             else:
@@ -1819,7 +1816,7 @@ class GrandPy:
             result_df = pd.concat([result_df, analysis_data[matching_cols]], axis=1)
 
         if with_gene_info:
-            result_df = pd.concat([self._adata.obs.iloc[row_indices], result_df], axis=1)
+            result_df = pd.concat([gene_info.iloc[row_indices], result_df], axis=1)
 
         return result_df
 
@@ -1955,12 +1952,12 @@ class GrandPy:
             self,
             other: "GrandPy",
             *,
-            axis: Literal["gene_info", 0, "coldata", 1] = 1,
+            axis: Literal["gene_info", 0, "coldata", 1] = 0,
             join: Literal["inner", "outer"] = "inner",
             merge: Union[Literal["same", "unique", "first", "only"], Callable] = "unique",
     ) -> "GrandPy":
         """
-        Merge the other object with the current instance along a given axis. Uses `unique` for merging metadata and plots.
+        Merge the 'other' instance with the current instance along a given axis. Uses `unique` for merging metadata and plots.
 
         Analyses are merged if their names in both objects are identical. Otherwise, they are dropped.
 
@@ -1969,7 +1966,7 @@ class GrandPy:
         other: GrandPy
             The object to merge with the current instance.
 
-        axis: {"gene_info" or 0 or "coldata" or 1}, default 1
+        axis: {"gene_info" or 0 or "coldata" or 1}, default 0
             The axis along which to merge.
 
         join: {"inner" or "outer"}, default "inner"
