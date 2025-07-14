@@ -446,7 +446,7 @@ def _transform_logFC(m: np.ndarray, reference_columns: Optional[list[int]] = Non
     result = np.apply_along_axis(lambda v: lfc_fun(v, ref), axis=0, arr=m)
     return result
 
-def _f_old_nonequi(t, f0, ks, kd)-> float | np.ndarray:
+def _f_old_nonequi(t: float, f0: float, s: float, d: float)-> (float | np.ndarray):
     """
         Calculate concentration decay over time from an initial amount without synthesis.
 
@@ -469,7 +469,7 @@ def _f_old_nonequi(t, f0, ks, kd)-> float | np.ndarray:
         float or np.ndarray
             Concentration at time `t`, calculated as `f0 * exp(-kd * t)`.
         """
-    return f0 * np.exp(-t * kd)
+    return f0 * np.exp(-t * d)
 
 def _f_old_equi(t: float, s: float, d: float) -> float:
     """
@@ -477,7 +477,7 @@ def _f_old_equi(t: float, s: float, d: float) -> float:
     """
     return s / d * np.exp(-t * d)
 
-def _f_new(t, ks, kd)-> float | np.ndarray:
+def _f_new(t: float, s: float, d: float)-> float | np.ndarray:
     """
         Calculate concentration over time with synthesis and degradation reaching equilibrium.
 
@@ -498,7 +498,7 @@ def _f_new(t, ks, kd)-> float | np.ndarray:
         float or np.ndarray
             Concentration at time `t`, calculated as `ks / kd * (1 - exp(-kd * t))`.
         """
-    return ks / kd * (1 - np.exp(-t * kd))
+    return s / d * (1 - np.exp(-t * d))
 
 #TODO bei lim farbe checken
 #parameter die noch fehlen:
@@ -2092,7 +2092,18 @@ def plot_vulcano(
     plt.show()
     plt.close()
 
+def dynamic_precision_format(values):
+    diffs = np.diff(np.sort(values))
+    min_diff = diffs.min() if len(diffs) > 0 else 1
+    if min_diff >= 1:
+        return "%.0f"
+    elif min_diff >= 0.1:
+        return "%.1f"
+    else:
+        return "%.2f"
 
+
+#TODO showCI fehlt
 # Beispielaufruf: plot_gene_progressive_timecourse(sars, "UHMK1")
 def plot_gene_progressive_timecourse(
     data: GrandPy,
@@ -2153,13 +2164,14 @@ def plot_gene_progressive_timecourse(
     if slot is None:
         slot = data.default_slot
 
-    timepoints = data.coldata[time].values
-    time_numeric = data.coldata[time].values
+    time_original = data.coldata[f"{time}.original"]
+    time_original = np.array(time_original, dtype=str)
+    time = data.coldata[time].values
 
     condition = (
         data.coldata["Condition"]
         if "Condition" in data.coldata.columns
-        else pd.Series([gene] * len(timepoints))
+        else pd.Series([gene] * len(time))
     )
 
     total = data.get_matrix(mode_slot=slot, genes=gene).squeeze()
@@ -2167,11 +2179,11 @@ def plot_gene_progressive_timecourse(
     old = data.get_matrix(mode_slot=ModeSlot("old", slot), genes=gene).squeeze()
 
     df = pd.DataFrame({
-        "time": timepoints,
-        "time_numeric": time_numeric,
-        "total": total.flatten(),
-        "new": new.flatten(),
-        "old": old.flatten(),
+        "time_original": time_original,
+        "time": time,
+        "total": total,
+        "new": new,
+        "old": old,
         "condition": condition
     })
 
@@ -2181,33 +2193,42 @@ def plot_gene_progressive_timecourse(
         genes=gene,
         fit_type=fit_type,
         return_fields=["Synthesis", "Half-life", "f0", "Degradation"],
-        time=time_numeric,
-        show_progress=True,
+        time=time,
+        show_progress=False,
         **kwargs
     )
 
-    if rescale and fit_type.lower() in ["ntr", "chase"]: #TODO rescale nicht richtig
+    if rescale and fit_type.lower() in ["ntr", "chase"]:
         fac = []
         for i in range(len(df)):
             cond = str(df["condition"].iloc[i])
+            t = df["time"].iloc[i]
+
             fit = fit_results.get(f"kinetics_{cond}", fit_results.get(gene))
             if fit is None or gene not in fit.index:
                 fac.append(1.0)
                 continue
+
             f0 = fit.loc[gene, f"{cond}_f0"]
             ks = fit.loc[gene, f"{cond}_Synthesis"]
             kd = fit.loc[gene, f"{cond}_Degradation"]
-            t = df["time_numeric"].iloc[i]
-            val = _f_old_nonequi(t, f0, ks, kd) + _f_new(t, ks, kd)
-            fac.append(val / df["total"].iloc[i] if df["total"].iloc[i] != 0 else 1.0)
+            model_total = _f_old_nonequi(t, f0, ks, kd) + _f_new(t, ks, kd)
+            measured_total = df["total"].iloc[i]
+
+            factor = model_total / measured_total if measured_total != 0 else 1.0
+            fac.append(factor)
 
         fac = np.array(fac)
         df["total"] *= fac
         df["new"] *= fac
         df["old"] *= fac
 
+        # if show_ci and "lower" in df.columns and "upper" in df.columns:
+        #     df["lower"] *= fac
+        #     df["upper"] *= fac
 
-    tt = np.linspace(0, df["time_numeric"].max(), 100)
+
+    tt = np.linspace(0, df["time"].max(), 100)
     fitted = []
     for cond in df["condition"].unique():
         fit = fit_results.get(f"kinetics_{cond}")
@@ -2229,13 +2250,13 @@ def plot_gene_progressive_timecourse(
             df = df[mask]
 
         fitted.append(pd.DataFrame({
-            "time_numeric": tt,
+            "time": tt,
             "Expression": expr_old,
             "Type": "old",
             "condition": cond
         }))
         fitted.append(pd.DataFrame({
-            "time_numeric": tt,
+            "time": tt,
             "Expression": expr_new,
             "Type": "new",
             "condition": cond
@@ -2244,7 +2265,7 @@ def plot_gene_progressive_timecourse(
 
     df_long = pd.melt(
         df,
-        id_vars=["time_numeric", "condition"],
+        id_vars=["time", "condition"],
         value_vars=["total", "new", "old"],
         var_name="Type",
         value_name="Expression"
@@ -2262,7 +2283,7 @@ def plot_gene_progressive_timecourse(
     # Plot total, new, old points
     g.map_dataframe(
         sns.scatterplot,
-        x="time_numeric",
+        x="time",
         y="Expression",
         hue="Type",
         palette={"total": "gray", "new": "#e34a33", "old": "#2b8cbe"},
@@ -2272,10 +2293,10 @@ def plot_gene_progressive_timecourse(
     # Plot total curve
     g.map_dataframe(
         lambda data, color, **kws: sns.lineplot(
-            data=data[data["Type"] == "total"]
-            .groupby(["time_numeric", "condition"], as_index=False)
-            .mean(numeric_only=True),
-            x="time_numeric",
+            data[data["Type"] == "total"]
+            .groupby(["time", "condition"], as_index=False)
+            .median(numeric_only=True),
+            x="time",
             y="Expression",
             color="gray",
             linestyle="solid",
@@ -2291,7 +2312,7 @@ def plot_gene_progressive_timecourse(
                 (df_fitted["Type"] == line_type)
                 ]
             ax.plot(
-                df_fit["time_numeric"],
+                df_fit["time"],
                 df_fit["Expression"],
                 linestyle="dashed",
                 linewidth=1,
@@ -2303,23 +2324,19 @@ def plot_gene_progressive_timecourse(
     g.set_titles("{col_name}")
     g.add_legend(title="RNA")
     # Exact tics
-    if exact_tics:
-        time_original = data.coldata[time]
-        time_numeric = data.coldata[time]
-        brdf = pd.DataFrame({
-            "time_numeric": time_numeric,
-            "time_original": time_original.str.replace("_", ".", regex=False)
-        }).drop_duplicates().sort_values("time_numeric")
+    if exact_tics and "time_original" in df.columns:
+        brdf = df[["time", "time_original"]].drop_duplicates().sort_values("time")
+        brdf["time_original"] = brdf["time_original"].astype(str).str.replace("_", ".", regex=False)
         for ax in g.axes.flat:
-            ax.set_xticks(brdf["time_numeric"])
+            ax.set_xticks(brdf["time"])
             ax.set_xticklabels(brdf["time_original"], rotation=45)
             ax.set_xlabel("")
     else:
-        unique_times = np.sort(df["time_numeric"].unique())
+        import matplotlib.ticker as mticker
         for ax in g.axes.flat:
-            ax.set_xticks(unique_times)
-            ax.set_xticklabels([f"{t:.2f}" for t in unique_times], rotation=45)
+            ax.xaxis.set_major_locator(mticker.MaxNLocator(nbins=6, prune=None))
             ax.set_xlabel("4sU labeling [h]")
+            ax.tick_params(axis='x', rotation=0)
     if path_for_save:
         g.savefig(f"{path_for_save}/{gene}_Progrssive_Timecourse.png", format="png", dpi=300)
     plt.show()
