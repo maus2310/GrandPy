@@ -4,6 +4,8 @@ import numpy as np
 import pandas as pd
 from collections.abc import Sequence, Mapping
 from typing import Union, Literal, TYPE_CHECKING, Callable
+from scipy.optimize import minimize, minimize_scalar
+from scipy.stats import norm
 from functools import cached_property
 from dataclasses import dataclass
 from scipy.optimize import least_squares, OptimizeResult, brentq
@@ -531,7 +533,7 @@ class FitResult:
     def synthesis(self) -> float:
         return self.opt_result.x[0] if self.opt_result is not None else np.nan
 
-    @cached_property
+    @property
     def return_synthesis(self):
         if self.chase:
             return self.slot_total * self.degradation
@@ -547,7 +549,7 @@ class FitResult:
         return 1.0 / self.degradation if self.degradation > 0 else np.nan
 
     # --- Cached exponentials ---
-    @cached_property
+    @property
     def exp_old(self) -> np.ndarray:
         return np.exp(-self.degradation * self.time)
 
@@ -576,7 +578,7 @@ class FitResult:
             self.new_values - self.pred_new
         ])
 
-    @cached_property
+    @property
     def residuals(self) -> dict[str, np.ndarray]:
         if self.chase:
             expected = self.pred_new
@@ -593,30 +595,30 @@ class FitResult:
         }
 
     # --- Metrics ---
-    @cached_property
+    @property
     def rmse(self) -> float:
         if self.chase:
             return np.sqrt(np.sum(self.residuals_raw ** 2)/(self.residuals_raw.size))
         return np.sqrt(np.sum(self.residuals_raw ** 2)/self.residuals_raw.size)
         # return np.sqrt(np.mean(self.residuals_raw ** 2)) if self.residuals_raw.size > 0 else np.nan
 
-    @cached_property
+    @property
     def rmse_old(self) -> float:
         if self.chase or self.old_values.size == 0:
             return np.nan
         return np.sqrt(np.mean((self.old_values - self.pred_old) ** 2))
 
-    @cached_property
+    @property
     def rmse_new(self) -> float:
         if self.new_values.size == 0:
             return np.nan
         return np.sqrt(np.mean((self.new_values - self.pred_new) ** 2))
 
-    @cached_property
+    @property
     def half_life(self) -> float:
         return np.log(2) / self.degradation if self.degradation > 0 else np.nan
 
-    @cached_property
+    @property
     def log_likelihood(self) -> float:
         if self.chase:
             N = self.residuals_raw.size/2
@@ -625,18 +627,18 @@ class FitResult:
         return -N * (np.log(2 * np.pi) + 1 - np.log(N) + np.log(sum(self.residuals_raw ** 2)))/2
         # return -0.5 * np.sum(self.residuals_raw ** 2)
 
-    @cached_property
+    @property
     def total_expr(self) -> float:
         if self.chase and self.slot_total is not None:
             return self.slot_total
         return np.sum(self.old_values) + np.sum(self.new_values)
 
-    @cached_property
+    @property
     def f0(self) -> float:
         if self.opt_result is None:
             return np.nan
         if self.steady_state:
-            return self.synthesis / self.degradation if self.degradation > 0 else np.nan
+            return self.return_synthesis / self.degradation if self.degradation > 0 else np.nan
         if len(self.opt_result.x) >= 3:
             return self.opt_result.x[2]
         return np.nan
@@ -670,7 +672,7 @@ class FitResult:
         except (np.linalg.LinAlgError, ValueError):
             return np.full(2, np.nan), np.full(2, np.nan)
 
-    @cached_property
+    @property
     def ci_lower(self) -> dict:
         low, _ = self.ci_bounds
         d = low[1]
@@ -680,7 +682,7 @@ class FitResult:
             "Half-life": np.log(2) / d if d > 0 else np.nan
         }
 
-    @cached_property
+    @property
     def ci_upper(self) -> dict:
         _, up = self.ci_bounds
         d = up[1]
@@ -1363,15 +1365,128 @@ def uniroot_safe(fun, lower, upper):
 
 # ----- time calibration functions -----
 def calibrate_effective_labeling_time_kinetic_fit(
-            self,
-            slot: str = None,
-            name: str = "calibrated_time",
-            time: Union[str, np.ndarray, pd.Series, Sequence] = "duration.4sU",
-            compute_ci: bool = False,
-            name_ci: str = "calibrated_time",
-            ci_size: float = 0.95,
-            n_estimate: int = 1000,
-            n_iter: int = 10000,
-            show_progress: bool = True
-    ) -> "GrandPy":
-    ...
+    data: "GrandPy",
+    slot=None,
+    time="duration.4sU",
+    time_name="calibrated_time",
+    time_conf_name="calibrated_time_conf",
+    ci_size=0.95,
+    compute_confidence=False,
+    n_estimate=1000,
+    n_iter=10000,
+    verbose=True,
+    **kwargs
+):
+    conds = data.coldata.copy()
+
+    if slot is None:
+        slot = data.default_slot
+
+    result = pd.DataFrame(
+        np.nan,
+        index=conds.index,
+        columns=[time_name]
+    )
+
+    for cond in conds["Condition"].unique():
+        if verbose:
+            print(f"Calibrating {cond}...")
+
+        sub = data[:, data.coldata["Condition"] == cond].with_dropped_analyses()
+
+        # Schritt: Top-Gene nach Half-life und Expression auswählen
+        totals = sub.get_table(slot).sum(axis=1)
+        sub = sub.fit_kinetics(fit_type="nlls", slot=slot, time=time, return_fields="Half-life", show_progress=False)
+
+        hl = sub.get_analysis_table()[f"{cond}_Half-life"]
+
+        bins = np.histogram_bin_edges(
+            conds[time], bins=5
+        )
+        bins = np.concatenate([bins, [np.inf]])
+        hl_cat = pd.cut(hl, bins=bins, include_lowest=True)
+
+        def select_top_genes_in_bin(s):
+            if len(s) == 0:
+                return pd.DataFrame(columns=["Gene", "use"])  # leere Gruppe
+            n_bins = len(hl_cat.cat.categories)
+            threshold_index = min(len(s) - 1, int(np.ceil(n_estimate / n_bins)))
+            threshold = sorted(s["totals"], reverse=True)[threshold_index]
+            return pd.DataFrame({
+                "Gene": s["Gene"],
+                "use": s["totals"] >= threshold
+            })
+
+        fil = (
+            pd.DataFrame({
+                "Gene": sub.genes,
+                "totals": totals,
+                "HL_cat": hl_cat
+            })
+            .groupby("HL_cat", group_keys=False, observed=False)
+            .apply(select_top_genes_in_bin)
+        )
+
+        use_genes = fil[fil["use"]]["Gene"].astype(str).tolist()
+        sub = sub.filter_genes(use=use_genes).with_dropped_analyses()
+
+        init = sub.coldata[time].copy()
+        init_array = init.values
+        use_mask = (init_array > 0) & (init_array < init_array.max())
+
+        n_eval = 0
+
+        def opt_fun(times):
+            nonlocal n_eval
+            tt = init_array.copy()
+            tt[use_mask] = times
+            sub_with_tt = sub.with_coldata("duration.4sU",tt)
+            fit = sub_with_tt.fit_kinetics(return_fields="log_likelihood", slot=slot, **kwargs)
+            loglik_sum = fit.get_analysis_table(with_gene_info=False).iloc[:, 0].sum()
+            n_eval += 1
+            if verbose and n_eval % 10 == 0:
+                print(f"Optimization round {n_eval} (loglik: {loglik_sum:.2f})")
+            return -loglik_sum  # negative for minimization
+
+        # Schritt 1: Grobe Kalibrierung (verschiebe Startwerte)
+        def opt_fun_scalar(mini):
+            shifted = init_array[use_mask] - mini
+            return opt_fun(shifted)
+
+        res_scalar = minimize_scalar(opt_fun_scalar, bounds=(0, init_array[use_mask].min()), method='bounded')
+        mini = res_scalar.x
+        init_array[use_mask] -= mini
+
+        # Schritt 2: Feinoptimierung mit Nebenbedingungen
+        def constraint(x):
+            return x
+
+        cons = {"type": "ineq", "fun": constraint}
+        res = minimize(
+            opt_fun,
+            init_array[use_mask],
+            method="Nelder-Mead",
+            options={"maxiter": n_iter}
+        )
+
+        if not res.success:
+            print(f"Warning: Did not converge for {cond}. Consider increasing n_iter.")
+
+        final_tt = init_array.copy()
+        final_tt[use_mask] = res.x
+        result.loc[sub.coldata.index, time_name] = final_tt
+
+        # if compute_confidence:
+        #     # Approximative Unsicherheiten per numerischer Hesse-Matrix
+        #     import numdifftools as nd
+        #     hess = nd.Hessian(opt_fun)(res.x)
+        #     try:
+        #         std_err = np.sqrt(np.diag(np.linalg.inv(hess)))
+        #         conf = std_err * norm.ppf(1 - (1 - ci_size) / 2)
+        #         conf_tt = np.zeros_like(init_array)
+        #         conf_tt[use_mask] = conf
+        #         result.loc[sub.coldata.index, time_conf_name] = conf_tt
+        #     except Exception as e:
+        #         print(f"Confidence interval computation failed: {e}")
+
+    return data.with_coldata("calibrated_time", result)
