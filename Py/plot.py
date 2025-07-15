@@ -2092,18 +2092,7 @@ def plot_vulcano(
     plt.show()
     plt.close()
 
-def dynamic_precision_format(values):
-    diffs = np.diff(np.sort(values))
-    min_diff = diffs.min() if len(diffs) > 0 else 1
-    if min_diff >= 1:
-        return "%.0f"
-    elif min_diff >= 0.1:
-        return "%.1f"
-    else:
-        return "%.2f"
 
-
-#TODO showCI fehlt
 # Beispielaufruf: plot_gene_progressive_timecourse(sars, "UHMK1")
 def plot_gene_progressive_timecourse(
     data: GrandPy,
@@ -2111,8 +2100,9 @@ def plot_gene_progressive_timecourse(
     slot: Optional[str] = None,
     time: str = "duration.4sU",
     fit_type: str = "nlls",
-    size: float = 50,
+    size: float = 25,
     exact_tics: bool = True,
+    show_ci: bool = False,
     rescale: bool = True,
     path_for_save: Optional[str] = None,
     **kwargs
@@ -2166,7 +2156,7 @@ def plot_gene_progressive_timecourse(
 
     time_original = data.coldata[f"{time}.original"]
     time_original = np.array(time_original, dtype=str)
-    time = data.coldata[time].values
+    time_values = data.coldata[time].values
 
     condition = (
         data.coldata["Condition"]
@@ -2180,7 +2170,7 @@ def plot_gene_progressive_timecourse(
 
     df = pd.DataFrame({
         "time_original": time_original,
-        "time": time,
+        "time_values": time_values,
         "total": total,
         "new": new,
         "old": old,
@@ -2198,11 +2188,37 @@ def plot_gene_progressive_timecourse(
         **kwargs
     )
 
-    if rescale and fit_type.lower() in ["ntr", "chase"]:
+    if show_ci:
+        required_slots = ["lower", "upper"]
+        available_slots = data.slots
+        if not all(slot in available_slots for slot in required_slots):
+            raise ValueError("Compute lower and upper slots first! (ComputeNtrCI)")
+
+        total = data.get_matrix(mode_slot=slot, genes=gene).squeeze()
+        lower_mult = data.get_matrix(mode_slot="lower", genes=gene).squeeze()
+        upper_mult = data.get_matrix(mode_slot="upper", genes=gene).squeeze()
+
+        lower_total = total
+        upper_total = total
+
+        lower_new = total * lower_mult
+        upper_new = total * upper_mult
+
+        lower_old = total * (1 - upper_mult)
+        upper_old = total * (1 - lower_mult)
+
+        df["lower_total"] = lower_total
+        df["upper_total"] = upper_total
+        df["lower_new"] = lower_new
+        df["upper_new"] = upper_new
+        df["lower_old"] = lower_old
+        df["upper_old"] = upper_old
+
+    if rescale and fit_type.lower() in ["ntr", "chase", "nlls"]:
         fac = []
         for i in range(len(df)):
             cond = str(df["condition"].iloc[i])
-            t = df["time"].iloc[i]
+            t = df["time_values"].iloc[i]
 
             fit = fit_results.get(f"kinetics_{cond}", fit_results.get(gene))
             if fit is None or gene not in fit.index:
@@ -2223,12 +2239,21 @@ def plot_gene_progressive_timecourse(
         df["new"] *= fac
         df["old"] *= fac
 
-        # if show_ci and "lower" in df.columns and "upper" in df.columns:
-        #     df["lower"] *= fac
-        #     df["upper"] *= fac
+        if show_ci:
+            df["lower_total"] *= fac
+            df["upper_total"] *= fac
+            df["lower_new"] *= fac
+            df["upper_new"] *= fac
+            df["lower_old"] *= fac
+            df["upper_old"] *= fac
 
 
-    tt = np.linspace(0, df["time"].max(), 100)
+    if fit_type == "chase" and "no4sU" in data.coldata.columns:
+        mask = ~data.coldata["no4sU"].values
+        df = df[mask]
+
+
+    tt = np.linspace(0, df["time_values"].max(), 100)
     fitted = []
     for cond in df["condition"].unique():
         fit = fit_results.get(f"kinetics_{cond}")
@@ -2245,18 +2270,14 @@ def plot_gene_progressive_timecourse(
             expr_old = _f_old_nonequi(tt, f0, ks, kd)
             expr_new = _f_new(tt, ks, kd)
 
-        if fit_type == "chase" and "no4sU" in data.coldata.columns:
-            mask = ~data.coldata["no4sU"].values
-            df = df[mask]
-
         fitted.append(pd.DataFrame({
-            "time": tt,
+            "time_values": tt,
             "Expression": expr_old,
             "Type": "old",
             "condition": cond
         }))
         fitted.append(pd.DataFrame({
-            "time": tt,
+            "time_values": tt,
             "Expression": expr_new,
             "Type": "new",
             "condition": cond
@@ -2265,7 +2286,7 @@ def plot_gene_progressive_timecourse(
 
     df_long = pd.melt(
         df,
-        id_vars=["time", "condition"],
+        id_vars=["time_values", "condition"],
         value_vars=["total", "new", "old"],
         var_name="Type",
         value_name="Expression"
@@ -2277,32 +2298,66 @@ def plot_gene_progressive_timecourse(
         sharey=True,
         sharex=True,
         height=6,
-        aspect=10/6
+        aspect=1
     )
 
     # Plot total, new, old points
     g.map_dataframe(
         sns.scatterplot,
-        x="time",
+        x="time_values",
         y="Expression",
         hue="Type",
         palette={"total": "gray", "new": "#e34a33", "old": "#2b8cbe"},
-        s=size
+        s=size,
+        antialiased=True
     )
 
     # Plot total curve
     g.map_dataframe(
         lambda data, color, **kws: sns.lineplot(
             data[data["Type"] == "total"]
-            .groupby(["time", "condition"], as_index=False)
+            .groupby(["time_values", "condition"], as_index=False)
             .median(numeric_only=True),
-            x="time",
+            x="time_values",
             y="Expression",
             color="gray",
             linestyle="solid",
-            linewidth=1, antialiased=True
+            linewidth=1,
+            antialiased=True
         )
     )
+
+    # Plot Confidence Intervals
+    if show_ci:
+        for cond, cond_df in df.groupby("condition"):
+            ax = g.axes_dict[cond]
+
+            for typ, color in zip(["total", "new", "old"], ["gray", "#e34a33", "#2b8cbe"]):
+                y = cond_df[typ]
+                ymin = cond_df[f"lower_{typ}"]
+                ymax = cond_df[f"upper_{typ}"]
+
+                yerr = np.array([y - ymin, ymax - y])
+
+                mask = np.isfinite(y) & np.isfinite(ymin) & np.isfinite(ymax)
+                err_low = y - ymin
+                err_high = ymax - y
+                mask_positive = mask & (err_low >= 0) & (err_high >= 0)
+
+                if not np.any(mask_positive):
+                    continue
+
+                ax.errorbar(
+                    cond_df["time_values"][mask_positive],
+                    y[mask_positive],
+                    yerr=np.array([err_low[mask_positive], err_high[mask_positive]]),
+                    fmt='none',
+                    ecolor=color,
+                    elinewidth=1,
+                    capsize=2,
+                    alpha=0.6,
+                    antialiased=True
+                )
 
     # Plot fitted curves
     for cond, ax in zip(df["condition"].unique(), g.axes.flat):
@@ -2312,12 +2367,13 @@ def plot_gene_progressive_timecourse(
                 (df_fitted["Type"] == line_type)
                 ]
             ax.plot(
-                df_fit["time"],
+                df_fit["time_values"],
                 df_fit["Expression"],
                 linestyle="dashed",
                 linewidth=1,
                 color={"new": "#e34a33", "old": "#2b8cbe"}[line_type],
-                label=f"{line_type} (fit)"
+                label=f"{line_type} (fit)",
+                antialiased=True
             )
 
     g.set_ylabels("Expression")
@@ -2325,10 +2381,10 @@ def plot_gene_progressive_timecourse(
     g.add_legend(title="RNA")
     # Exact tics
     if exact_tics and "time_original" in df.columns:
-        brdf = df[["time", "time_original"]].drop_duplicates().sort_values("time")
+        brdf = df[["time_values", "time_original"]].drop_duplicates().sort_values("time_values")
         brdf["time_original"] = brdf["time_original"].astype(str).str.replace("_", ".", regex=False)
         for ax in g.axes.flat:
-            ax.set_xticks(brdf["time"])
+            ax.set_xticks(brdf["time_values"])
             ax.set_xticklabels(brdf["time_original"], rotation=45)
             ax.set_xlabel("")
     else:
