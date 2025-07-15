@@ -3,7 +3,7 @@ import numpy as np
 from math import log
 import pandas as pd
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Union, Optional
+from typing import TYPE_CHECKING, Union, Optional, Any
 
 if TYPE_CHECKING:
     from Py.grandPy import GrandPy
@@ -268,7 +268,7 @@ def _compute_steady_state_half_lives(
 
 
 def _filter_genes(
-    data,
+    data: "GrandPy",
     mode_slot: Union[str, "ModeSlot"] = None,
     min_expression: int = 100,
     min_columns: int = None,
@@ -277,6 +277,7 @@ def _filter_genes(
     use: Union[str, int, Sequence[Union[int, str, bool]]] = None,
     return_genes: bool = False
 ) -> Union["GrandPy", list[str]]:
+
     if use is not None and keep is not None:
         raise ValueError("Do not specify both use and keep!")
 
@@ -323,6 +324,7 @@ def _normalize(
     size_factors: np.ndarray = None,
     return_size_factors: bool = False
 ) -> Union["GrandPy", np.ndarray]:
+
     """
     DESeq2-ähnliche Normalisierung einer Slot-Matrix durch Size Factors.
 
@@ -387,6 +389,7 @@ def _normalize_fpkm(
     set_to_default: bool = True,
     total_len: np.ndarray = None
 ) -> "GrandPy":
+
     """
     FPKM-Normalisierung eines GrandPy-Objekts, analog zu DESeq2::NormalizeFPKM in R.
 
@@ -525,17 +528,69 @@ def _normalize_rpm(
     # Füge neuen Slot ein
     return data.with_slot(name, rpm, set_to_default=set_to_default)
 
-# def _normalize_baseline(data: "GrandPy",
-#                         reference = None,
-#                         name: str = "baseline",
-#                         slot: str = None,
-#                         set_to_default: bool = False,
-#                         LFC_func = None) -> "GrandPy":
-#
-#     if reference is None: reference = data.get_references(reference="condition", )
-#     matrix_for_baseline = data.get_matrix(mode_slot=slot)
+def _normalize_baseline(
+    data: "GrandPy",
+    baseline: str = None,
+    name: str = "baseline",
+    slot: str = "count",
+    set_to_default: bool = False,
+    normalize: bool = True,
+    pseudocount_min: float = 0.5,
+    **kwargs
+)-> "GrandPy":
+    """
+    Normalize expression data against a baseline using stabilized log2 fold change (PsiLFC).
 
-def _compute_total_expression(data: "GrandPy", column: str = "total_expression", genes: str | list[str] =None, mode_slot: str = None) -> "GrandPy":
+    Parameters:
+        data : your data object
+        baseline : pandas DataFrame [cells × conditions] with boolean masks per condition
+        name : str, name for the new slot
+        slot : str, which data slot to use
+        set_to_default : bool, whether to make this slot the new default
+        normalize : bool, apply median-centering
+        pseudocount_min : float, added to prior for numerical stability
+        **kwargs : extra args passed to PsiLFC if needed
+
+    Returns:
+        data : modified data object with normalized slot
+    """
+
+    unique_conditions = pd.unique(data.condition)[0]
+    if baseline is None:
+        baseline = data.get_references(reference = True)
+
+    def psi_lfc(A, B, normalize=True, pseudocount_min=0.5):
+        A = np.asarray(A, dtype=float)
+        B = np.asarray(B, dtype=float)
+        assert A.shape == B.shape, "A and B must have the same shape"
+
+        # Empirical Bayes prior
+        prior_A = np.mean(A) + pseudocount_min
+        prior_B = np.mean(B) + pseudocount_min
+
+        A_stab = A + prior_A
+        B_stab = B + prior_B
+
+        lfc = np.log2(A_stab / B_stab)
+        if normalize:
+            lfc -= np.median(lfc)
+        return lfc
+
+    # Matrix of expression data: genes × cells
+    mat = data.get_matrix(mode_slot=slot)
+
+    # Prepare result array (same shape)
+    result = np.zeros_like(mat)
+
+    for i, col_name in enumerate(baseline.columns):
+        # Cells where baseline[condition] is True
+        ref_mask = baseline[col_name].values.astype(bool)
+        ref_mean = mat[:, ref_mask].mean(axis=1)  # mean expression for each gene
+        result[:, i] = psi_lfc(mat[:, i], ref_mean, normalize=normalize, pseudocount_min=pseudocount_min)
+
+    return data.with_slot(name, result, set_to_default=set_to_default)
+
+def _compute_total_expression(data: "GrandPy", column: str = "total_expression", genes: str | list[str] = None, mode_slot: str = None) -> "GrandPy":
 
     matrix = data.get_matrix(mode_slot=mode_slot, genes=genes)
     total_expression = matrix.sum(axis=0)  # Summe über Zeilen (Gene), pro Spalte (Zelle)
@@ -581,14 +636,14 @@ def _compute_absolute(
     return data.with_slot(name, absolute)
 
 def _compute_expression_percentage(
-    data,
+    data: "GrandPy",
     name: str,
     genes: Union[str, Sequence[str]] = None,
     slot: str = None,
     genes_total: Union[str, Sequence[str]] = None,
     slot_total: str = None,
     float_to_percent: bool = True,
-):
+) -> "GrandPy":
     """
     Compute the percentage of expression for a set of genes per column and
     store it in the coldata (sample metadata).
@@ -632,3 +687,98 @@ def _compute_expression_percentage(
 
     data = data.with_coldata(column=name, value=percentage)
     return data
+
+# def _compute_column_statistics(data, verbose=True):
+#     if verbose:
+#         print("Obtaining model parameters...")
+#
+#     version = data.metadata.get("GRAND-SLAM version", None)
+#
+#     if version == 3:
+#         tab = data.get_qc_table("model.parameters", stop_if_not_exist=False)
+#         if tab is not None:
+#             tab = tab[
+#                 (tab["Label"] == tab["Label"].iloc[0]) &
+#                 (tab["Estimator"] == tab["Estimator"].iloc[0])
+#             ]
+#             for subread in tab["Subread"].unique():
+#                 sub_tab = tab[tab["Subread"] == subread]
+#                 m = dict(zip(sub_tab["Condition"], sub_tab["Binom p.conv"]))
+#                 data.coldata(f"p.conv.{subread}")[:] = [m.get(col, np.nan) for col in data.columns]
+#     else:
+#         # -- Handle mismatches --
+#         tab = data.get_qc_table("mismatches", stop_if_not_exist=False)
+#         if tab is not None:
+#             strand_info = data.get_qc_table("strandness", stop_if_not_exist=False)
+#             strand = strand_info["V1"].iloc[0] if strand_info is not None else None
+#
+#             if strand == "Antisense":
+#                 cond = ((tab["Orientation"] == "First") & (tab["Genomic"] == "A") & (tab["Read"] == "G")) | \
+#                        ((tab["Orientation"] == "Second") & (tab["Genomic"] == "T") & (tab["Read"] == "C"))
+#             elif strand == "Sense":
+#                 cond = ((tab["Orientation"] == "First") & (tab["Genomic"] == "T") & (tab["Read"] == "C")) | \
+#                        ((tab["Orientation"] == "Second") & (tab["Genomic"] == "A") & (tab["Read"] == "G"))
+#             else:
+#                 cond = ((tab["Genomic"] == "T") & (tab["Read"] == "C")) | \
+#                        ((tab["Genomic"] == "A") & (tab["Read"] == "G"))
+#
+#             tab = tab[cond & (tab["Category"] == "Exonic")]
+#             grouped = tab.groupby("Condition").agg({"Coverage": "sum", "Mismatches": "sum"})
+#             m = (grouped["Mismatches"] / grouped["Coverage"]).to_dict()
+#             data.coldata("raw.conversions")[:] = [m.get(col, np.nan) for col in data.columns]
+#
+#         # -- Handle rates --
+#         tab = data.get_qc_table("rates", stop_if_not_exist=False)
+#         if tab is not None:
+#             single_tab = tab[tab["Rate"] == "single_new"].iloc[:, 1:]
+#             m = single_tab.values.flatten()
+#             cond_names = single_tab.columns.tolist()
+#             m_dict = dict(zip(cond_names, m))
+#             data.coldata("p.conv.single")[:] = [m_dict.get(col, np.nan) for col in data.columns]
+#
+#             if hasattr(data, "coldata") and "no4sU" in data.coldata():
+#                 no4su_mask = data.coldata("no4sU")
+#
+#                 # Set to NA where no 4sU was present
+#                 data.coldata("p.conv.single")[no4su_mask] = np.nan
+#
+#             double_tab = tab[tab["Rate"] == "double_new"].iloc[:, 1:]
+#             m = double_tab.values.flatten()
+#             if np.any(m != 0):
+#                 m_dict = dict(zip(double_tab.columns, m))
+#                 data.coldata("p.conv.double")[:] = [m_dict.get(col, np.nan) for col in data.columns]
+#
+#                 if hasattr(data, "coldata") and "no4sU" in data.coldata():
+#                     data.coldata("p.conv.double")[no4su_mask] = np.nan
+#
+#     if verbose:
+#         print("Compute percentage new...")
+#
+#     data = compute_expression_percentage(
+#         data, name="percent.new", mode_slot="new.count", mode_slot_total="count"
+#     )
+#
+#     if verbose:
+#         print("Compute total reads...")
+#
+#     mat = data.get_matrix(mode_slot="count")
+#     data.coldata("total.reads")[:] = mat.sum(axis=0)
+#
+#     if verbose:
+#         print("Compute total genes...")
+#
+#     data.coldata("total.genes")[:] = (mat > 0).sum(axis=0)
+#
+#     # Optional: if GeneInfo has 'Type'
+#     gene_types = getattr(data, "gene_info", {}).get("Type", None)
+#     if gene_types is not None:
+#         for t in np.unique(gene_types):
+#             if verbose:
+#                 print(f"Compute percent for {t}...")
+#             gene_mask = gene_types == t
+#             sub_mat = data.get_matrix(mode_slot="count", genes=gene_mask)
+#             percentages = sub_mat.sum(axis=0) / data.coldata("total.reads") * 100
+#             data.coldata(f"percent.{t}")[:] = percentages
+#
+#     return data
+#
