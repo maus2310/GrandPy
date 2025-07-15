@@ -1,25 +1,34 @@
-import pandas as pd
-import numpy as np
-from typing import Union, TYPE_CHECKING, Optional, Literal, Sequence
+import warnings
 from itertools import combinations
+
+import numpy as np
+import pandas as pd
+
+from typing import Union, TYPE_CHECKING, Optional, Callable, Sequence
+from Py.utils import _ensure_list
+from Py.grandPy import GrandPy
+from Py.analysis_tool import AnalysisTool
+from Py.slot_tool import ModeSlot
+
+from scipy.special import digamma, polygamma
+from scipy.stats import norm
+from scipy.optimize import minimize, root_scalar
 
 try:
     from pydeseq2.ds import DeseqDataSet, DeseqStats
 except ImportError:
     DeseqDataSet = DeseqStats = None
 
-from Py.utils import _ensure_list
-
 if TYPE_CHECKING:
     from Py.grandPy import GrandPy
 
+# TODO: DELETE EXAMPLES IN THE LAST SPRINT!!!!!
 
 def _get_summary_matrix(
         data: "GrandPy",
         no4sU: bool = False,
         columns: Union[None, str, list[str]] = None,
-        average: bool = True
-) -> pd.DataFrame:
+        average: bool = True) -> pd.DataFrame:
     coldata = data.coldata
     sample_names = coldata.index.tolist()
 
@@ -62,99 +71,553 @@ def _get_summary_matrix(
 
     return matrix
 
-# TODO: Compute M bisher nicht umgesetzt & Werte bei method="deseq2" fixen & Doc-String ofc
-# für Pairwise(): compute_lfc(grand_obj, method="simple", contrasts=[...]) - Rückgabe ist dict
-# mit allen gewünschten Vergleichen, LFC-Werte = float
-# für PairwiseDeSeq2(): compute_lfc(grand_obj, method="deseq2", contrasts=[...], n_cpus=...)
-# hier ist zusätzlich die Q-Spalte für adjusted p-Werte enthalten
-def compute_lfc(data,
-                contrasts: Optional[list[tuple[str, str]]] = None,
-                method: Literal["deseq2", "simple"] = "deseq2",
-                slot: Optional[str] = None,
-                condition_col: str = "Condition",
-                design: Optional[Union[str, list[str]]] = None,
-                n_cpus: int = 1) -> dict[str, pd.DataFrame]:
+
+# from psi_lfc.R - waiting for feedback
+def empirical_bayes_prior(A: np.ndarray, B: np.ndarray, min_sd: float = 0.0) -> tuple[float, float]:
     """
-    - contrasts ist hier eine Liste von Tupeln (base, compare)
-    - method wählt zwischen deseq2 (pydeseq2 wird für jeden einzelnen contrast genutzt) &
-                            simple (Mittelwert-LFC ohne p-Werte)
-    - output ist ein Dictionary, in dem jeder key z.B. "SARS vs. Mock" ist und der Wert
-      das zugehörige DataFrame mit Spalten["LFC", "Q" (optional), ...]
+    Estimates Empirical Bayes prior parameters (a, b) for LFC shrinkage.
+
+    Parameters
+    ----------
+    A : np.ndarray
+        Vector A of counts from condition A.
+
+    B : np.ndarray
+        Vector B of counts from condition B.
+
+    min_sd : float
+        Minimal standard deviation of the prior (see also Psi_LFC-function below).
+
+    Returns
+    -------
+    a, b : float
+        Estimated prior pseudocounts for A and B, respectively.
     """
 
-    # Table und meta vorbereiten
-    slot = slot or data.default_slot
-    table = data.get_table(mode_slots=slot)  # Genes x Samples
-    meta = data.coldata.copy()
+    # EmpiricalBayesPrior(rnorm(1000,200),rnorm(1000,100))
+    #
+    # np.random.seed(123)
+    # A = np.random.normal(loc=200, scale=1, size=1000)
+    # B = np.random.normal(loc=100, scale=1, size=1000)
+    # a, b = empirical_bayes_prior(A, B)
+    # print(f"Estimated priors: a = {a:.3f}, b = {b:.3f}")
 
-    # DESeq2 initialisieren, wenn angegeben bei method
-    if method == "deseq2":
-        if DeseqDataSet is None:
-            raise ImportError("pydeseq2 not found. Install pydeseq2 package.")
-        # Design-Faktoren bestimmen
-        if design is not None:
-            design_factors = design
-        elif hasattr(data, 'design') and data.design is not None:
-            design_factors = data.design
+    mask = (A > 0) | (B > 0)
+    A0, B0 = A[mask], B[mask]
+
+    diff = np.log(A0) - np.log(B0)
+    x = np.median(diff)
+    q_up = np.quantile(diff, norm.cdf(1))
+    q_low = np.quantile(diff, norm.cdf(-1))
+    y = max((q_up - x)**2, (-q_low + x)**2)
+
+    if np.isinf(x) or np.isinf(y):
+        A1, B1 = A + 1, B + 1
+        diff1 = np.log(A1) - np.log(B1)
+        x = np.mean(diff1)
+        y = np.var(diff1)
+
+    def obj(v):
+        return (digamma(v[0]) - digamma(v[1]) - x)**2 + (polygamma(1, v[0]) + polygamma(1, v[1]) - y)**2
+
+    result = minimize(obj, x0=[1.0, 1.0], method="Nelder-Mead")
+    a, b = result.x
+
+    sd = np.sqrt((polygamma(1, a) + polygamma(1, b)) / (np.log(2)**2))
+    if sd < min_sd:
+
+        def f_fun(f):
+            return np.sqrt((polygamma(1, f*a) + polygamma(1, f*b)) / (np.log(2)**2)) - min_sd
+
+        root = root_scalar(f_fun, bracket=[1e-6, 1.0])
+
+        if not root.converged:
+            raise RuntimeError("Could not inflate prior SD to min_sd.")
+
         else:
-            design_factors = condition_col
-        dds = DeseqDataSet(
-            counts=table.T.round().astype(int),
-            metadata=meta,
-            design_factors=design_factors)
-        dds.deseq2()
+            f = root.root
+            warnings.warn(f"Inflated prior by a factor of {1 / f:.2f}", RuntimeWarning)
 
-    # Kontraste bilden, wenn nicht angegeben
-    if contrasts is None:
-        levels = meta[condition_col].unique().tolist()
-        contrasts = [(base, comp) for base in levels for comp in levels if comp != base]
+        a *= f
+        b *= f
 
-    results: dict[str, pd.DataFrame] = {}
-    for base, compare in contrasts:
-        key = f"{compare}_vs_{base}"
-        col_lfc = f"total.{base} vs {compare}.LFC"
+    return a, b
 
-        if method == "deseq2":
-            stats = DeseqStats(
-                dds,
-                contrast=[condition_col, compare, base],
-                n_cpus=n_cpus)
 
-            stats.summary()
-            all_coefs = list(stats.LFC.columns)
-            test_coefs = [c for c in all_coefs if "Intercept" not in c]
-            coef_to_shrink = test_coefs[0] if test_coefs else all_coefs[0]
-            stats.lfc_shrink(coeff=coef_to_shrink)
-            df_raw = stats.results_df
+# waiting for feedback
+def center_median(l: np.ndarray) -> np.ndarray:
+    """
+    Subtracts the median of the given vector (for normalizing log2 fold changes).
 
-            if df_raw is None:
-                raise RuntimeError("pydeseq2 returned no results.")
-            df = (
-                df_raw
-                .rename(columns={"log2FoldChange": col_lfc, "padj": "Q"})
-                .loc[:, [col_lfc, "Q"]])
-            df.index.name = "Symbol"
-            results[key] = df
+    Parameters
+    ----------
+    l : np.ndarray
+        l Vector of effect sizes (see also Psi_LFC-function below).
+
+    Returns
+    -------
+    np.ndarray
+        A vector of length 2 containing the two parameters.
+    """
+    # CenterMedian(rnorm(1000,200))
+    #
+    # np.random.seed(123)
+    # A = np.random.normal(loc=200, scale=1, size=1000)
+    # A_centered = center_median(A)
+    # print(f"Median before: {np.median(A):.6f}")
+    # print(f"Median after : {np.median(A_centered):.6f}")
+
+    return l - np.nanmedian(l)
+
+
+# waiting for feedback
+def Psi_LFC(A: np.ndarray,
+            B: np.ndarray,
+            prior: Optional[tuple[float, float] | None] = None,
+            normalize_fun: Optional[Callable[[np.ndarray], np.ndarray]] = None,
+            cre: Union[bool, list[float]] = False,
+            verbose: bool = False) -> tuple[np.ndarray, np.ndarray]:
+
+    """
+    Computes the optimal effect size estimate and credible intervals if needed.
+
+    Parameters
+    ----------
+    A : np.ndarray
+        Vector A of counts from condition A.
+
+    B : np.ndarray
+        Vector B of counts from condition B.
+
+    prior : tuple[float, float] | None
+        Prior pseudocounts (a, b). If None, estimated via empirical_bayes_prior(A, B).
+
+    normalize_fun : callable, optional
+        Function to normalize raw LFCs (default: median centering).
+
+    cre : bool
+        Compute credible intervals.
+
+    verbose : bool
+        If True status updates will be provided.
+
+    Returns
+    -------
+    lfc_centered : np.ndarray
+        Shrunk, median‑centered log2 fold‑changes (length = #genes).
+
+    qlfc : np.ndarray, optional
+        Credible interval matrix (genes x len(cre)); only if cre is not False.
+    """
+
+    # PsiLFC(rnorm(1000, 200), rnorm(1000, 100))
+    #
+    # np.random.seed(123)
+    # A = np.random.normal(loc=200, scale=1, size=1000)
+    # B = np.random.normal(loc=100, scale=1, size=1000)
+    # lfc_centered = Psi_LFC(A, B, cre=False, verbose=True)
+    # print("Shrunk, median-centered LFC:")
+    # print(lfc_centered[:10])  # ersten 10 Werte
+    #
+    # # with CI
+    # lfc_ci, qlfc = Psi_LFC(A, B, cre=True, verbose=False)
+    # print("LFC with 95% credible intervals (first 10 genes):")
+    # for i in range(10):
+    #     print(f"Gene{i + 1}: LFC={lfc_ci[i]:.3f}, CI=({qlfc[i, 0]:.3f}, {qlfc[i, 1]:.3f})")
+
+
+    if prior is None:
+        a, b = empirical_bayes_prior(A, B)
+    else:
+        a, b = prior
+
+    if verbose:
+        print(f"Using prior pseudocounts: a={a:.2f}, b={b:.2f}")
+
+    lfc = (digamma(A + a) - digamma(B + b)) / np.log(2)
+
+    norm_fun = normalize_fun or center_median
+    lfc_centered = norm_fun(lfc)
+
+    if verbose:
+        print(f"Normalization, median before: {np.nanmedian(lfc):.4f}, after: {np.nanmedian(lfc_centered):.4f}")
+
+    if cre is True:
+        cre = [0.05, 0.95]
+
+    if cre is not False:
+        qs = cre if isinstance(cre, list) else [cre]
+        var = (polygamma(1, A + a) + polygamma(1, B + b)) / (np.log(2) ** 2)
+        sd = np.sqrt(var)
+
+        raw_qlfc = np.vstack([norm.ppf(q, loc=lfc, scale=sd) for q in qs]).T
+        centered_qlfc = np.apply_along_axis(norm_fun, 0, raw_qlfc)
+        return lfc_centered, centered_qlfc
+
+    return lfc_centered
+
+
+# kinda done - not quite sure about the output yet
+def compute_lfc(data: GrandPy,
+                name_prefix: str,
+                contrasts: pd.DataFrame,
+                slot: str = "count",
+                LFC_fun: Callable = Psi_LFC,
+                mode: str = "total",
+                normalization: Optional[Union[str, Sequence[float]]] = None,
+                compute_M: bool = True,
+                genes: Optional[list[str]] = None,
+                verbose: bool = False,
+                **kwargs) -> GrandPy:
+
+    """
+    Estimate log2 fold changes and optional M values for each contrast and store analyses.
+
+    Parameters
+    ----------
+    data : GrandPy
+        The grandPy object.
+
+    name_prefix : str
+        The prefix for the new analysis name;
+        a "_" and the column names of the contrast matrix are appended;
+        can be None (then only the contrast matrix names are used)
+
+    contrasts : pd.DataFrame
+        Contrast matrix defining comparisons (samples x contrasts; values 1, -1).
+
+    slot : str
+        The slot of the grandPy object to take the data from;
+        for Psi_LFC-functions this really should be "count"!
+
+    LFC_fun : function
+        Function to compute the log2 fold changes.
+        (default Psi_LFC, other viable option: "Norm_LFC") #TODO Norm_LFC()
+
+    mode : str
+        Computes LFCs for "total", "new" or "old" RNA.
+
+    normalization :  str or sequence, optional
+        If str: use the <normalization>_<slot> slot of normalized counts;
+        if sequence: divide each sample by the provided size factor.
+
+    compute_M : bool, default True
+        If True and LFC_fun returns M, include the "M" column.
+
+    genes : list of str, optional
+        Restrict analysis to these genes; None means all genes.
+
+    verbose : bool
+        If True status updates will be provided.
+
+    **kwargs
+        Additional keyword arguments are passed to LFC_fun.
+
+    Returns
+    -------
+    GrandPy
+        New GrandPy object with one analysis per contrast. Columns are
+        "LFC" (log2 fold change) and optionally "M".
+    """
+
+    # sars <- ReadGRAND(system.file("extdata", "sars.tsv.gz", package = "grandR"),
+    #                   design=c(Design$Condition,Design$dur.4sU,Design$Replicate))
+    # sars <- subset(sars,Coldata(sars,Design$dur.4sU)==2)
+    # sars<-LFC(sars,mode="total",contrasts=GetContrasts(sars,contrast=c("Condition","Mock")))
+    # sars<-LFC(sars,mode="new",normalization="total",
+    #                             contrasts=GetContrasts(sars,contrast=c("Condition","Mock")))
+    # head(GetAnalysisTable(sars)
+    # ------------------------------
+    # from Py.load import *
+    # sars = read_grand("data/sars_R.tsv", design=("Condition", "dur.4sU", "Replicate"))
+    # mask = sars.coldata["duration.4sU"] == 2
+    # sars = sars[:, mask]
+    #
+    # sm = get_summary_matrix(sars, no4sU=False, average=False)
+    # contrasts = pd.DataFrame({"SARS_vs_Mock": sm["SARS"].astype(int) * 1
+    #                                           + sm["Mock"].astype(int) * -1})
+    # sars = compute_lfc(data=sars, name_prefix="total", contrasts=contrasts,
+    #                    slot="count", mode="total",
+    #                    normalization=None, compute_M=True, verbose=True)
+    #
+    # # new RNA
+    # sars = compute_lfc(data=sars, name_prefix="new", contrasts=contrasts,
+    #                    slot="count", mode="new",
+    #                    normalization="total", compute_M=True,
+    #                    verbose=True)
+    #
+    # res_total = sars._adata.uns["analyses"]["total_SARS_vs_Mock"]
+    # res_new = sars._adata.uns["analyses"]["new_SARS_vs_Mock"]
+    #
+    # print("=== total RNA LFC ===")
+    # print(res_total.head())
+    # print("\n=== new RNA LFC ===")
+    # print(res_new.head())
+
+    # Filtern der Contrasts
+    valid = [col for col in contrasts.columns
+        if -1 in contrasts[col].values and 1 in contrasts[col].values]
+    contrasts = contrasts.loc[:, valid]
+    if contrasts.shape[1] == 0:
+        raise ValueError("Contrasts do not define any comparison!")
+
+    # tool = AnalysisTool(data.to_anndata())
+
+    # Roh-Counts aus mode_slot
+    mode_slot_obj = ModeSlot(mode, slot)
+    try:
+        raw_mat = data.get_matrix(mode_slot=str(mode_slot_obj))
+    except Exception:
+        raise ValueError(f"Invalid mode slot: '{mode_slot_obj}'")
+    raw_expr = pd.DataFrame(raw_mat, index=data.genes, columns=data.coldata.index)
+
+    # Thema Genes
+    if genes is not None:
+        raw_expr = raw_expr.loc[genes]
+
+    # Normalisierungspart
+    if isinstance(normalization, (list, np.ndarray, pd.Series)):
+        sf = np.array(normalization)
+        if sf.shape[0] != raw_expr.shape[1]:
+            raise ValueError("Invalid numeric normalization: length mismatch")
+
+    elif isinstance(normalization, str):
+        norm_slot_obj = ModeSlot(normalization, slot)
+        try:
+            norm_mat = data.get_matrix(mode_slot=str(norm_slot_obj))
+        except Exception:
+            raise ValueError(f"Invalid normalization slot: '{norm_slot_obj}'")
+        norm_expr = pd.DataFrame(norm_mat, index=data.genes, columns=data.coldata.index)
+        if genes is not None:
+            norm_expr = norm_expr.loc[genes]
+
+    new_data = data
+
+    for contrast in contrasts.columns:
+        c = contrasts[contrast]
+        A_idx = c[c == 1].index
+        B_idx = c[c == -1].index
+
+        sumA = raw_expr[A_idx].sum(axis=1)
+        sumB = raw_expr[B_idx].sum(axis=1)
+
+        if isinstance(normalization, (list, np.ndarray, pd.Series)):
+            # nur Shift berechnen
+            sf_series = pd.Series(sf, index=raw_expr.columns)
+            shift = np.log2(sf_series.loc[A_idx].sum() / sf_series.loc[B_idx].sum())
+            lfc_vec = LFC_fun(
+                sumA.values, sumB.values,
+                normalize_fun=lambda x: x - shift,
+                verbose=verbose, **kwargs)
+
+        elif isinstance(normalization, str):
+            # erst normalized counts ohne Verschiebung
+            nA = norm_expr[A_idx].sum(axis=1).values
+            nB = norm_expr[B_idx].sum(axis=1).values
+            nlfc = LFC_fun(nA, nB, normalize_fun=lambda x: x, verbose=verbose, **kwargs)
+            med = np.median(nlfc)
+            # dann raw counts mit Verschiebung um median
+            lfc_vec = LFC_fun(
+                sumA.values, sumB.values,
+                normalize_fun=lambda x: x - med,
+                verbose=verbose, **kwargs)
+
         else:
-            if "no4sU" in meta.columns:
-                keep = ~meta["no4sU"]
-                tbl = table.loc[:, keep]
-                cond = meta.loc[keep, condition_col]
-            else:
-                tbl = table
-                cond = meta[condition_col]
+            # ohne Normalisierung
+            lfc_vec = LFC_fun(
+                sumA.values, sumB.values,
+                verbose=verbose, **kwargs)
 
-            sums = tbl.groupby(cond, axis=1).sum()
-            missing = [x for x in (base, compare) if x not in sums.columns]
-            if missing:
-                raise KeyError(f"Condition(s) {missing} not found; available: {sums.columns.tolist()}")
+        # DataFrame bauen
+        df = pd.DataFrame({"LFC": lfc_vec}, index=sumA.index)
 
-            lfc = np.log2((sums[compare] + 1) / (sums[base] + 1))
-            df = lfc.to_frame(name=col_lfc)
-            df.index.name = "Symbol"
-            results[key] = df
+        # M‑Value
+        if compute_M:
+            M = 10 ** (0.5 * (np.log10(sumA + 0.5) + np.log10(sumB + 0.5)))
+            df["M"] = M
 
-    return results
+        df.index.name = "Symbol"
+
+        # Analyse speichern
+        name = f"{name_prefix}_{contrast}"
+        adata = new_data._adata
+        analyses = adata.uns.setdefault("analyses", {})
+        analyses[name] = df
+
+    return new_data
+
+
+# TODO: REWORK!
+def pairwise_DEseq2(data: GrandPy,
+                    name_prefix : str,
+                    contrasts: pd.DataFrame,
+                    separate: bool = False,
+                    mode: str = "total",
+                    slot: str = "count",
+                    normalization: Optional[Union[str, Sequence[float]]] = None,
+                    genes: Optional[list[str]] = None,
+                    verbose: bool = False) -> GrandPy:
+
+    """
+    Perform Wald tests for differential expression.
+    Apply DESeq2 for comparisons defined in a contrast matrix, requires the DESeq2 package.
+
+    Parameters
+    ----------
+    data : GrandPy
+        The grandPy object.
+
+    name_prefix : str
+        The prefix for the new analysis name;
+        a "_" and the column names of the contrast matrix are appended;
+        can be None (then only the contrast matrix names are used)
+
+    contrasts : pd.DataFrame
+        Contrast matrix that defines all pairwise comparisons, generated using get_contrast() #TODO get_contrast() einbauen
+
+    separate : bool
+        Model overdispersion separately for all pairwise comparison (TRUE),
+        or fit a single model per gene, and extract contrasts (FALSE).
+
+    mode : str
+        Compute LFCs for "total", "new", or "old" RNA.
+
+    slot : str
+        Which slot to use (should be a count slot, not normalized values).
+
+    normalization : str
+         Normalize on "total", "new", or "old".
+
+    # TODO logFC ???
+
+    genes : list
+        Restrict analysis to these genes; None means all genes.
+
+    verbose : bool
+        If True status updates will be provided.
+
+    Returns
+    -------
+    GrandPy
+        A new GrandPy object including a new analysis table.
+        The columns of the new analysis table are
+        "M"     - the base mean
+        "S"     - the log2FoldChange divided by lfcSE
+        "P"     - the Wald test P value
+        "Q"     - same as P but Benjamini-Hochberg multiple testing corrected
+        "LFC"   - the log2 fold change (only with the logFC parameter set to TRUE) # TODO
+    """
+
+    # ' sars <- ReadGRAND(system.file("extdata", "sars.tsv.gz", package = "grandR"),
+    # '                   design=c(Design$Condition,Design$dur.4sU,Design$Replicate))
+    # ' sars <- subset(sars,Coldata(sars,Design$dur.4sU)==2)
+    # ' sars<-PairwiseDESeq2(sars,mode="total",
+    # '                               contrasts=GetContrasts(sars,contrast=c("Condition","Mock")))
+    # ' sars<-PairwiseDESeq2(sars,mode="new",normalization="total",
+    # '                               contrasts=GetContrasts(sars,contrast=c("Condition","Mock")))
+    # ' head(GetAnalysisTable(sars,column="Q"))
+
+    if DeseqDataSet is None:
+        raise ImportError("pydeseq2 is not installed!")
+
+    tool = AnalysisTool(data.to_anndata())
+    new_data = data
+
+    for contrast in contrasts.columns:
+        c = contrasts[contrast]
+        samples = c[c != 0].index.tolist()
+        cols = [data.coldata.index.get_loc(s) for s in samples]
+        mat = data.get_matrix(mode_slot=f"{mode}_{slot}")
+        sub_counts = pd.DataFrame(mat[:, cols], index=data.genes, columns=samples)
+        sub_coldata = data.coldata.loc[samples].copy()
+        sub_coldata["Condition"] = np.where(
+            c.loc[samples] == 1,
+            f"{contrast}_grp1",
+            f"{contrast}_grp2")
+
+        dds = DeseqDataSet(counts=sub_counts.T, colData=sub_coldata, design_factors="Condition")
+        dds = DeseqStats(dds)
+        res = dds.get_results()
+
+        mean_expr = sub_counts.mean(axis=1) + 1
+        res["M"] = np.log10(mean_expr)
+
+        table = res[["log2FoldChange", "stat", "pvalue", "padj", "M"]].copy()
+        table.columns = ["LFC", "S", "P", "Q", "M"]
+        name = f"{name_prefix}_{contrast}"
+        new_analyses = tool.with_analysis(name=name, table=table, by="Symbol")
+        new_data = new_data.replace(analyses=new_analyses)
+    return new_data
+
+#TODO: REWORK!
+def pairwise(data: GrandPy,
+             name_prefix: str,
+             contrasts: pd.DataFrame,
+             slot: str = "count",
+             mode: str = "total",
+             normalization: Optional[Union[str, Sequence[float]]] = None,
+             genes: Optional[list[str]] = None,
+             verbose: bool = False) -> GrandPy:
+    """
+    Log2 fold changes and Wald tests for differential expression.
+    This function is a shortcut for first calling pairwise_DESeq2 and then compute_LFC.
+
+    Parameters
+    ----------
+    data : GrandPy
+        The grandPy object.
+
+    name_prefix : str
+         The prefix for the new analysis name;
+         a "_" and the column names of the contrast matrix are appended;
+         can be None (then only the contrast matrix names are used).
+
+    contrasts : pd.DataFrame
+        Contrast matrix that defines all pairwise comparisons, generated using get_contrasts() #TODO get_contrast() einbauen
+
+    #TODO LFC_fun
+
+    slot : str
+        The slot of the grandR object to take the data from; should contain counts!
+
+    mode : str
+        Compute LFCs for "total", "new", or "old" RNA.
+
+    normalization : str
+        Normalize on "total", "new", or "old".
+
+    genes : list
+        Restrict analysis to these genes; None means all genes.
+
+    verbose : bool
+        If True status updates will be provided.
+
+    Returns
+    -------
+    GrandPy
+    A new GrandPy object including a new analysis table.
+    The columns of the new analysis table are
+        "M"     - the base mean
+        "S"     - the log2FoldChange divided by lfcSE
+        "P"     - the Wald test P value
+        "Q"     - same as P but Benjamini-Hochberg multiple testing corrected
+        "LFC"   - the log2 fold change (only with the logFC parameter set to TRUE) # TODO
+    """
+
+    # contrasts?
+    # normalization=mode?
+
+    data2 = pairwise_DEseq2(data,
+                            name_prefix=name_prefix, contrasts=contrasts,
+                            separate=False, mode=mode, slot=slot,
+                            normalization=normalization, genes=genes, verbose=verbose)
+
+    data3 = compute_lfc(data2, name_prefix=name_prefix, contrasts=contrasts,
+                        slot=slot, mode=mode, normalization=normalization,
+                        genes=genes, verbose=verbose)
+
+    return data3
+
 
 def _get_contrasts(
         data: "GrandPy",
