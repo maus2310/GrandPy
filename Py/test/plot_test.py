@@ -6,7 +6,7 @@ from Py.load import *
 from Py.plot import *
 
 sars = read_grand("../data/sars_R.tsv",
-                          design=("Condition", "Time", "Replicate"),
+                          design=("Condition", "duration.4sU", "Replicate"),
                           classification_genes=['UHMK1', 'ATF3', 'PABPC4', 'ROR1', 'ZC3H11A', 'ZBED6', 'PRDX6', 'PRRC2C'], classification_genes_label="Moin")
 def test_plot_test_run(sars=sars, gene = "SRSF6", pathforsave = None ): #"C:/Users/Andre/Desktop/plots"
     try:

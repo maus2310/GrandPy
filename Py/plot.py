@@ -9,17 +9,16 @@ import matplotlib.colors as mcolors
 
 from matplotlib import cm
 from typing import Optional, Union, Callable
-from scipy.stats import gaussian_kde, iqr
+from scipy.stats import gaussian_kde, iqr, pearsonr, spearmanr, kendalltau
 from sklearn.decomposition import PCA
 from pydeseq2.dds import DeseqDataSet
 from IPython.core.pylabtools import figsize
 from scipy.sparse import issparse
 
+
 from Py.grandPy import GrandPy
 from Py.slot_tool import ModeSlot, _parse_as_mode_slot
 
-# TODO Plots: PlotAnalyses, FormatCorrelation
-# TODO Plots: Datentypen bei parametern von allen funktionen hinzufügen
 
 def _is_sparse_matrix(mat: any)-> bool:
     """
@@ -186,7 +185,7 @@ def _label_points(ax, data, x_vals, y_vals, label, size, highlight_size, y_label
     for x_, y_, name in zip(x_vals[idxs], y_vals[idxs], gene_names):
         ax.text(x_, y_ + y_offset, name, fontsize=size * highlight_size/1.8, ha='center', va='bottom', bbox=dict(boxstyle="round,pad=0.3", edgecolor='black', facecolor='white', linewidth=0.5))
 
-def _setup_default_aes(data: GrandPy, aest: dict | None = None) -> dict:# TODO anschauen
+def _setup_default_aes(data: GrandPy, aest: dict | None = None) -> dict:
     """
        Set up default aesthetics dictionary for plotting based on data coldata.
 
@@ -213,7 +212,7 @@ def _setup_default_aes(data: GrandPy, aest: dict | None = None) -> dict:# TODO a
 
     return aest
 
-def _density2d(x, y, n=100, margin='n')-> np.ndarray:
+def _density2d(x: np.ndarray, y: np.ndarray, n: int = 100, margin: str ='n')-> np.ndarray:
     """
         Compute a 2D kernel density estimate (KDE) for points (x, y).
 
@@ -264,7 +263,7 @@ def _density2d(x, y, n=100, margin='n')-> np.ndarray:
 
     return density
 
-def _make_continuous_colors(values, colors=None, breaks=None)-> dict:
+def _make_continuous_colors(values, colors: str = None, breaks: int | list = None)-> dict:
     """
        Generate color breaks and corresponding colors for continuous values.
 
@@ -376,7 +375,7 @@ def _transform_z(matrix: np.ndarray, center: bool = True, scale: bool = True) ->
     from scipy.stats import zscore
     return zscore(matrix, axis=1, ddof=1, nan_policy='omit' if (center or scale) else 'propagate')
 
-def _transform_vst(data, selected_columns: list, mode_slot, genes) -> pd.DataFrame:
+def _transform_vst(data: np.ndarray, selected_columns: list, mode_slot, genes) -> pd.DataFrame:
     """
         Perform variance stabilizing transformation (VST) on selected gene expression data.
 
@@ -500,26 +499,97 @@ def _f_new(t: float, s: float, d: float)-> float | np.ndarray:
         """
     return s / d * (1 - np.exp(-t * d))
 
-#TODO bei lim farbe checken
-#parameter die noch fehlen:
-    # 2. xcol/ycol
-    # 3. log_x, log_y
-    # 4. axis, axis_x, axis_y
-    # 5. lim
-    # 6. filter
-    # 7. genes
-    # 8. highlight_label
-    # 10. facet
-    # 11. color, collorpalette, colorbreaks, color_label, na_color
-    # 12. density_margin, density_n
-    # 14. correlation, correlation_x/_y/_hjust/_vjust
-    # 15. layers.below
+def _format_correlation(method: str = "pearson", n_format: str | None = None, coeff_format: str | None = ".2f", p_format: str | None = ".2g", slope_format: str | None = None, rmsd_format: str | None = None, min_obs: int = 5) -> callable:
+    """
+        Create a function to compute and format correlation statistics between two arrays.
+
+        Parameters
+        ----------
+        method : str, default "pearson"
+            Correlation method to use. One of "pearson", "spearman", or "kendall".
+        n_format : str or None, optional
+            Format string (without '%') for the number of observations (e.g., "d"). If None, omit this from output.
+        coeff_format : str or None, optional
+            Format string for the correlation coefficient (e.g., ".2f"). If None, omit this from output.
+        p_format : str or None, optional
+            Format string for the p-value (e.g., ".2g" or ".2e"). If None, omit this from output.
+        slope_format : str or None, optional
+            Format string for the PCA-based slope between x and y (not from linear regression). If None, omit this.
+        rmsd_format : str or None, optional
+            Format string for the root mean square deviation (RMSD). If None, omit this.
+        min_obs : int, default 5
+            Minimum number of valid observations required to compute and return results.
+
+        Returns
+        -------
+        callable
+            A function that takes two numeric arrays (x, y) and returns a formatted string describing
+            the correlation statistics, or None if not enough valid data points.
+
+        Notes
+        -----
+        - NaN or infinite values are automatically excluded before computing correlations.
+        - The slope is computed from the first principal component and reflects direction, not regression.
+        """
+    def formatted_correlation(x, y):
+        if len(x) != len(y):
+            raise ValueError("Cannot compute correlation, unequal lengths!")
+
+        use = np.isfinite(x) & np.isfinite(y)
+        if np.sum(use) < len(x):
+            print(f"Removed {np.sum(~use)}/{len(x)} non-finite values while computing correlation!")
+
+        x = x[use]
+        y = y[use]
+
+        if len(x) < min_obs:
+            return None
+
+        if method == "pearson":
+            cc, p_value = pearsonr(x, y)
+            p_name = "R"
+        elif method == "spearman":
+            cc, p_value = spearmanr(x, y)
+            p_name = "\u03C1"
+        elif method == "kendall":
+            cc, p_value = kendalltau(x, y)
+            p_name = "\u03C4"
+        else:
+            raise ValueError("Invalid correlation method. Choose from 'pearson', 'spearman', or 'kendall'.")
+
+        formatted_n = f"n={len(x)}" if n_format else ""
+        formatted_p = f"p{'<' if p_value < 2.2e-16 else '='}{p_format}" if p_format else ""
+        formatted_coeff = f"{p_name}={cc:{coeff_format}}" if coeff_format else ""
+
+        if slope_format:
+            pca = np.linalg.svd(np.cov(x, y))[0][:, 0]
+            formatted_slope = f"s={pca[1] / pca[0]:{slope_format}}"
+        else:
+            formatted_slope = ""
+
+        if rmsd_format:
+            rmsd = np.sqrt(np.mean((x - y) ** 2))
+            formatted_rmsd = f"rmsd={rmsd:{rmsd_format}}"
+        else:
+            formatted_rmsd = ""
+
+        return "\n".join(filter(None, [formatted_n, formatted_coeff, formatted_p, formatted_slope, formatted_rmsd]))
+
+    return formatted_correlation
+
 #Beispielaufruf: plot_scatter(sars, mode_slot="count", remove_outlier=True, show_outlier=True, highlight="UHMK1")
 def plot_scatter(
     data: GrandPy,
     x: Optional[str] = None,
     y: Optional[str] = None,
+    genes: Optional[list[str]] = None,
+    filter: Optional[Union[slice, tuple[int, int],list[int], list[tuple[int, int]], np.ndarray, pd.Series]] = None,
     log: bool = False,
+    log_x: bool = False,
+    log_y: bool = False,
+    axis: bool = False,
+    axis_x: bool = False,
+    axis_y: bool = False,
     mode_slot: str | ModeSlot = None,
     remove_outlier: bool = True,
     show_outlier: bool = True,
@@ -527,62 +597,134 @@ def plot_scatter(
     limit: Optional[tuple[float, float]] = None,
     x_limit: Optional[tuple[float, float]] = None,
     y_limit: Optional[tuple[float, float]] = None,
+    color: str = None,
+    color_palette: str = "viridis",
     cross: Optional[bool] = None,
     diagonal: Optional[bool | float | tuple] = None,
-    highlight: Optional[Union[list[str], dict[str, list[str]]]] = None,            #TODO outlier werden nicht behandelt
+    highlight: Optional[Union[list[str], dict[str, list[str]]]] = None,
     highlight_size: float = 3,
-    label: Optional[Union[list[int], list[str]]] = None,                #TODO outlier werden nicht behandelt
+    label: Optional[Union[list[int], list[str]]] = None,
     y_label_offset: float = 0.001,
     analysis: str = None,
     rasterized: bool = False,
+    density_margin: str = "n",
+    density_n: int = 100,
     path_for_save: Optional[str] = None,
     figsize: tuple[float, float] = (10, 6)
 ):
     """
-    ScatterPlot
+        Plot a scatter plot of expression values from a GrandPy object.
 
-    Parameters
-    ----------
-    data: GrandPy
-        Object of GrandPy class
-    x: str
-        An expression to compute the x value or a character corresponding to a sample (or cell) name or a fully qualified analysis result name
-    y: str
-        An expression to compute the y value or a character corresponding to a sample (or cell) name or a fully qualified analysis result name
-    log: bool
-        Whether to plot the logarithmic scale
-    mode_slot: str | ModeSlot
-        Specifies which data slot to use (e.g., "count", "norm")
-    remove_outlier: bool
-        Whether to detect and remove outliers using IQR filtering
-    show_outlier: bool
-        If True, outliers will be plotted in light gray
-    path_for_save: str
-        Saves the plot as a PNG to the specified directory
-    limit: tuple[float, float]
-        Defines both xlim and ylim if they are not set explicitly
-    x_limit: tuple[float, float]
-        Define the x-axis limits (lower and upper bounds)
-    y_limit: tuple[float, float]
-        Define the y-axis limits (lower and upper bounds)
-    size: float
-        Size of each point in the scatter plot
-    diagonal: bool | float | list[float]
-        If True, draws the identity line (y = x).
-        If float, draws one line: y = x + diag.
-        If list of floats, draws multiple lines: y = x + offset for each value.
-    cross: bool
-        If True, draws horizontal and vertical dashed lines at x = 0 and y = 0
-    highlight: list[str] | dict[str, list[str]]
-        A list of gene names or a dictionary mapping colors to gene lists.
-        Genes will be highlighted in the plot with size 3× the default
-    highlight_size: float
-        Defines the size of the highlight lines in points
-    analysis: str
-        Analysis name
-    path_for_save: str
-        Saves the plot as a PNG to the specified directory
+        This function visualizes values associated with two variables (x and y), which can be either sample names,
+        analysis result names, or expressions. It supports various transformations, highlighting, axis styling, and
+        density coloring.
+        Parameters
+        ----------
+        data : GrandPy
+            GrandPy object containing expression data and metadata.
 
+        x : str, optional
+            Sample name, analysis result name, or expression used for the x-axis. Defaults to the first available.
+
+        y : str, optional
+            Sample name, analysis result name, or expression used for the y-axis. Defaults to the second available.
+
+        genes : list of str, optional
+            Subset of genes to include in the plot.
+
+        filter : slice | tuple[int, int] | list[int] | list[tuple[int, int]] | np.ndarray | pd.Series, optional
+            Filters the data to a subset of rows (genes) before plotting.
+
+            Can be:
+                - a slice (e.g., slice(0, 100))
+                - a tuple specifying a range (e.g., (0, 100))
+                - a list of indices
+                - a list of (start, stop) tuples
+                - a boolean mask (Series or array)
+
+        log : bool, default=False
+            If True, apply log10 transform to both x and y values (ignores zeros and negatives).
+
+        log_x : bool, default=False
+            If True, apply log10 transform to x-axis values.
+
+        log_y : bool, default=False
+            If True, apply log10 transform to y-axis values.
+
+        axis : bool, default=False
+            If True, remove both axes (ticks, labels, spines).
+
+        axis_x : bool, default=False
+            If True, remove x-axis only.
+
+        axis_y : bool, default=False
+            If True, remove y-axis only.
+
+        mode_slot : str or ModeSlot, optional
+            The data slot to use, e.g., "count", "norm", or a ModeSlot instance.
+
+        remove_outlier : bool, default=True
+            Whether to detect and remove outliers using IQR-based filtering.
+
+        show_outlier : bool, default=True
+            If True, plot filtered outliers in gray behind the main scatter plot.
+
+        size : float, default=5
+            Size of each point in the scatter plot.
+
+        limit : tuple[float, float], optional
+            Sets both x and y limits to the same value, unless x_limit or y_limit are specified.
+
+        x_limit : tuple[float, float], optional
+            Explicitly set the x-axis limits.
+
+        y_limit : tuple[float, float], optional
+            Explicitly set the y-axis limits.
+
+        color : str, optional
+            Variable name from DataFrame to color points by. If None, use density-based coloring.
+
+        color_palette : str, default="viridis"
+            Name of the matplotlib colormap to use for coloring.
+
+        cross : bool, optional
+            If True, draw dashed lines at x=0 and y=0.
+
+        diagonal : bool | float | tuple, optional
+            If True, draw identity line (y = x).
+            If float or tuple of float(s), draw y = x + offset(s).
+
+        highlight : list[str] | dict[str, list[str]], optional
+            Genes to highlight. Either:
+                - list of gene names (default color used)
+                - dict mapping color → list of genes
+
+        highlight_size : float, default=3
+            Size of highlighted points (multiplied with base size).
+
+        label : list[int] | list[str], optional
+            Genes to label in the plot (by name or index).
+
+        y_label_offset : float, default=0.001
+            Vertical offset to apply when rendering gene labels.
+
+        analysis : str, optional
+            Analysis name to use when extracting data from analysis tables.
+
+        rasterized : bool, default=False
+            Whether to rasterize scatter plot (useful for large plots with many points).
+
+        density_margin : str, default="n"
+            Defines density estimation behavior (passed to internal function).
+
+        density_n : int, default=100
+            Number of bins or grid size for density computation.
+
+        path_for_save : str, optional
+            If given, save the figure as a PNG to this directory with auto-generated filename.
+
+        figsize : tuple[float, float], default=(10, 6)
+            Size of the figure in inches (width, height).
     """
 
     if data.analyses:
@@ -605,11 +747,31 @@ def plot_scatter(
 
     raw_matrix = data._resolve_mode_slot(mode_slot)
     if _is_sparse_matrix(raw_matrix):
-        df = data.get_analysis_table()
+        df = data.get_analysis_table(genes=genes, with_gene_info=False)
     elif analysis:
-        df = data.get_analysis_table(with_gene_info=False)
+        df = data.get_analysis_table(genes = genes, with_gene_info=False)
     else:
-        df = data.get_table(mode_slots=mode_slot)
+        df = data.get_table(mode_slots=mode_slot, genes=genes)
+
+    if filter is not None:
+        if isinstance(filter, (tuple, slice)):
+            df = df.iloc[slice(*filter) if isinstance(filter, tuple) else filter]
+        elif isinstance(filter, list):
+            indices = []
+            for item in filter:
+                if isinstance(item, tuple):
+                    indices.extend(range(*item))
+                elif isinstance(item, slice):
+                    indices.extend(range(item.start, item.stop))
+                elif isinstance(item, int):
+                    indices.append(item)
+                else:
+                    raise TypeError(f"Unsupported filter element: {item}")
+            df = df.iloc[indices]
+        elif isinstance(filter, (np.ndarray, pd.Series)):
+            df = df.iloc[filter]
+        else:
+            raise TypeError("Invalid filter type")
 
     if x in df.columns:
         x_vals_all = df[x].to_numpy()
@@ -640,39 +802,45 @@ def plot_scatter(
         y_limit = y_limit or limit
 
     if log:
-        mask_pos = (x_vals_all > 0) & (y_vals_all > 0)
-        if not np.any(mask_pos):
-            raise ValueError("No positive values. Log transform not possible!")
-        x_vals_log = np.log10(x_vals_all[mask_pos])
-        y_vals_log = np.log10(y_vals_all[mask_pos])
+        log_x = True
+        log_y = True
 
-        mask_keep, auto_x_lim, auto_y_lim = _apply_outlier_filter(x_vals_log, y_vals_log, remove_outlier)
+    # Maskierung vorbereiten: nur für Achsen mit Log
+    mask = np.ones_like(x_vals_all, dtype=bool)
+    if log_x:
+        mask &= x_vals_all > 0
+    if log_y:
+        mask &= y_vals_all > 0
 
-        x_vals = x_vals_log[mask_keep]
-        y_vals = y_vals_log[mask_keep]
+    if not np.any(mask):
+        raise ValueError("No positive values for selected log transform. Log transform not possible!")
 
-        outlier_x = x_vals_log[~mask_keep]
-        outlier_y = y_vals_log[~mask_keep]
+    # Wende Log-Transformation an, wo gefordert
+    x_vals_trans = np.log10(x_vals_all[mask]) if log_x else x_vals_all[mask]
+    y_vals_trans = np.log10(y_vals_all[mask]) if log_y else y_vals_all[mask]
 
-        x_limit = x_limit or auto_x_lim
-        y_limit = y_limit or auto_y_lim
+    # Entferne Outlier basierend auf transformierten Werten
+    mask_keep, auto_x_lim, auto_y_lim = _apply_outlier_filter(x_vals_trans, y_vals_trans, remove_outlier)
 
-    else:
-        mask_keep, auto_x_lim, auto_y_lim = _apply_outlier_filter(x_vals_all, y_vals_all, remove_outlier)
+    # Wende Maske an
+    x_vals = x_vals_trans[mask_keep]
+    y_vals = y_vals_trans[mask_keep]
 
-        x_vals = x_vals_all[mask_keep]
-        y_vals = y_vals_all[mask_keep]
+    # Outlier separat speichern
+    outlier_x = x_vals_trans[~mask_keep]
+    outlier_y = y_vals_trans[~mask_keep]
 
-        outlier_x = x_vals_all[~mask_keep]
-        outlier_y = y_vals_all[~mask_keep]
-
-        x_limit = x_limit or auto_x_lim
-        y_limit = y_limit or auto_y_lim
+    # Achsenlimits setzen
+    x_limit = x_limit or auto_x_lim
+    y_limit = y_limit or auto_y_lim
 
     # Compute Density
-    density = _density2d(x_vals, y_vals, n=100, margin='n')
-    idx = density.argsort()
-    x_vals, y_vals, density = x_vals[idx], y_vals[idx], density[idx]
+    if not color:
+        color = _density2d(x_vals, y_vals, n=density_n, margin=density_margin)
+        idx = color.argsort()
+        x_vals, y_vals, color = x_vals[idx], y_vals[idx], color[idx]
+    else:
+        color = color
 
     fig, ax = plt.subplots(figsize=figsize)
 
@@ -684,7 +852,7 @@ def plot_scatter(
         ax.scatter(clipped_x, clipped_y, color="grey", s=size + 10, alpha=1, label="Outliers")
 
     # Main scatter
-    scatter = ax.scatter(x_vals, y_vals, c=density, s=size, cmap="viridis", alpha=1, rasterized=rasterized, antialiased=True)
+    scatter = ax.scatter(x_vals, y_vals, c=color, s=size, cmap=color_palette, alpha=1, rasterized=rasterized, antialiased=True, )
     fig.colorbar(scatter, ax=ax, label="Density")
 
     # Axis labels and title
@@ -720,6 +888,18 @@ def plot_scatter(
             _label_points(ax, data, x_vals_all, y_vals_all, label, size, highlight_size, y_label_offset)
 
     ax.grid(False)
+    if axis:
+        ax.set_axis_off()
+    if axis_x:
+        ax.set_xticks([])
+        ax.set_xticklabels([])
+        ax.spines["bottom"].set_visible(False)
+        ax.spines["top"].set_visible(False)
+    if axis_y:
+        ax.set_yticks([])
+        ax.set_yticklabels([])
+        ax.spines["left"].set_visible(False)
+        ax.spines["right"].set_visible(False)
     plt.tight_layout()
     if path_for_save:
         fig.savefig(f"{path_for_save}/{x}_{y}_{mode_slot}.png", format="png", dpi=300)
@@ -935,6 +1115,7 @@ def plot_pca(
     y: int = 2,
     columns: Union[str, list, None] = None,
     do_vst: bool = True,
+    show_progress: bool = True,
     path_for_save: Optional[str] = None,
 ):
     """
@@ -965,6 +1146,8 @@ def plot_pca(
         do_vst : bool, default=True
             Whether to apply variance-stabilizing transformation on raw counts before PCA
             (only if mode_slot is 'count').
+        show_progress: bool, default=True
+            Shows progress for the PCA. (Only for vst = True)
         path_for_save : str or None, optional
             If given, saves the PCA plot as a PNG in the specified directory.
         See Also
@@ -1001,7 +1184,7 @@ def plot_pca(
 
     if do_vst:
         try:
-            dds = DeseqDataSet(counts=slotmat, metadata=coldata, design_factors="Condition")
+            dds = DeseqDataSet(counts=slotmat, metadata=coldata, design_factors="Condition", low_memory=True, quiet=show_progress)
 
         except Exception:
             warnings.warn(
@@ -1028,7 +1211,6 @@ def plot_pca(
     aest = _setup_default_aes(data, aest)
     style = aest.get("shape")
     hue = aest.get("color")
-
 
     plt.figure(figsize=(10, 6))
     sns.scatterplot(data=df, x=f"PC{x}", y=f"PC{y}", style=style, hue=hue, s=50)
@@ -1782,7 +1964,7 @@ def plot_gene_groups_bars(
 def plot_gene_snapshot_timecourse(
     data: GrandPy,
     gene: str,
-    time: str = "Time.original",
+    time: str = "duration.4sU",
     mode_slot: Union[str, ModeSlot, None] = None,
     columns: Optional[Union[str, list]] = None,
     average_lines: bool = True,
@@ -2093,7 +2275,7 @@ def plot_vulcano(
     plt.close()
 
 
-# Beispielaufruf: plot_gene_progressive_timecourse(sars, "UHMK1")
+# Beispielaufruf: plot_gene_progressive_timecourse(sars, "UHMK1") #TODO docstring
 def plot_gene_progressive_timecourse(
     data: GrandPy,
     gene: str,
@@ -2104,6 +2286,7 @@ def plot_gene_progressive_timecourse(
     exact_tics: bool = True,
     show_ci: bool = False,
     rescale: bool = True,
+    return_tables: bool = False,
     path_for_save: Optional[str] = None,
     **kwargs
 ):
@@ -2397,6 +2580,8 @@ def plot_gene_progressive_timecourse(
         g.savefig(f"{path_for_save}/{gene}_Progrssive_Timecourse.png", format="png", dpi=300)
     plt.show()
     plt.close()
+    if return_tables:
+        print(df[["condition", "time_values", "total", "new", "old"]])
 
 #TODO noch nicht einmal getestet
 def plot_ma(
