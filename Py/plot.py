@@ -18,7 +18,9 @@ from scipy.sparse import issparse
 
 from Py.grandPy import GrandPy
 from Py.slot_tool import ModeSlot, _parse_as_mode_slot
+#TODO Default parameter checken
 
+# TODO tests dateigröße testeb
 
 def _is_sparse_matrix(mat: any)-> bool:
     """
@@ -393,20 +395,14 @@ def _transform_vst(data: np.ndarray, selected_columns: list, mode_slot, genes) -
 
     selected_columns_valid = mat.columns.tolist()
 
-    coldata = data.coldata.loc[selected_columns_valid]
+    coldata = data.coldata
     coldata["condition"] = coldata["Condition"]
 
-    if str(mode_slot).lower() == "count":
-        slotmat = mat.T.round().astype(int)
-    else:
-        slotmat = mat.T
+    slotmat = mat.T.round().astype(int)
 
     slotmat = slotmat.loc[coldata.index]
-    try:
-        dds = DeseqDataSet(counts=slotmat, metadata=coldata, design_factors="Condition")
 
-    except Exception:
-        warnings.warn("Column 'Condition' not found in coldata. Please add a 'Condition' column to use this function.")
+    dds = DeseqDataSet(counts=slotmat, metadata=coldata, design_factors="Condition", low_memory=True, quiet=True)
 
     dds.deseq2()
     dds.vst_fit()
@@ -610,6 +606,7 @@ def plot_scatter(
     density_margin: str = "n",
     density_n: int = 100,
     path_for_save: Optional[str] = None,
+    save_fig_format: str = "svg",
     figsize: tuple[float, float] = (10, 6)
 ):
     """
@@ -723,8 +720,24 @@ def plot_scatter(
         path_for_save : str, optional
             If given, save the figure as a PNG to this directory with auto-generated filename.
 
+        save_fig_format: str, default="svg"
+            The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
+
         figsize : tuple[float, float], default=(10, 6)
             Size of the figure in inches (width, height).
+        See Also
+        --------
+        GrandPy.plots
+         Get the names of all stored plot functions.
+
+        GrandPy.with_plot
+         Add a plot function.
+
+        GrandPy.with_dropped_plots
+         Remove plots matching a regex.
+
+        GrandPy.plot_global
+         Executes a stored global plot function.
     """
 
     if data.analyses:
@@ -805,7 +818,6 @@ def plot_scatter(
         log_x = True
         log_y = True
 
-    # Maskierung vorbereiten: nur für Achsen mit Log
     mask = np.ones_like(x_vals_all, dtype=bool)
     if log_x:
         mask &= x_vals_all > 0
@@ -815,26 +827,20 @@ def plot_scatter(
     if not np.any(mask):
         raise ValueError("No positive values for selected log transform. Log transform not possible!")
 
-    # Wende Log-Transformation an, wo gefordert
     x_vals_trans = np.log10(x_vals_all[mask]) if log_x else x_vals_all[mask]
     y_vals_trans = np.log10(y_vals_all[mask]) if log_y else y_vals_all[mask]
 
-    # Entferne Outlier basierend auf transformierten Werten
     mask_keep, auto_x_lim, auto_y_lim = _apply_outlier_filter(x_vals_trans, y_vals_trans, remove_outlier)
 
-    # Wende Maske an
     x_vals = x_vals_trans[mask_keep]
     y_vals = y_vals_trans[mask_keep]
 
-    # Outlier separat speichern
     outlier_x = x_vals_trans[~mask_keep]
     outlier_y = y_vals_trans[~mask_keep]
 
-    # Achsenlimits setzen
     x_limit = x_limit or auto_x_lim
     y_limit = y_limit or auto_y_lim
 
-    # Compute Density
     if not color:
         color = _density2d(x_vals, y_vals, n=density_n, margin=density_margin)
         idx = color.argsort()
@@ -877,13 +883,13 @@ def plot_scatter(
     # Highlight
     if highlight:
         if log:
-            _highlight_points(ax, data, x_vals_log, y_vals_log, highlight, size, highlight_size)
+            _highlight_points(ax, data, x_vals, y_vals, highlight, size, highlight_size)
         else:
             _highlight_points(ax, data, x_vals_all, y_vals_all, highlight, size, highlight_size)
 
     if label:
         if log:
-            _label_points(ax, data, x_vals_log, y_vals_log, label, size, highlight_size, y_label_offset)
+            _label_points(ax, data, x_vals, y_vals, label, size, highlight_size, y_label_offset)
         else:
             _label_points(ax, data, x_vals_all, y_vals_all, label, size, highlight_size, y_label_offset)
 
@@ -902,7 +908,7 @@ def plot_scatter(
         ax.spines["right"].set_visible(False)
     plt.tight_layout()
     if path_for_save:
-        fig.savefig(f"{path_for_save}/{x}_{y}_{mode_slot}.png", format="png", dpi=300)
+        fig.savefig(f"{path_for_save}/{x}_{y}_{mode_slot}.{save_fig_format}", format=save_fig_format, dpi=300)
     plt.show()
     plt.close()
 
@@ -922,7 +928,8 @@ def plot_heatmap(
     title: Optional[str] = None,
     return_matrix: bool = False,
     na_to: Optional[float] = None,
-    path_for_save: Optional[str] = None
+    path_for_save: Optional[str] = None,
+    save_fig_format: str = "svg",
 ):
     """
      Create heatmaps from grandR objects.
@@ -979,6 +986,8 @@ def plot_heatmap(
          Value to substitute for missing (NA) values before plotting.
      path_for_save : str, optional
         Saves the plot as a PNG to the specified directory
+     save_fig_format: str, default="svg"
+        The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
      See Also
      --------
      GrandPy.plots
@@ -1100,7 +1109,7 @@ def plot_heatmap(
         plt.title(title, y=1.05)
     #plt.tight_layout()     # Makes cbar way to big :(
     if path_for_save:
-        fig.savefig(f"{path_for_save}/Heatmap_{mode_slot}.png", format="png", dpi=300)
+        g.savefig(f"{path_for_save}/Heatmap_{mode_slot}.{save_fig_format}", format=save_fig_format, dpi=300)
     plt.show()
     plt.close()
 
@@ -1117,6 +1126,7 @@ def plot_pca(
     do_vst: bool = True,
     show_progress: bool = True,
     path_for_save: Optional[str] = None,
+    save_fig_format: str = "svg",
 ):
     """
         Perform a principal component analysis (PCA) on a GrandPy dataset and visualize the results.
@@ -1150,6 +1160,8 @@ def plot_pca(
             Shows progress for the PCA. (Only for vst = True)
         path_for_save : str or None, optional
             If given, saves the PCA plot as a PNG in the specified directory.
+        save_fig_format: str, default="svg"
+            The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
         See Also
         --------
         GrandPy.plots
@@ -1221,7 +1233,7 @@ def plot_pca(
     plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0.)
     plt.tight_layout()
     if path_for_save:
-        plt.savefig(f"{path_for_save}/PCA_{mode_slot}.png", dpi=300)
+        plt.savefig(f"{path_for_save}/PCA_{mode_slot}.{save_fig_format}", format = save_fig_format, dpi=300)
     plt.show()
 
 #Beispielaufruf: plot_gene_old_vs_new(sars, "UHMK1", show_ci=True)
@@ -1235,6 +1247,7 @@ def plot_gene_old_vs_new(
     aest: Optional[dict] = None,
     size: float = 50,
     path_for_save: Optional[str] = None,
+    save_fig_format: str = "svg",
 ):
     """
         Plot old versus new RNA for a single gene, optionally including confidence intervals.
@@ -1265,6 +1278,8 @@ def plot_gene_old_vs_new(
             Size of scatter points.
         path_for_save : str or None, optional
             If provided, saves the resulting plot as a PNG in the given directory.
+        save_fig_format: str, default="svg"
+            The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
         See Also
         --------
         GrandPy.plots
@@ -1400,7 +1415,7 @@ def plot_gene_old_vs_new(
     )
     plt.tight_layout()
     if path_for_save:
-        fig.savefig(f"{path_for_save}/{gene}_Old_vs_New.png", format="png", dpi=300)
+        fig.savefig(f"{path_for_save}/{gene}_Old_vs_New.{save_fig_format}", format=save_fig_format, dpi=300)
     plt.show()
     plt.close()
 
@@ -1415,6 +1430,7 @@ def plot_gene_total_vs_ntr(
     aest: Optional[dict] = None,
     size: float = 50,
     path_for_save: Optional[str] = None,
+    save_fig_format: str = "svg",
 ):
     """
         Plot total RNA versus newly transcribed RNA ratio (NTR) for a single gene.
@@ -1444,6 +1460,8 @@ def plot_gene_total_vs_ntr(
             Size of scatter points.
         path_for_save : str or None, optional
             If provided, saves the resulting plot as a PNG in the given directory.
+        save_fig_format: str, default="svg"
+            The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
         See Also
         --------
         GrandPy.plots
@@ -1568,7 +1586,7 @@ def plot_gene_total_vs_ntr(
     )
     plt.tight_layout()
     if path_for_save:
-        fig.savefig(f"{path_for_save}/{gene}_Total_vs_Ntr.png", format="png", dpi=300)
+        fig.savefig(f"{path_for_save}/{gene}_Total_vs_Ntr.{save_fig_format}", format=save_fig_format, dpi=300)
     plt.show()
     plt.close()
 
@@ -1586,6 +1604,7 @@ def plot_gene_groups_points(
     transform: Optional[callable] = None,
     dodge: bool = False,
     path_for_save: Optional[str] = None,
+    save_fig_format: str = "svg",
 ):
     """
         Plot RNA values of a single gene grouped by a specified metadata category.
@@ -1623,6 +1642,8 @@ def plot_gene_groups_points(
             Whether to dodge replicates along the x-axis to reduce overlap.
         path_for_save : str or None, optional
             If provided, saves the plot as a PNG file in the specified path.
+        save_fig_format: str, default="svg"
+            The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
 
         Notes
         -----
@@ -1791,7 +1812,7 @@ def plot_gene_groups_points(
         ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
     plt.tight_layout()
     if path_for_save:
-        fig.savefig(f"{path_for_save}/{gene}_Groups_Points.png", format="png", dpi=300)
+        fig.savefig(f"{path_for_save}/{gene}_Groups_Points.{save_fig_format}", format=save_fig_format, dpi=300)
     plt.show()
     plt.close()
 
@@ -1805,6 +1826,7 @@ def plot_gene_groups_bars(
     xlabels: Optional[Union[str, list]] = None,
     transform: Optional[callable] = None,
     path_for_save: Optional[str] = None,
+    save_fig_format: str = "svg",
 ):
     """
         Plot stacked bar plots of “new” vs. “old” RNA fractions for a single gene across groups.
@@ -1838,6 +1860,8 @@ def plot_gene_groups_bars(
             or a custom Python function for advanced users.
         path_for_save : str or None, optional
             If provided, saves the plot as PNG in the given path.
+        save_fig_format: str, default="svg"
+            The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
         See Also
         --------
         GrandPy.plots
@@ -1956,7 +1980,7 @@ def plot_gene_groups_bars(
     ax.legend()
     plt.tight_layout()
     if path_for_save:
-        fig.savefig(f"{path_for_save}/{gene}_Groups_Bars.png", format="png", dpi=300)
+        fig.savefig(f"{path_for_save}/{gene}_Groups_Bars.{save_fig_format}", format=save_fig_format, dpi=300)
     plt.show()
     plt.close()
 
@@ -1975,6 +1999,7 @@ def plot_gene_snapshot_timecourse(
     size: float = 50,
     dodge: bool = False,
     path_for_save: Optional[str] = None,
+    save_fig_format: str = "svg",
 ):
     """
         Plot timecourse snapshot of gene expression for specified mode and samples.
@@ -2016,6 +2041,8 @@ def plot_gene_snapshot_timecourse(
             Whether to horizontally jitter points by hue to reduce overlap.
         path_for_save : str or None, optional
             Directory path to save the plot image. If None, does not save.
+        save_fig_format: str, default="svg"
+            The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
         See Also
         --------
         GrandPy.plots
@@ -2211,7 +2238,7 @@ def plot_gene_snapshot_timecourse(
     sns.scatterplot(data=df, x="Time_float_dodged", y=y, hue=hue, style=style, s=size, ax=ax)
     plt.tight_layout()
     if path_for_save:
-        fig.savefig(f"{path_for_save}/{gene}_Snapshot_Timecourse.png", format="png", dpi=300)
+        fig.savefig(f"{path_for_save}/{gene}_Snapshot_Timecourse.{save_fig_format}", format=save_fig_format, dpi=300)
     plt.show()
     plt.close()
 
@@ -2223,6 +2250,7 @@ def plot_vulcano(
     lfc_cutoff: float = 1,
     annotate_numbers=False, #TODO Default ist True aber noch nicht implementiert
     path_for_save: Optional[str] = None,
+    save_fig_format: str = "svg",
 ):
 #TODO Docstring
     if analyses is None:
@@ -2270,7 +2298,7 @@ def plot_vulcano(
     ax.set_title(analyses)
     plt.tight_layout()
     if path_for_save:
-        fig.savefig(f"{path_for_save}/Vulcano.png", format="png", dpi=300)
+        fig.savefig(f"{path_for_save}/Vulcano.{save_fig_format}", format=save_fig_format, dpi=300)
     plt.show()
     plt.close()
 
@@ -2288,6 +2316,7 @@ def plot_gene_progressive_timecourse(
     rescale: bool = True,
     return_tables: bool = False,
     path_for_save: Optional[str] = None,
+    save_fig_format: str = "svg",
     **kwargs
 ):
     """
@@ -2314,6 +2343,8 @@ def plot_gene_progressive_timecourse(
             Whether to use exact original time labels on the x-axis ticks.
         path_for_save : str, optional
             Directory path to save the plot PNG. If None, plot is not saved.
+        save_fig_format: str, default="svg"
+            The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
         **kwargs
             Additional keyword arguments passed to the kinetics fitting function.
 
@@ -2397,7 +2428,7 @@ def plot_gene_progressive_timecourse(
         df["lower_old"] = lower_old
         df["upper_old"] = upper_old
 
-    if rescale and fit_type.lower() in ["ntr", "chase", "nlls"]:
+    if rescale and fit_type.lower() in ["ntr", "chase"]:
         fac = []
         for i in range(len(df)):
             cond = str(df["condition"].iloc[i])
@@ -2577,7 +2608,7 @@ def plot_gene_progressive_timecourse(
             ax.set_xlabel("4sU labeling [h]")
             ax.tick_params(axis='x', rotation=0)
     if path_for_save:
-        g.savefig(f"{path_for_save}/{gene}_Progrssive_Timecourse.png", format="png", dpi=300)
+        g.savefig(f"{path_for_save}/{gene}_Progressive_Timecourse.{save_fig_format}", format=save_fig_format, dpi=300)
     plt.show()
     plt.close()
     if return_tables:
@@ -2590,7 +2621,8 @@ def plot_ma(
     p_cutoff: float = 0.05,
     lfc_cutoff: float = 1.0,
     annotate_numbers: bool = True,
-    path_for_save: Optional[str] = None
+    path_for_save: Optional[str] = None,
+    save_fig_format: str = "svg",
 ):
     """
     Create an MA plot from a GrandPy analysis result.
@@ -2618,6 +2650,8 @@ def plot_ma(
 
     path_for_save : str, optional
         If specified, saves the plot as a PNG file to this directory.
+    save_fig_format: str, default="svg"
+            The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
     See Also
         --------
         GrandPy.plots
@@ -2675,7 +2709,7 @@ def plot_ma(
                     ha="right", va="bottom")
     plt.tight_layout()
     if path_for_save:
-        fig.savefig(f"{path_for_save}/MAPlot.png", format="png", dpi=300)
+        fig.savefig(f"{path_for_save}/MAPlot.{save_fig_format}", format=save_fig_format, dpi=300)
     plt.show()
     plt.close()
 
@@ -2687,7 +2721,8 @@ def plot_expression_test(
     ylim: tuple = (-1, 1),
     hl_quantile: float = 0.8,
     size: float = 10,
-    path_for_save: Optional[str] = None
+    path_for_save: Optional[str] = None,
+    save_fig_format: str = "svg",
 ):
     """
         Generate a scatter plot comparing expression between 4sU-labeled and non-labeled samples.
@@ -2718,6 +2753,8 @@ def plot_expression_test(
 
         path_for_save : str, optional
             Path to save the plot as PNG, if provided.
+        save_fig_format: str, default="svg"
+            The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
         See Also
         --------
         GrandPy.plots
@@ -2761,7 +2798,7 @@ def plot_expression_test(
     ax.set_title("Expression Test: 4sU vs no4sU")
     plt.tight_layout()
     if path_for_save:
-        fig.savefig(f"{path_for_save}/Expression_Test.png", format="png", dpi=300)
+        fig.savefig(f"{path_for_save}/Expression_Test.{save_fig_format}", format=save_fig_format, dpi=300)
     plt.show()
     plt.close()
 
@@ -2772,6 +2809,7 @@ def plot_type_distribution(
     relative: bool = False,
     palette: str = "Dark2",
     path_for_save: Optional[str] = None,
+    save_fig_format: str = "svg",
 ):
     """
     Plot the distribution of gene types across conditions.
@@ -2800,6 +2838,8 @@ def plot_type_distribution(
 
     path_for_save : str, optional
         If provided, saves the plot as a PNG file to this path.
+    save_fig_format: str, default="svg"
+            The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
     See Also
     --------
     GrandPy.plots
@@ -2851,6 +2891,6 @@ def plot_type_distribution(
         ax.legend(title="Type")
         plt.tight_layout()
     if path_for_save:
-        fig.savefig(f"{path_for_save}/Type_Distribution.png", format="png", dpi=300)
+        fig.savefig(f"{path_for_save}/Type_Distribution.{save_fig_format}", format=save_fig_format, dpi=300)
     plt.show()
     plt.close()
