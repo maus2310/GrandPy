@@ -1,4 +1,3 @@
-import os
 import pytest
 from Py.load import *
 from Py.plot import *
@@ -23,35 +22,36 @@ sars = read_grand("../data/sars_R.tsv",
                           design=("Condition", "duration.4sU", "Replicate"),
                           classification_genes=['UHMK1', 'ATF3', 'PABPC4', 'ROR1', 'ZC3H11A', 'ZBED6', 'PRDX6', 'PRRC2C'], classification_genes_label="Moin")
 
-def test_plot_outputs(path="C:/Users/Andre/Desktop/plottest"):
-    test_plot_run(sars=sars, gene="SRSF6", pathforsave="C:/Users/Andre/Desktop/plottest")
-    out_of_range = []
-    missing = []
+def test_plot_outputs():
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        path = Path(tmpdirname)
+        test_plot_run(sars=sars, gene="SRSF6", pathforsave=path)
+        out_of_range = []
+        missing = []
 
-    print(f"\n--- Check plot-size with tolerance of +/- {TOLERANCE_KB} KB ---")
-    for filename, expected_kb in EXPECTED_FILE_SIZES.items():
-        filepath = os.path.join(path, filename)
-        if not os.path.isfile(filepath):
-            missing.append(filename)
-            print(f"{filename}: MISSING")
-            continue
+        print(f"\n--- Check plot-size with tolerance of +/- {TOLERANCE_KB} KB ---")
+        for filename, expected_kb in EXPECTED_FILE_SIZES.items():
+            filepath = path / filename
+            if not filepath.is_file():
+                missing.append(filename)
+                print(f"{filename}: MISSING")
+                continue
 
-        actual_kb = os.path.getsize(filepath) / 1024
-        diff = actual_kb - expected_kb
-        print(f"{filename}: {actual_kb:.1f} KB (expected {expected_kb} ± {TOLERANCE_KB}, Δ={diff:+.1f})")
+            actual_kb = filepath.stat().st_size / 1024
+            diff = actual_kb - expected_kb
+            print(f"{filename}: {actual_kb:.1f} KB (expected {expected_kb} ± {TOLERANCE_KB}, Δ={diff:+.1f})")
 
-        if abs(diff) > TOLERANCE_KB:
-            out_of_range.append(
-                f"(Failed Plot: '{filename}', actual size: {actual_kb:.2f} KB, expected size: {expected_kb} KB)"
-            )
+            if abs(diff) > TOLERANCE_KB:
+                out_of_range.append(
+                    f"(Failed Plot: '{filename}', actual size: {actual_kb:.2f} KB, expected size: {expected_kb} KB)"
+                )
 
-    if missing:
-        pytest.fail("Missing plot files: " + ", ".join(missing))
-    if out_of_range:
-        pytest.fail("Files with size out of range:\n" + "\n".join(out_of_range))
+        if missing:
+            pytest.fail("Missing plot files: " + ", ".join(missing))
+        if out_of_range:
+            pytest.fail("Files with size out of range:\n" + "\n".join(out_of_range))
 
-
-def test_plot_run(sars=sars, gene = "SRSF6", pathforsave="C:/Users/Andre/Desktop/plottest"): #"C:/Users/Andre/Desktop/plots"
+def test_plot_run(sars=sars, gene = "SRSF6", pathforsave=Path.cwd()): #"C:/Users/Andre/Desktop/plots"
         sars = sars.normalize()
         sars = sars.compute_ntr_ci()
         highlightgenes = sars.get_classified_genes("Moin")
