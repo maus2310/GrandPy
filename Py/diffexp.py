@@ -94,14 +94,6 @@ def empirical_bayes_prior(A: np.ndarray, B: np.ndarray, min_sd: float = 0.0) -> 
         Estimated prior pseudocounts for A and B, respectively.
     """
 
-    # EmpiricalBayesPrior(rnorm(1000,200),rnorm(1000,100))
-    #
-    # np.random.seed(123)
-    # A = np.random.normal(loc=200, scale=1, size=1000)
-    # B = np.random.normal(loc=100, scale=1, size=1000)
-    # a, b = empirical_bayes_prior(A, B)
-    # print(f"Estimated priors: a = {a:.3f}, b = {b:.3f}")
-
     mask = (A > 0) | (B > 0)
     A0, B0 = A[mask], B[mask]
 
@@ -159,15 +151,40 @@ def center_median(l: np.ndarray) -> np.ndarray:
     np.ndarray
         A vector of length 2 containing the two parameters.
     """
-    # CenterMedian(rnorm(1000,200))
-    #
-    # np.random.seed(123)
-    # A = np.random.normal(loc=200, scale=1, size=1000)
-    # A_centered = center_median(A)
-    # print(f"Median before: {np.median(A):.6f}")
-    # print(f"Median after : {np.median(A_centered):.6f}")
 
     return l - np.nanmedian(l)
+
+
+# waiting for feedback
+def norm_lfc(A: np.ndarray,
+            B: np.ndarray,
+            pseudo: tuple[float, float] = (1.0, 1.0),
+            normalize_fun: Callable[[np.ndarray], np.ndarray] = center_median
+             ) -> np.ndarray:
+
+    """
+    Computes the standard, normalized log2 fold change with given pseudocounts.
+
+    Parameters
+    ----------
+    A : np.ndarray
+        Vector A of counts from condition A.
+    B : np.ndarray
+        Vector B of counts from condition B.
+    pseudo : tuple[float, float]
+        Vector of length 2 of the pseudo counts.
+    normalize_fun : Callable[[np.ndarray], np.ndarray]
+        Function to normalize the obtained effect sizes.
+
+    Returns
+    -------
+        Normalized LFCs.
+
+    """
+
+    lfc = np.log2(A + pseudo[0]) - np.log2(B + pseudo[1])
+
+    return normalize_fun(lfc)
 
 
 # waiting for feedback
@@ -210,22 +227,6 @@ def Psi_LFC(A: np.ndarray,
         Credible interval matrix (genes x len(cre)); only if cre is not False.
     """
 
-    # PsiLFC(rnorm(1000, 200), rnorm(1000, 100))
-    #
-    # np.random.seed(123)
-    # A = np.random.normal(loc=200, scale=1, size=1000)
-    # B = np.random.normal(loc=100, scale=1, size=1000)
-    # lfc_centered = Psi_LFC(A, B, cre=False, verbose=True)
-    # print("Shrunk, median-centered LFC:")
-    # print(lfc_centered[:10])  # ersten 10 Werte
-    #
-    # # with CI
-    # lfc_ci, qlfc = Psi_LFC(A, B, cre=True, verbose=False)
-    # print("LFC with 95% credible intervals (first 10 genes):")
-    # for i in range(10):
-    #     print(f"Gene{i + 1}: LFC={lfc_ci[i]:.3f}, CI=({qlfc[i, 0]:.3f}, {qlfc[i, 1]:.3f})")
-
-
     if prior is None:
         a, b = empirical_bayes_prior(A, B)
     else:
@@ -260,7 +261,7 @@ def Psi_LFC(A: np.ndarray,
 # kinda done - not quite sure about the output yet
 def compute_lfc(data: GrandPy,
                 name_prefix: str,
-                contrasts: pd.DataFrame,
+                contrasts: Optional[pd.DataFrame] = None,
                 slot: str = "count",
                 LFC_fun: Callable = Psi_LFC,
                 mode: str = "total",
@@ -355,13 +356,17 @@ def compute_lfc(data: GrandPy,
     # print(res_new.head())
 
     # Filtern der Contrasts
+
+    if contrasts is None:
+        contrasts = data.get_contrasts()
+    if isinstance(contrasts, dict):
+        contrasts = pd.DataFrame(contrasts)
+
     valid = [col for col in contrasts.columns
-        if -1 in contrasts[col].values and 1 in contrasts[col].values]
+        if (1 in contrasts[col].values and -1 in contrasts[col].values)]
     contrasts = contrasts.loc[:, valid]
     if contrasts.shape[1] == 0:
         raise ValueError("Contrasts do not define any comparison!")
-
-    # tool = AnalysisTool(data.to_anndata())
 
     # Roh-Counts aus mode_slot
     mode_slot_obj = ModeSlot(mode, slot)
@@ -379,8 +384,7 @@ def compute_lfc(data: GrandPy,
     if isinstance(normalization, (list, np.ndarray, pd.Series)):
         sf = np.array(normalization)
         if sf.shape[0] != raw_expr.shape[1]:
-            raise ValueError("Invalid numeric normalization: length mismatch")
-
+            raise ValueError("Invalid numeric normalization: length mismatch.")
     elif isinstance(normalization, str):
         norm_slot_obj = ModeSlot(normalization, slot)
         try:
@@ -402,14 +406,13 @@ def compute_lfc(data: GrandPy,
         sumB = raw_expr[B_idx].sum(axis=1)
 
         if isinstance(normalization, (list, np.ndarray, pd.Series)):
-            # nur Shift berechnen
+            # Shift berechnen
             sf_series = pd.Series(sf, index=raw_expr.columns)
             shift = np.log2(sf_series.loc[A_idx].sum() / sf_series.loc[B_idx].sum())
             lfc_vec = LFC_fun(
                 sumA.values, sumB.values,
                 normalize_fun=lambda x: x - shift,
                 verbose=verbose, **kwargs)
-
         elif isinstance(normalization, str):
             # erst normalized counts ohne Verschiebung
             nA = norm_expr[A_idx].sum(axis=1).values
@@ -421,7 +424,6 @@ def compute_lfc(data: GrandPy,
                 sumA.values, sumB.values,
                 normalize_fun=lambda x: x - med,
                 verbose=verbose, **kwargs)
-
         else:
             # ohne Normalisierung
             lfc_vec = LFC_fun(
