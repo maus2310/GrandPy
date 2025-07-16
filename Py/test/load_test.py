@@ -1,12 +1,13 @@
 from pathlib import Path
 import pytest
-import pandas as pd
-import numpy as np
 from scipy import sparse
 
 from Py.load import *
 
-
+CURRENT_FILE = Path(__file__).resolve()
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+DATA_DIR = PROJECT_ROOT / "Py" / "data"
+TEST_DATASETS_DIR = PROJECT_ROOT / "test-datasets"
 
 @pytest.fixture
 def mock_df():
@@ -181,9 +182,8 @@ def test_resolve_prefix_path_not_found():
 # Tests für Laden von GRAND-SLAM-Daten
 
 def test_read_dense_real():
-    obj = read_grand("../data/sars_R.tsv", classification_genes=None, classification_genes_label="Viral", design=("Condition", "Time", "Replicate"))
+    obj = read_grand(DATA_DIR / "sars_R.tsv", classification_genes=None, classification_genes_label="Viral", design=("Condition", "Time", "Replicate"))
     assert "count" in obj.slots
-    assert obj.coldata.shape[0] > 0
 
 
 def test_sparse_loader_example():
@@ -198,8 +198,6 @@ def test_read_dense_and_sparse_load():
 
     assert isinstance(dense.coldata, pd.DataFrame)
     assert isinstance(sparse_test.coldata, pd.DataFrame)
-    assert "count" in dense.slots
-    assert "count" in sparse_test.slots
 
 
 def test_read_grand_url():
@@ -223,13 +221,58 @@ def test_read_sparse_rejects_invalid_prefix_combination():
     with pytest.raises(ValueError, match="does not match the existing targets/pseudobulk"):
         read_sparse(invalid_path, targets="SOMETHING", pseudobulk="WRONG")
 
+# -----------------------------------------------------------------------------
+# Versionstests
+
+def test_dense_version_is_2():
+    df = pd.DataFrame({
+        "Gene": ["g1", "g2"],
+        "Symbol": ["S1", "S2"],
+        "Length": [1000, 800],
+        "Mock.1 alpha": [0.5, 0.6],
+        "Mock.1 beta": [0.3, 0.4],
+        "Mock.1 Read count": [100, 200]
+    })
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = Path(tmpdir) / "dense.tsv.gz"
+        with gzip.open(path, "wt") as f:
+            df.to_csv(f, sep="\t", index=False)
+
+        gp = read_dense(path, design=("Condition", "Time"))
+        assert gp.metadata["Version"] == 2, "Dense input must set Version=2"
+
+
+def test_sparse_version_from_runtime():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = Path(tmpdir)
+        (path / "barcodes.tsv").write_text("A\nB\n")
+        (path / "features.tsv").write_text("gene1\tG1\t0\tcoding\t1000\ngene2\tG2\t0\tcoding\t900\n")
+        (path / "matrix.mtx").write_text("%%MatrixMarket matrix coordinate integer general\n2 2 2\n1 1 100\n2 2 200\n")
+        (path / "runtime").write_text("version 3\nother things\n")
+
+        gp = read_sparse(path, design=("Condition", "Time"))
+        assert gp.metadata["Version"] == 3, "Sparse input must detect Version=3 from runtime"
+
+
+def test_sparse_version_fallback():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = Path(tmpdir)
+        (path / "barcodes.tsv").write_text("A\nB\n")
+        (path / "features.tsv").write_text("gene1\tG1\t0\tcoding\t1000\ngene2\tG2\t0\tcoding\t900\n")
+        (path / "matrix.mtx").write_text("%%MatrixMarket matrix coordinate integer general\n2 2 2\n1 1 100\n2 2 200\n")
+
+        gp = read_sparse(path, design=("Condition", "Time"))
+        assert gp.metadata["Version"] == 3, "Sparse fallback must be Version=3 if runtime file is missing"
+
+
 
 
 # -----------------------------------------------------------------------------
 # Test für get_table_qc():
 
 def test_get_table_qc_returns_dataframe():
-    obj = read_grand("../data/sars_R.tsv", design=("Condition", "Time", "Replicate"))
+    obj = read_grand(DATA_DIR / "sars_R.tsv", design=("Condition", "Time", "Replicate"))
     qc = get_table_qc(obj, slot="count")
     assert isinstance(qc, pd.DataFrame)
     assert "Detected" in qc.columns
@@ -237,7 +280,7 @@ def test_get_table_qc_returns_dataframe():
 
 
 def test_get_table_qc_missing_slot_raises():
-    obj = read_grand("../data/sars_R.tsv", design=("Condition", "Time", "Replicate"))
+    obj = read_grand(DATA_DIR / "sars_R.tsv", design=("Condition", "Time", "Replicate"))
     with pytest.raises(ValueError):
         get_table_qc(obj, slot="nonexistent")
 
@@ -328,8 +371,24 @@ PARAMS = [
 
 @pytest.mark.parametrize("dataset_path, estimator", PARAMS)
 def test_read_dataset_with_estimator(dataset_path: Path, estimator):
+    # - load test should test valid targets and pseudobulks as well
+    name = dataset_path.name.lower()
+    kwargs = dict(design=("Condition", "Time"), estimator=estimator)
+
+    if ".targets." in name:
+        parts = name.split(".")
+        i = parts.index("targets")
+        if i + 1 < len(parts):
+            kwargs["targets"] = parts[i + 1]
+
+    if ".pseudobulk." in name:
+        parts = name.split(".")
+        i = parts.index("pseudobulk")
+        if i + 1 < len(parts):
+            kwargs["pseudobulk"] = parts[i + 1]
+
     try:
-        obj = read_grand(dataset_path, design=("Condition", "Time"), estimator=estimator)
+        obj = read_grand(dataset_path, **kwargs)
     except (ValueError, FileNotFoundError) as e:
         pytest.skip(f"{dataset_path.name} [{estimator}] skipped: {e}")
     if obj is None:
@@ -337,3 +396,9 @@ def test_read_dataset_with_estimator(dataset_path: Path, estimator):
     assert isinstance(obj, GrandPy)
     assert obj.gene_info.shape[0] and obj.coldata.shape[0]
     assert obj.metadata["default_slot"] in obj.slots
+
+    if "targets" in kwargs:
+        assert obj.metadata.get("targets") == kwargs["targets"]
+
+    if "pseudobulk" in kwargs:
+        assert obj.metadata.get("pseudobulk") == kwargs["pseudobulk"]

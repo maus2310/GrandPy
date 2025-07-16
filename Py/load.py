@@ -916,6 +916,7 @@ def read_grand(prefix, pseudobulk=None, targets=None, **kwargs):
 
     except Exception as e:
         print(f"Unexpected error: {e}")
+        raise
 
 
 def find_existing_file(path: Path, base_name: str, extensions=(".gz", "", ".tsv", ".tsv.gz")) -> Path:
@@ -999,7 +1000,7 @@ def _read(file_path, sparse, default_slot, design,
     if sparse:
         base = path
 
-        matrix_path = find_existing_file(base, "matrix.mtx", (".gz", ""))
+        # matrix_path = find_existing_file(base, "matrix.mtx", (".gz", ""))
         features_path = find_existing_file(base, "features", (".tsv.gz", ".tsv", ""))
         barcodes_path = find_existing_file(base, "barcodes", (".tsv.gz", ".tsv", ""))
 
@@ -1061,18 +1062,34 @@ def _read(file_path, sparse, default_slot, design,
         if not slots:
             raise ValueError(f"No valid slots found in {base}.")
 
-        if default_slot not in slots:
-            fallback_slot = next(iter(slots))
-            warnings.warn(f"Default slot '{default_slot}' is missing – fallback to '{fallback_slot}'.")
-            default_slot = fallback_slot
+        if default_slot is None:
+            if "count" not in slots:
+                raise ValueError("Default slot not specified and 'count' slot not found in data.")
+            default_slot = "count"
+        elif default_slot != "count":
+            raise ValueError(f"Invalid default slot '{default_slot}'. Only 'count' is allowed.")
+        elif "count" not in slots:
+            raise ValueError("Default slot 'count' was specified but is not present in the slots.")
 
         slots = pad_slots(slots, sparse=True, coldata=coldata, slot_sample_names=slot_sample_names)
+
+        version = 3
+        runtime_path = base / "runtime"
+        if runtime_path.exists():
+            try:
+                with open(runtime_path) as f:
+                    for line in f:
+                        if line.lower().startswith("version"):
+                            version = int(line.strip().split()[-1])
+                            break
+            except Exception:
+                pass
 
         metadata = {
             "Description": "Loaded via read_grand() (Matrix Market)",
             "default_slot": default_slot,
             "Output": "sparse",
-            "Version": 3,
+            "Version": version,
             "pseudobulk": pseudobulk,
             "targets": targets
         }
@@ -1093,7 +1110,6 @@ def _read(file_path, sparse, default_slot, design,
         slots, sample_names, slot_sample_names = parse_slots(df, slot_suffixes, sparse)
 
         if rename_sample is not None:
-            sample_names = [rename_sample(v) for v in sample_names]
             slot_sample_names = {
                 slot: [rename_sample(v) for v in names]
                 for slot, names in slot_sample_names.items()
@@ -1109,11 +1125,14 @@ def _read(file_path, sparse, default_slot, design,
                 if not (s in seen or seen.add(s))
             ]
 
-        if default_slot not in slots:
-            raise ValueError(
-                f"Missing required slot(s): ['{default_slot}']. "
-                f"Ensure the input file includes columns ending with: {slot_suffixes.get(default_slot, '?')}"
-            )
+        if default_slot is None:
+            if "count" not in slots:
+                raise ValueError("Default slot not specified and 'count' slot not found in data.")
+            default_slot = "count"
+        elif default_slot != "count":
+            raise ValueError(f"Invalid default slot '{default_slot}'. Only 'count' is allowed.")
+        elif "count" not in slots:
+            raise ValueError("Default slot 'count' was specified but is not present in the slots.")
 
         if "ntr" not in slots:
             if "alpha" in slots and "beta" in slots:
@@ -1122,6 +1141,7 @@ def _read(file_path, sparse, default_slot, design,
                 if sparse:
                     ntr = _to_sparse(ntr)
                 slots["ntr"] = ntr
+                slot_sample_names["ntr"] = slot_sample_names.get("alpha", sample_names)
             else:
                 warnings.warn("Slot 'ntr' is missing.", UserWarning)
 
@@ -1136,11 +1156,17 @@ def _read(file_path, sparse, default_slot, design,
         coldata = build_coldata(sample_names, design)
         slots = pad_slots(slots, sparse, coldata, slot_sample_names)
 
+        version = 2
+        dense_indicators = ("umi", "cell", "replicate")
+        columns_lower = [c.lower() for c in df.columns]
+        if any(col.startswith(dense_indicators) for col in columns_lower):
+            version = 3
+
         metadata = {
             "Description": "Loaded via read_grand() (TSV)",
             "default_slot": default_slot,
             "Output": "sparse" if sparse else "dense",
-            "Version": 2,
+            "Version": version,
             "pseudobulk": pseudobulk,
             "targets": targets
         }
@@ -1203,7 +1229,7 @@ def get_table_qc(grand, slot="count"):
         frac = mat[mask.values, :].sum(axis=0) / total_per_sample
         df[f"Fraction.{typ}"] = frac
 
-    coldata = grand.coldata.reset_index(drop=True)  # "Name" wird zur Spalte, Index wird entfernt, da sonst pandas Probleme mach
+    coldata = grand.coldata.reset_index(drop=True)
     df = df.merge(coldata, on="Name", how="left")
 
     return df
