@@ -20,8 +20,6 @@ from Py.grandPy import GrandPy
 from Py.slot_tool import ModeSlot, _parse_as_mode_slot
 #TODO Default parameter checken
 
-# TODO tests dateigröße testeb
-
 def _is_sparse_matrix(mat: any)-> bool:
     """
         Check whether a matrix is a SciPy sparse matrix.
@@ -67,7 +65,7 @@ def _parse_time_to_float(t: str)-> float:
     else:
         return 0.0
 
-def _apply_outlier_filter(x_vals: np.ndarray, y_vals: np.ndarray, remove: bool)-> tuple[np.ndarray, tuple | None, tuple | None]:
+def _apply_outlier_filter(x_vals: np.ndarray, y_vals: np.ndarray, remove_outlier: bool)-> tuple[np.ndarray, tuple | None, tuple | None]:
     """
     Apply IQR-based outlier filtering to x and y values.
 
@@ -98,13 +96,13 @@ def _apply_outlier_filter(x_vals: np.ndarray, y_vals: np.ndarray, remove: bool)-
     """
     mask = np.ones_like(x_vals, dtype=bool)
 
-    if not remove:
+    if remove_outlier == 0:
         return mask, None, None
 
     def get_bounds(vals, min_iqr=1e-6):
         q1, q3 = np.percentile(vals[np.isfinite(vals)], [25, 75])
         iqr = max(q3 - q1, min_iqr)
-        return q1 - 1.5 * iqr, q3 + 1.5 * iqr
+        return q1 - remove_outlier * iqr, q3 + remove_outlier * iqr
 
     x_lower, x_upper = get_bounds(x_vals)
     y_lower, y_upper = get_bounds(y_vals)
@@ -588,13 +586,13 @@ def plot_scatter(
     axis_y: bool = False,
     mode_slot: str | ModeSlot = None,
     remove_outlier: bool = True,
-    show_outlier: bool = True,
+    show_outlier: float = 1.5,
     size: float = 5,
     limit: Optional[tuple[float, float]] = None,
     x_limit: Optional[tuple[float, float]] = None,
     y_limit: Optional[tuple[float, float]] = None,
     color: str = None,
-    color_palette: str = "viridis",
+    color_palette: str = None,
     cross: Optional[bool] = None,
     diagonal: Optional[bool | float | tuple] = None,
     highlight: Optional[Union[list[str], dict[str, list[str]]]] = None,
@@ -660,7 +658,7 @@ def plot_scatter(
         mode_slot : str or ModeSlot, optional
             The data slot to use, e.g., "count", "norm", or a ModeSlot instance.
 
-        remove_outlier : bool, default=True
+        remove_outlier : float, default=1.5
             Whether to detect and remove outliers using IQR-based filtering.
 
         show_outlier : bool, default=True
@@ -858,7 +856,7 @@ def plot_scatter(
         ax.scatter(clipped_x, clipped_y, color="grey", s=size + 10, alpha=1, label="Outliers")
 
     # Main scatter
-    scatter = ax.scatter(x_vals, y_vals, c=color, s=size, cmap=color_palette, alpha=1, rasterized=rasterized, antialiased=True, )
+    scatter = ax.scatter(x_vals, y_vals, c=color, s=size, cmap=color_palette, alpha=1, rasterized=rasterized, antialiased=True)
     fig.colorbar(scatter, ax=ax, label="Density")
 
     # Axis labels and title
@@ -918,6 +916,7 @@ def plot_heatmap(
     mode_slot: Union[str, list, None] = None,
     columns: Optional[Union[str, list]] = None,
     genes: Optional[list] = None,
+    summarize: pd.DataFrame = None,
     transform: Union[str, callable] = "Z",
     cluster_genes: bool = True,
     cluster_columns: bool = False,
@@ -932,76 +931,76 @@ def plot_heatmap(
     save_fig_format: str = "svg",
 ):
     """
-     Create heatmaps from grandR objects.
+        Create heatmaps from grandR objects.
 
-     Convenience method to compare among more two variables (slot data or analyses results).
+        Convenience method to compare among more two variables (slot data or analyses results).
 
-     Parameters
-     ----------
-     data : GrandPy
-         The GrandPy object containing the data to visualize.
+        Parameters
+        ----------
+        data : GrandPy
+            The GrandPy object containing the data to visualize.
 
-     mode_slot : str or list of str, optional
-         Either one or more mode.slot specifications (e.g., "count", "new_count"),
-         or names matching analysis results. If None, uses the default slot.
+        mode_slot : str or list of str, optional
+            Either one or more mode.slot specifications (e.g., "count", "new_count"),
+            or names matching analysis results. If None, uses the default slot.
 
-     columns : str or list, optional
-         The columns (samples/cells) to include. Can be a logical expression
-         over the sample metadata, a list of column names, or None for all columns.
+        columns : str or list, optional
+            The columns (samples/cells) to include. Can be a logical expression
+            over the sample metadata, a list of column names, or None for all columns.
 
-     genes : list, optional
-         A list of gene names to restrict the plot to. If None, uses all genes.
+        genes : list, optional
+            A list of gene names to restrict the plot to. If None, uses all genes.
 
-     transform : str or callable, default="Z"
-         Transformation to apply to the data matrix. Possible string values are
-         "Z" (z-score per row), "vst" (variance stabilizing transform),
-         "logFC" (log2 fold change), or "none".
+        summarize: pd.DataFrame, optional
+            A summary DataFrame. This can be retrieved via GrandPy.get_summary_matrix(). columns will be ignored if provided
 
-     cluster_genes : bool, default=True
-         Whether to cluster genes (rows) hierarchically.
+        transform : str or callable, default="Z"
+            Transformation to apply to the data matrix. Possible string values are
+            "Z" (z-score per row), "vst" (variance stabilizing transform),
+            "logFC" (log2 fold change), or "none".
 
-     cluster_columns : bool, default=False
-         Whether to cluster samples/cells (columns) hierarchically.
+        cluster_genes : bool, default=True
+            Whether to cluster genes (rows) hierarchically.
 
-     label_genes : bool, optional
-         Whether to show gene names on the y-axis. Defaults to True if number
-         of genes is <=50, otherwise False.
+        cluster_columns : bool, default=False
+            Whether to cluster samples/cells (columns) hierarchically.
 
-     xlabels : list, optional
-         Custom labels for the x-axis. Only valid if a single mode_slot is specified.
+        label_genes : bool, optional
+            Whether to show gene names on the y-axis. Defaults to True if number
+            of genes is <=50, otherwise False.
 
-     breaks : list, optional
-         Numeric vector specifying color breaks for the heatmap.
+        xlabels : list, optional
+            Custom labels for the x-axis. Only valid if a single mode_slot is specified.
 
-     colors : list or str, optional
-         A color palette or a list of colors for the heatmap gradient.
+        breaks : list, optional
+            Numeric vector specifying color breaks for the heatmap.
 
-     title : str, optional
-         The title for the heatmap.
+        colors : list or str, optional
+            A color palette or a list of colors for the heatmap gradient.
 
-     return_matrix : bool, default=False
-         If True, prints the matrix used for plotting.
+        title : str, optional
+            The title for the heatmap.
 
-     na_to : float, optional
-         Value to substitute for missing (NA) values before plotting.
-     path_for_save : str, optional
-        Saves the plot as a PNG to the specified directory
-     save_fig_format: str, default="svg"
-        The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
-     See Also
-     --------
-     GrandPy.plots
-         Get the names of all stored plot functions.
+        return_matrix : bool, default=False
+            If True, prints the matrix used for plotting.
 
-     GrandPy.with_plot
-         Add a plot function.
+        na_to : float, optional
+            Value to substitute for missing (NA) values before plotting.
 
-     GrandPy.with_dropped_plots
-         Remove plots matching a regex.
+        path_for_save : str, optional
+            Saves the plot as a PNG to the specified directory
 
-     GrandPy.plot_global
-         Executes a stored global plot function.
-     """
+        save_fig_format: str, default="svg"
+            The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
+
+        See Also
+        --------
+        GrandPy.plots : Get the names of all stored plot functions.
+        GrandPy.with_plot : Add a plot function.
+        GrandPy.with_dropped_plots : Remove plots matching a regex.
+        GrandPy.plot_global : Executes a stored global plot function.
+        GrandPy.get_summary_matrix : Get a summarization matrix for averaging or aggregation.
+    """
 
     if mode_slot is None:
         mode_slot = data.default_slot
@@ -1029,7 +1028,7 @@ def plot_heatmap(
         if len(mode_slots) > 1 and xlabels is not None:
             raise ValueError("Cannot use 'xlabels' with multiple slots")
 
-        table = data.get_table(mode_slots=mode_slot, genes=genes, columns=selected_columns)
+        table = data.get_table(mode_slots=mode_slot, genes=genes, columns=selected_columns, summarize=summarize)
     else:
         table = data.get_analysis_table(names=[ms.slot for ms in mode_slots], genes=genes)
         table = table[selected_columns]
@@ -1087,7 +1086,6 @@ def plot_heatmap(
     cmap = LinearSegmentedColormap.from_list("custom", color_list)
     norm = Normalize(vmin=min_break, vmax=max_break)
 
-
     g = sns.clustermap(
         df,
         figsize=(10, 6),
@@ -1104,7 +1102,7 @@ def plot_heatmap(
     g.ax_heatmap.set_ylabel(f"n = {df.shape[0]}")
 
     if return_matrix:
-        print(df)
+        print(df, table)
     if title:
         plt.title(title, y=1.05)
     #plt.tight_layout()     # Makes cbar way to big :(
@@ -2242,13 +2240,13 @@ def plot_gene_snapshot_timecourse(
     plt.show()
     plt.close()
 
-#TODO Noch mehr testen mit analysen die wir aber noch nicht haben
+
 def plot_vulcano(
     data: GrandPy,
     analyses = None,
     p_cutoff: float = 0.05,
     lfc_cutoff: float = 1,
-    annotate_numbers=False, #TODO Default ist True aber noch nicht implementiert
+    annotate_numbers=False,
     path_for_save: Optional[str] = None,
     save_fig_format: str = "svg",
 ):
@@ -2303,7 +2301,7 @@ def plot_vulcano(
     plt.close()
 
 
-# Beispielaufruf: plot_gene_progressive_timecourse(sars, "UHMK1") #TODO docstring
+# Beispielaufruf: plot_gene_progressive_timecourse(sars, "UHMK1")
 def plot_gene_progressive_timecourse(
     data: GrandPy,
     gene: str,
@@ -2368,8 +2366,9 @@ def plot_gene_progressive_timecourse(
     if slot is None:
         slot = data.default_slot
 
-    time_original = data.coldata[f"{time}.original"]
-    time_original = np.array(time_original, dtype=str)
+    if f"{time}.original" in data.coldata.columns:
+        time_original = data.coldata[f"{time}.original"]
+        time_original = np.array(time_original, dtype=str)
     time_values = data.coldata[time].values
 
     condition = (
@@ -2382,14 +2381,25 @@ def plot_gene_progressive_timecourse(
     new = data.get_matrix(mode_slot=ModeSlot("new", slot), genes=gene).squeeze()
     old = data.get_matrix(mode_slot=ModeSlot("old", slot), genes=gene).squeeze()
 
-    df = pd.DataFrame({
-        "time_original": time_original,
-        "time_values": time_values,
-        "total": total,
-        "new": new,
-        "old": old,
-        "condition": condition
-    })
+    if f"{time}.original" in data.coldata.columns:
+        df = pd.DataFrame({
+            "time_original": time_original,
+            "time_values": time_values,
+            "total": total,
+            "new": new,
+            "old": old,
+            "condition": condition
+        })
+    else:
+        df = pd.DataFrame({
+            "time_values": time_values,
+            "total": total,
+            "new": new,
+            "old": old,
+            "condition": condition
+        })
+
+
 
     from Py.utils import _get_kinetics_data
     fit_results = _get_kinetics_data(
@@ -2614,7 +2624,7 @@ def plot_gene_progressive_timecourse(
     if return_tables:
         print(df[["condition", "time_values", "total", "new", "old"]])
 
-#TODO noch nicht einmal getestet
+
 def plot_ma(
     data: GrandPy,
     analysis: Optional[str] = None,

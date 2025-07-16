@@ -18,7 +18,7 @@ EXPECTED_FILE_SIZES = {
     "SRSF6_Total_vs_Ntr.svg": 47,
     "Type_Distribution.svg": 49
 }
-
+# TODO Read/Imports checken!!!!!!!!!!!!!!!!! #MA und Vulcano fehlt
 sars = read_grand("../data/sars_R.tsv",
                           design=("Condition", "duration.4sU", "Replicate"),
                           classification_genes=['UHMK1', 'ATF3', 'PABPC4', 'ROR1', 'ZC3H11A', 'ZBED6', 'PRDX6', 'PRRC2C'], classification_genes_label="Moin")
