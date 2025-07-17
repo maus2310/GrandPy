@@ -347,25 +347,6 @@ class GrandPy:
 
         return self._dev_replace(metadata=new_metadata)
 
-    def get_classified_genes(self, classification_label: str) -> list:
-        """
-        Returns a list of gene names corresponding to the given classification label.
-
-        Parameters
-        ----------
-        classification_label : str
-            The classification label to use.
-
-        Returns
-        -------
-        list:
-            A list of gene names corresponding to the given classification label.
-        Examples
-        --------
-        >>> get_classified_genes(data, "Unknown")
-        """
-        return self.gene_info[self.gene_info["Type"] == classification_label].index.tolist()
-
 
     # ----- All slot methods ------
     @property
@@ -860,57 +841,57 @@ class GrandPy:
         """
         return self._adata.obs.copy()
 
-    def with_gene_info(self, column: str, value: Union[Mapping, pd.Series, Sequence[Any]]) -> "GrandPy":
+    def with_gene_info(self, value: Union[Mapping, pd.Series, pd.DataFrame, np.ndarray, Sequence], name:str = None) -> "GrandPy":
         """
-        Returns a new object with modified gene_info. If the column name does not already exist, a new column will be added.
+        Returns a new instance with modified gene_info. If 'name' does not already exist as a column in `gene_info`, it will be added.
 
-        Otherwise, the column will be replaced by the given value or updated if a dictionary was given.
+        Otherwise, the column 'name' will be replaced by the given value or updated if a dictionary was given.
 
         Parameters
         ----------
-        column : str
-            The name of the column to be modified.
-
-        value : Mapping or pd.Series or Sequence[Any]
-            The values to assign to the column can be any iterable.
+        value : Mapping or pd.Series or pd.DataFrame or np.ndarray or Sequence
+            The values to assign can be any iterable.
             Can also be a dictionary when trying to update a column.
 
-            If 'column' is None, the gene_info will be merged with the given value.
-            For this the index of `value` has to match the index of gene_info.
+            If 'name' is None, 'value' is expected to be a pandas Series or DataFrame.
+
+        name : str, optional
+            The name of the column to be modified.
 
         See Also
         --------
-        GrandPy.replace: Replace parts of the instance, such as gene_info.
+        GrandPy.replace: Replace whole parts of the instance, such as gene_info.
 
         Returns
         -------
         GrandPy
-            A new GrandPy object with updated gene_info.
+            A new GrandPy instance with updated gene_info.
         """
         new_geneinfo = self.gene_info
 
-        if column is None:
-            if value is None:
-                raise ValueError("No column name or value provided.")
+        if name is None:
+            if not isinstance(value, (pd.Series, pd.DataFrame)):
+                raise ValueError("If column is None, value must be a pandas Series or DataFrame.")
 
-            new_geneinfo = pd.concat([new_geneinfo, pd.DataFrame(value)], axis=1)
-            return self._dev_replace(coldata=new_geneinfo)
+            value.index = _make_unique(value.index, warn=False)
+            for name in value.columns:
+                new_geneinfo[name] = value[name]
 
-        if isinstance(value, Mapping):
+            return self._dev_replace(gene_info=new_geneinfo)
+
+
+        if name in new_geneinfo.columns:
             if isinstance(value, Mapping):
-                if all(v in new_geneinfo[column].values for v in value.keys()):
+                if all(v in new_geneinfo[name].values for v in value.keys()):
                     for match_value, new_val in value.items():
-                        new_geneinfo.loc[new_geneinfo[column] == match_value, column] = new_val
+                        new_geneinfo.loc[new_geneinfo[name] == match_value, name] = new_val
                 else:
                     for row_index, new_value in value.items():
                         if row_index in new_geneinfo.index:
-                            new_geneinfo.at[row_index, column] = new_value
-            return self._dev_replace(gene_info = new_geneinfo)
+                            new_geneinfo.at[row_index, name] = new_value
+                return self._dev_replace(gene_info = new_geneinfo)
 
-        if isinstance(value, pd.Series):
-            value.index = _make_unique(value.index, warn = False)
-
-        new_geneinfo[column] = value
+        new_geneinfo[name] = value
 
         return self._dev_replace(gene_info = new_geneinfo)
 
@@ -1071,6 +1052,29 @@ class GrandPy:
             indices = self.get_index(genes, regex=regex)
             return self.gene_info.iloc[indices]["Gene"].tolist()
 
+    def get_classified_genes(self, classification_label: str) -> list:
+        """
+        Returns a list of gene names corresponding to the given classification label.
+
+        Parameters
+        ----------
+        classification_label : str
+            The classification label to use.
+
+        Examples
+        --------
+        Retrieve all genes with the `Type` 'Unknown' from the GrandPy instance 'sars'.
+
+        >>> sars.get_classified_genes("Unknown")
+        ['ORF3a', 'E', 'M', 'ORF6', 'ORF7a', 'ORF7b', 'ORF8', 'N', 'ORF10', 'ORF1ab', 'S']
+
+        Returns
+        -------
+        list:
+            A list of gene names corresponding to the given classification label.
+        """
+        return self.gene_info[self.gene_info["Type"] == classification_label].index.tolist()
+
     # TODO: get_significant_genes() doc string umschreiben
     def get_significant_genes(
             self,
@@ -1157,54 +1161,55 @@ class GrandPy:
         """
         return self._adata.var.copy()
 
-    def with_coldata(self, column: str = None, value: Union[Mapping, pd.Series, pd.DataFrame, Sequence] = None) -> "GrandPy":
+    def with_coldata(self, value: Union[Mapping, pd.Series, pd.DataFrame, np.ndarray, Sequence], name: str = None, ) -> "GrandPy":
         """
-        Returns a new object with modified coldata. If the column name does not already exist, a new column will be added.
+        Returns a new instance with modified coldata. If 'name' does not already exist as a column in `coldata`, it will be added.
 
-        Otherwise, the column will be replaced by the given value or updated if a dictionary was given.
-
-        See Also
-        --------
-        GrandPy.replace: Replace parts of the instance, such as coldata.
+        Otherwise, the column 'name' will be replaced by the given value or updated if a dictionary was given.
 
         Parameters
         ----------
-        column : str
-            The name of the column to be modified or added.
-
-        value : Mapping or pd.Series or pd.DataFrame or Sequence
-            The values to assign to the column can be any iterable.
+        value : Mapping or pd.Series or pd.DataFrame or np.ndarray or Sequence
+            The values to assign can be any iterable or array-like.
             Can also be a dictionary when trying to update a column.
 
-            If 'column' is None, the coldata will be merged with the given value.
-            For this the index of `value` has to match the index of coldata.
+            If 'name' is None, 'value' is expected to be a pandas Series or DataFrame.
+
+        name : str, optional
+            The name of the column to be modified.
+
+        See Also
+        --------
+        GrandPy.replace: Replace whole parts of the instance, such as coldata.
 
         Returns
         -------
         GrandPy
-            A GrandPy instance with updated coldata.
+            A new GrandPy instance with updated coldata.
         """
         new_coldata = self.coldata
 
-        if column is None:
-            if value is None:
-                raise ValueError("No column name or value provided.")
+        if name is None:
+            if not isinstance(value, (pd.Series, pd.DataFrame)):
+                raise ValueError("If column is None, value must be a pandas Series or DataFrame.")
 
-            new_coldata = pd.concat([new_coldata, pd.DataFrame(value)], axis=1)
+            for name in value.columns:
+                new_coldata[name] = value[name]
+
             return self._dev_replace(coldata=new_coldata)
 
-        if column in new_coldata.columns:
+        if name in new_coldata.columns:
             if isinstance(value, Mapping):
-                if all(v in new_coldata[column].values for v in value.keys()):
+                if all(v in new_coldata[name].values for v in value.keys()):
                     for match_value, new_val in value.items():
-                        new_coldata.loc[new_coldata[column] == match_value, column] = new_val
+                        new_coldata.loc[new_coldata[name] == match_value, name] = new_val
                 else:
                     for row_index, new_value in value.items():
                         if row_index in new_coldata.index:
-                            new_coldata.at[row_index, column] = new_value
-                return self._dev_replace(coldata = new_coldata)
+                            new_coldata.at[row_index, name] = new_value
+                    return self._dev_replace(coldata = new_coldata)
 
-        new_coldata[column] = value
+        new_coldata[name] = value
 
         return self._dev_replace(coldata = new_coldata)
 
@@ -2103,14 +2108,14 @@ class GrandPy:
 
 
     # ----- Processing functions -----
-    def normalize(self, genes=None, name: str = "norm", slot: str = "count", set_to_default=True, size_factors=None,
-                  return_size_factors=False):
+    def normalize(self, genes: Sequence[str] = None, name: str = "norm", slot: str = "count",
+                  set_to_default: bool = True, size_factors=None, return_size_factors: bool = False) -> Union["GrandPy",np.ndarray]:
         """
         Normalize gene expression values across cells.
 
         Parameters
         ----------
-        genes : list[str], optional
+        genes : Sequence[str], optional
             A list of gene names to normalize. If None, all genes are normalized.
 
         name : str, default "norm"
@@ -2131,7 +2136,7 @@ class GrandPy:
 
         Returns
         -------
-        Optional[grandPy, ndarray]
+        Union[GrandPy, np.ndarray]
             The size factors used for normalization if `return_size_factors` is True.
             Otherwise, returns a grandPy object.
         """
@@ -2140,7 +2145,7 @@ class GrandPy:
         return _normalize(self, genes=genes, name=name, slot=slot, set_to_default=set_to_default,
                           size_factors=size_factors, return_size_factors=return_size_factors)
 
-    def normalize_fpkm(self, genes=None, name: str = "norm", slot: str = "count", set_to_default=True, total_len=None):
+    def normalize_fpkm(self, genes=None, name: str = "norm", slot: str = "count", set_to_default=True, total_len=None) -> "GrandPy":
         """
         Normalize gene expression data using the FPKM method (Fragments Per Kilobase Million).
 
@@ -2172,7 +2177,7 @@ class GrandPy:
             A grandPy object with added normalize_fpkm slot.
     """
 
-    def normalize_tpm(self, genes=None, name: str = "tpm", slot: str = "count", set_to_default=True, total_len=None):
+    def normalize_tpm(self, genes=None, name: str = "tpm", slot: str = "count", set_to_default=True, total_len=None) -> "GrandPy":
         from Py.processing import _normalize_tpm
 
         return _normalize_tpm(self, genes=genes, name=name, slot=slot, set_to_default=set_to_default,
@@ -2301,8 +2306,6 @@ class GrandPy:
             return_fields: Union[str, Sequence[str]] = None,
             ci_size: float = 0.95,
             genes: Union[str, Sequence[str]] = None,
-            max_processes: int = None,
-            exact_processes: bool = False,
             show_progress: bool = True,
             **kwargs
     ) -> "GrandPy":
@@ -2371,7 +2374,7 @@ class GrandPy:
                 - exact_processes: If True, exactly `max_processes` processes will be used.
 
             For `"ntr"`:
-                - transformed_ntr_map: Whether to assume that NTR values are MAP transformed; by default, True.
+                - transformed_ntr_map: If True, use the transformed NTR MAP estimator instead of the MAP of the transformed posterior; by default, True.
                 - exact_ci: Whether to use exact confidence intervals; by default False.
                 - total_function: Function to reduce total expression across time points (e.g., mean, median); by default `numpy.median`.
 
@@ -2399,7 +2402,6 @@ class GrandPy:
 
         kinetics = _fit_kinetics(data=self, fit_type=fit_type, slot=slot, return_fields=return_fields,
                                  name_prefix=name_prefix, time=time, ci_size=ci_size, genes=genes,
-                                 max_processes=max_processes, exact_processes=exact_processes,
                                  show_progress=show_progress, **kwargs)
 
         new_gp = self
@@ -2421,7 +2423,7 @@ class GrandPy:
             **kwargs
     ) -> "GrandPy":
         """
-        Uses the kinetic model to calibrate the effective labeling time.
+        Uses the non linear least squares kinetic model to calibrate the effective labeling time.
 
         The NTRs of each sample might be systematically too small or large. This function identifies such systematic
         deviations and computes labeling durations without systematic deviations.
@@ -2537,7 +2539,7 @@ class GrandPy:
             time_labeling=time_labeling, time_experiment=time_experiment, n_top_genes=n_top_genes
         )
 
-        return self.with_coldata(column = name, value = calibrated_time)
+        return self.with_coldata(name= name, value = calibrated_time)
 
     # ----- Differential Expression functions -----
     def get_summary_matrix(

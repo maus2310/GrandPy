@@ -149,20 +149,20 @@ def test_with_gene_info_immutability():
 
     gp = read_grand(**read_input)
     gp = gp[0:10]
-    with_gene_info_immutability = gp.with_gene_info("Gene", [1,2,3,4,5,6,7,8,9,10])
+    with_gene_info_immutability = gp.with_gene_info(name="Gene", value=[1,2,3,4,5,6,7,8,9,10])
     for el in with_gene_info_immutability.gene_info["Gene"].values: assert el not in gp.gene_info["Gene"].values
 
 def test_with_gene_info_dict():
     gp = read_grand(**read_input)
     gp = gp[0:10]
-    with_gene_info_dict = gp.with_gene_info("Gene", {"UHMK1": "Control", "ATF3": "Treatment"})
+    with_gene_info_dict = gp.with_gene_info(name="Gene", value={"UHMK1": "Control", "ATF3": "Treatment"})
     assert (with_gene_info_dict.gene_info["Gene"][0] == "Control"
             and with_gene_info_dict.gene_info["Gene"][1] == "Treatment")
 
 def test_with_gene_info_series():
     gp = read_grand(**read_input)
     gp = gp[0:10]
-    with_gene_info_series = gp.with_gene_info("Gene", pd.Series([1,2,3,4,5,6,7,8,9,10], index = gp.gene_info.index[0:10]))
+    with_gene_info_series = gp.with_gene_info(name="Gene", value=pd.Series([1,2,3,4,5,6,7,8,9,10], index = gp.gene_info.index[0:10]))
     for i in range(0,10):
         assert with_gene_info_series.gene_info["Gene"][i] == i+1
 
@@ -170,7 +170,7 @@ def test_with_coldata():
 
     gp = read_grand(**read_input)
     gp = gp[0:10]
-    with_coldata_immutability = gp.with_coldata("new_condition", [1,2,3,4,5,6,7,8,9,10,11,12])
+    with_coldata_immutability = gp.with_coldata(name="new_condition", value=[1,2,3,4,5,6,7,8,9,10,11,12])
     assert "new_condition" not in gp.coldata.columns
 
 def test_get_index():

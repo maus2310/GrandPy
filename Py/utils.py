@@ -215,7 +215,7 @@ def _get_kinetics_data(
     slot: str = None,
     name_prefix: Union[str, None] = None,
     return_fields: Union[str, Sequence[str]] = None,
-    time: Union[str, np.ndarray, pd.Series, list] = "Time",
+    time: Union[str, np.ndarray, pd.Series, Sequence] = "duration.4sU",
     ci_size: float = 0.95,
     genes: Union[str, Sequence[str]] = None,
     show_progress: bool = False,

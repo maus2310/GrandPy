@@ -673,6 +673,7 @@ class FitResult:
 
             lower = self.opt_result.x[:2] - tval * se
             upper = self.opt_result.x[:2] + tval * se
+
             return lower, upper
 
         except (np.linalg.LinAlgError, ValueError):
@@ -680,22 +681,25 @@ class FitResult:
 
     @property
     def ci_lower(self) -> dict:
-        low, _ = self.ci_bounds
-        d = low[1]
+        low, up = self.ci_bounds
+        s, d = low
+        _, d_up = up
+
         return {
-            "Synthesis": max(0, low[0]),
+            "Synthesis": max(0, s),
             "Degradation": max(0, d),
-            "Half-life": np.log(2) / d if d > 0 else np.nan
+            "Half-life": np.log(2) / d_up if d_up > 0 else np.nan
         }
 
     @property
     def ci_upper(self) -> dict:
-        _, up = self.ci_bounds
-        d = up[1]
+        low, up = self.ci_bounds
+        s, d = up
+        _, d_low = low
         return {
-            "Synthesis": up[0],
+            "Synthesis": s,
             "Degradation": d,
-            "Half-life": np.log(2) / max(0.01, d) if d > 0 else np.nan
+            "Half-life": np.log(2) / max(0, d_low) if d_low > 0 else np.nan
         }
 
     # --- Serialization ---
@@ -1212,7 +1216,7 @@ class NTRFitResult:
 
     def loglik(self, d):
         exp = np.exp(-self.time * d)
-        safe_exp = np.clip(exp, 1e-10, 1 - 1e-10)
+        safe_exp = np.clip(exp, 1e-8, 1 - 1e-8)
         log_term = np.log1p(-safe_exp)
 
         if self.transformed_ntr_map:

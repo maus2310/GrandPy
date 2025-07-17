@@ -595,7 +595,7 @@ def _compute_total_expression(data: "GrandPy", column: str = "total_expression",
     matrix = data.get_matrix(mode_slot=mode_slot, genes=genes)
     total_expression = matrix.sum(axis=0)  # Summe über Zeilen (Gene), pro Spalte (Zelle)
 
-    return data.with_coldata(column = column, value = total_expression)
+    return data.with_coldata(name= column, value = total_expression)
 
 # Nicht relavant
 # def _compute_absolute(
@@ -685,7 +685,7 @@ def _compute_expression_percentage(
     if float_to_percent:
         percentage *= 100
 
-    data = data.with_coldata(column=name, value=percentage)
+    data = data.with_coldata(name=name, value=percentage)
     return data
 
 # def _compute_column_statistics(data, verbose=True):
