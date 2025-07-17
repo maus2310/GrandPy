@@ -3,7 +3,7 @@ import pandas as pd
 import pytest
 from mpmath import polygamma
 
-from Py.diffexp import empirical_bayes_prior, center_median, norm_lfc, Psi_LFC
+from Py.diffexp import empirical_bayes_prior, center_median, norm_lfc, Psi_LFC, _get_summary_matrix, compute_lfc
 from Py.load import read_grand
 from Py.grandPy import GrandPy
 
@@ -87,7 +87,7 @@ def test_psi_lfc_no_ci_output():
     assert lfc.shape == A5.shape
     assert np.isclose(np.median(lfc), 0.0, atol=1e-6)
 
-
+# TODO: dieser Test funktioniert alleine, aber nicht im Gesamtdurchlauf
 # def test_psi_lfc_with_ci_output():
 #     """Psi_LFC mit credible intervals liefert Tuple (lfc_array, ci_matrix) ohne Fehler und konsistentes CI-Layout."""
 #     A6 = np.random.normal(loc=50, scale=5, size=200)
@@ -134,9 +134,44 @@ if __name__ == "__main__":
     lfc_centered = Psi_LFC(A, B, cre=False, verbose=True)
     print("Shrunk, median-centered LFC:")
     print(lfc_centered[:10])  # ersten 10 Werte
-
     # with CI
     lfc_ci, qlfc = Psi_LFC(A, B, cre=True, verbose=False)
     print("LFC with 95% credible intervals (first 10 genes):")
     for i in range(10):
         print(f"Gene{i + 1}: LFC={lfc_ci[i]:.3f}, CI=({qlfc[i, 0]:.3f}, {qlfc[i, 1]:.3f})")
+
+
+    # ------------------------------------------------------------------------------------------
+
+    # sars <- ReadGRAND(system.file("extdata", "sars.tsv.gz", package = "grandR"),
+    #                   design=c(Design$Condition,Design$dur.4sU,Design$Replicate))
+    # sars <- subset(sars,Coldata(sars,Design$dur.4sU)==2)
+    # sars<-LFC(sars,mode="total",contrasts=GetContrasts(sars,contrast=c("Condition","Mock")))
+    # sars<-LFC(sars,mode="new",normalization="total",
+    #                             contrasts=GetContrasts(sars,contrast=c("Condition","Mock")))
+    # head(GetAnalysisTable(sars)
+
+    sars = read_grand("data/sars_R.tsv", design=("Condition", "dur.4sU", "Replicate"))
+    mask = sars.coldata["duration.4sU"] == 2
+    sars = sars[:, mask]
+
+    sm = _get_summary_matrix(sars, no4sU=False, average=False)
+    contrasts = pd.DataFrame({"SARS_vs_Mock": sm["SARS"].astype(int) * 1
+                                              + sm["Mock"].astype(int) * -1})
+    sars = compute_lfc(data=sars, name_prefix="total", contrasts=contrasts,
+                       slot="count", mode="total",
+                       normalization=None, compute_M=True, verbose=True)
+
+    # new RNA
+    sars = compute_lfc(data=sars, name_prefix="new", contrasts=contrasts,
+                       slot="count", mode="new",
+                       normalization="total", compute_M=True,
+                       verbose=True)
+
+    res_total = sars._adata.uns["analyses"]["total_SARS_vs_Mock"]
+    res_new = sars._adata.uns["analyses"]["new_SARS_vs_Mock"]
+
+    print("=== total RNA LFC ===")
+    print(res_total.head())
+    print("\n=== new RNA LFC ===")
+    print(res_new.head())

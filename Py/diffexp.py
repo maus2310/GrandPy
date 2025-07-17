@@ -277,7 +277,7 @@ def compute_lfc(data: GrandPy,
     Parameters
     ----------
     data : GrandPy
-        The grandPy object.
+        The grandPy object. Must contain a 'Condition' column in its coldata. See Notes for more.
 
     name_prefix : str
         The prefix for the new analysis name;
@@ -319,44 +319,20 @@ def compute_lfc(data: GrandPy,
     GrandPy
         New GrandPy object with one analysis per contrast. Columns are
         "LFC" (log2 fold change) and optionally "M".
-    """
 
-    # sars <- ReadGRAND(system.file("extdata", "sars.tsv.gz", package = "grandR"),
-    #                   design=c(Design$Condition,Design$dur.4sU,Design$Replicate))
-    # sars <- subset(sars,Coldata(sars,Design$dur.4sU)==2)
-    # sars<-LFC(sars,mode="total",contrasts=GetContrasts(sars,contrast=c("Condition","Mock")))
-    # sars<-LFC(sars,mode="new",normalization="total",
-    #                             contrasts=GetContrasts(sars,contrast=c("Condition","Mock")))
-    # head(GetAnalysisTable(sars)
-    # ------------------------------
-    # from Py.load import *
-    # sars = read_grand("data/sars_R.tsv", design=("Condition", "dur.4sU", "Replicate"))
-    # mask = sars.coldata["duration.4sU"] == 2
-    # sars = sars[:, mask]
-    #
-    # sm = get_summary_matrix(sars, no4sU=False, average=False)
-    # contrasts = pd.DataFrame({"SARS_vs_Mock": sm["SARS"].astype(int) * 1
-    #                                           + sm["Mock"].astype(int) * -1})
-    # sars = compute_lfc(data=sars, name_prefix="total", contrasts=contrasts,
-    #                    slot="count", mode="total",
-    #                    normalization=None, compute_M=True, verbose=True)
-    #
-    # # new RNA
-    # sars = compute_lfc(data=sars, name_prefix="new", contrasts=contrasts,
-    #                    slot="count", mode="new",
-    #                    normalization="total", compute_M=True,
-    #                    verbose=True)
-    #
-    # res_total = sars._adata.uns["analyses"]["total_SARS_vs_Mock"]
-    # res_new = sars._adata.uns["analyses"]["new_SARS_vs_Mock"]
-    #
-    # print("=== total RNA LFC ===")
-    # print(res_total.head())
-    # print("\n=== new RNA LFC ===")
-    # print(res_new.head())
+    Notes
+    -----
+    This functino uses the 'Condition' column in data.coldata to define
+    groups for comparison.
+    If you need to use a different column, you can rename it to 'Condition'
+    before calling this function.
+    """
+    # TODO @Marius?
+    # dadurch dass _get_summary_matrix() die Condition-Spalte festlegt, kann
+    # kein anderes Argument verwendet werden.
+    # müsste abgeändert werden bei Bedarf, um näher an grandR dran zu sein
 
     # Filtern der Contrasts
-
     if contrasts is None:
         contrasts = data.get_contrasts()
     if isinstance(contrasts, dict):
