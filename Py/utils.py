@@ -20,9 +20,7 @@ def concat(
         merge: Union[Literal["same", "unique", "first", "only"], Callable] = "unique",
 ) -> "GrandPy":
     """
-    Concatenates all given objects along a given axis. Uses `unique` for metadata and plots.
-
-    Analyses will be concatenated if their names are identical. Otherwise, they are dropped.
+    Concatenates all given objects along a given axis. Uses `first` for metadata, plots, and analyses.
 
     Parameters
     ----------
@@ -56,30 +54,13 @@ def concat(
 
         if axis == 0 or axis == "gene_info":
             axis = "var"
-            analysis_axis = 1
         elif axis == 1 or axis == "coldata":
             axis = "obs"
-            analysis_axis = 0
         else:
-            raise ValueError(f"axis must be either 0, 'gene_info' or 1, 'coldata' not {axis}.")
+            raise ValueError(f"Axis must be either 0, 'gene_info' or 1, 'coldata' not {axis}.")
 
         adatas = [obj._adata for obj in objects]
-        new_adata = ad.concat(adatas, axis=axis, join=join, merge=merge, uns_merge="unique")
-
-    merged_analyses = {}
-
-    if all(obj.analyses is not None for obj in objects):
-        from collections import Counter
-
-        analyses = [a for obj in objects for a in obj.analyses]
-        duplikates = [item for item, count in Counter(analyses).items() if count > 1]
-
-        for duplikate in duplikates:
-            dfs = [obj.get_analysis_table(duplikate, with_gene_info=False) for obj in objects]
-            merged_df = pd.concat(dfs, axis=analysis_axis, join=join)
-            merged_analyses[duplikate] = merged_df
-
-    new_adata.uns["analyses"] = merged_analyses
+        new_adata = ad.concat(adatas, axis=axis, join=join, merge=merge, uns_merge="first")
 
     return objects[0]._dev_replace(anndata=new_adata)
 

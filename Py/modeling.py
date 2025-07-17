@@ -4,15 +4,15 @@ import numpy as np
 import pandas as pd
 from collections.abc import Sequence, Mapping
 from typing import Union, Literal, TYPE_CHECKING, Callable
-from scipy.optimize import minimize, minimize_scalar
+from scipy.optimize import minimize, minimize_scalar, least_squares, OptimizeResult, brentq, root_scalar
 from scipy.stats import norm
-from functools import cached_property
+from tqdm import tqdm
+from functools import cached_property, lru_cache
 from dataclasses import dataclass
-from scipy.optimize import least_squares, OptimizeResult, brentq
 
 
 from Py.slot_tool import ModeSlot
-from Py.utils import _ensure_list
+from Py.utils import _ensure_list, _get_kinetics_data
 
 if TYPE_CHECKING:
     from Py.grandPy import GrandPy
@@ -28,7 +28,6 @@ def _fit_kinetics(
     time: Union[str, np.ndarray, pd.Series, list] = "Time",
     ci_size: float = 0.95,
     genes: Union[str, Sequence[str]] = None,
-    max_processes: int = None,
     show_progress: bool = True,
     **kwargs
 ) -> dict[str, pd.DataFrame]:
@@ -61,12 +60,12 @@ def _fit_kinetics(
         raise ValueError(f"Unknown fit type: {fit_type}. Available functions are: `nlls`, `ntr`, `chase`.")
 
     kinetics = fit_function(data=data, slot=slot, name_prefix=name_prefix, return_fields=return_fields, time=time,
-                            ci_size=ci_size, genes=genes, max_processes=max_processes, show_progress=show_progress, **kwargs)
+                            ci_size=ci_size, genes=genes, show_progress=show_progress, **kwargs)
 
     return kinetics
 
 
-def get_dynamic_process_count(data_size: int, max_processes: int = None) -> int:
+def get_dynamic_process_count(data_size: int, max_processes: int = None, exact_processes: bool = False) -> int:
     """
     Dynamically determine the number of processes based on data size and available CPUs.
 
@@ -83,11 +82,16 @@ def get_dynamic_process_count(data_size: int, max_processes: int = None) -> int:
     int
         Recommended number of processes
     """
+    if exact_processes:
+        if max_processes is None:
+            max_processes = 1
+        return max(max_processes, 1)
+
     available_cores = max(os.cpu_count()-1, 1)
 
     if max_processes is None:
         # Arbitrary threshold for amount of processes approximated by testing. (Probably different for other systems)
-        num_processes = min(available_cores, data_size // 1000)
+        num_processes = min(available_cores, data_size // 1200)
     else:
         num_processes = min(max_processes, available_cores)
 
@@ -135,6 +139,7 @@ def fit_kinetics_nlls(
     return_fields: Sequence[str] = None,
     steady_state: Union[bool, Mapping[str, bool]] = True,
     max_processes: int = None,
+    exact_processes: bool = False,
     show_progress: bool = True,
     **kwargs
 ) -> dict[str, pd.DataFrame]:
@@ -152,7 +157,7 @@ def fit_kinetics_nlls(
     # --- Decide on parallelisation ---
     datasize = len(genes_to_fit) * len(unique_conditions)
 
-    max_workers = get_dynamic_process_count(datasize, max_processes)
+    max_workers = get_dynamic_process_count(datasize, max_processes, exact_processes)
 
     if max_workers == 1:
         parallel = False
@@ -258,6 +263,7 @@ def fit_kinetics_chase(
     return_fields: Sequence[str] = None,
     steady_state: Union[bool, Mapping[str, bool]] = True,
     max_processes: int = None,
+    exact_processes: bool = False,
     show_progress: bool = True,
     **kwargs
 ) -> dict[str, pd.DataFrame]:
@@ -275,7 +281,7 @@ def fit_kinetics_chase(
     # --- Decide on parallelisation ---
     datasize = len(genes_to_fit) * len(unique_conditions)
 
-    max_workers = get_dynamic_process_count(datasize, max_processes)
+    max_workers = get_dynamic_process_count(datasize, max_processes, exact_processes)
 
     if max_workers == 1:
         parallel = False
@@ -954,13 +960,10 @@ def fit_kinetics_ntr(
         return_fields: Sequence[str] = None,
         exact_ci: bool = False,
         transformed_ntr_map: bool = True,
-        max_processes: int = None,
         show_progress: bool = True
 ) -> dict[str, pd.DataFrame]:
     """
     For detailed documentation, see grandpy.GrandPy.fit_kinetics.
-
-    This function switches between serialisation and parallelisation based on `processes`.
     """
     if not ("alpha" in data.slots and "beta" in data.slots):
         raise ValueError("NTR-basierte Anpassung erfordert alpha-, beta-Slots.")
@@ -1364,129 +1367,341 @@ def uniroot_safe(fun, lower, upper):
 
 
 # ----- time calibration functions -----
-def calibrate_effective_labeling_time_kinetic_fit(
-    data: "GrandPy",
-    slot=None,
-    time="duration.4sU",
-    time_name="calibrated_time",
-    time_conf_name="calibrated_time_conf",
-    ci_size=0.95,
-    compute_confidence=False,
-    n_estimate=1000,
-    n_iter=10000,
-    verbose=True,
-    **kwargs
-):
-    conds = data.coldata.copy()
+def select_top_genes_by_hl_and_expression(half_lives, totals, time_vector, gene_names, n_top_genes):
+    """
+    Selects about n top genes by half-life and expression.
+    """
+    max_time = np.max(time_vector)
+    bins = np.linspace(0, 2 * max_time, 5)
+    bins = np.concatenate([bins, [np.inf]])
 
+    hl_cat_indices = np.digitize(half_lives, bins, right=False)  # 1-based bin indices
+    n_bins = len(bins)
+
+    use_mask = np.zeros_like(totals, dtype=bool)
+
+    for bin_idx in range(1, n_bins + 1):
+        in_bin = hl_cat_indices == bin_idx
+        n_in_bin = np.sum(in_bin)
+        if n_in_bin == 0:
+            continue
+        threshold_index = min(n_in_bin - 1, int(np.ceil(n_top_genes / n_bins)))
+        sorted_indices = np.argsort(-totals[in_bin])
+        keep_indices = np.where(in_bin)[0][sorted_indices[:threshold_index + 1]]
+        use_mask[keep_indices] = True
+
+    return np.array(gene_names)[use_mask].tolist()
+
+
+def _calibrate_effective_labeling_time_kinetic_fit(
+    data,
+    slot: str = None,
+    time: str = "duration.4sU",
+    name: str = "calibrated_time",
+    n_top_genes: int = 1000,
+    max_iterations: int = 10000,
+    compute_confidence: bool = False,
+    ci_size: float = 0.95,
+    show_progress: bool = True,
+    **kwargs
+) -> pd.DataFrame:
+    """
+    For a detailed description, see grandpy.GrandPy.calibrate_effective_labeling_time_kinetic_fit.
+    """
     if slot is None:
         slot = data.default_slot
 
-    result = pd.DataFrame(
-        np.nan,
-        index=conds.index,
-        columns=[time_name]
-    )
+    conditions = data.condition
+    sample_names = data.columns
+    result = pd.DataFrame(np.nan, index=sample_names, columns=[name])
+    result.index.name = "Name"
 
-    for cond in conds["Condition"].unique():
-        if verbose:
-            print(f"Calibrating {cond}...")
+    for cond in np.unique(conditions):
+        mask = np.array(conditions) == cond
+        sub = data[:, mask].with_dropped_analyses()
 
-        sub = data[:, data.coldata["Condition"] == cond].with_dropped_analyses()
+        expr = sub.get_matrix(slot)
+        totals = expr.sum(axis=1)
+        gene_names = np.array(sub.genes)
 
-        # Schritt: Top-Gene nach Half-life und Expression auswählen
-        totals = sub.get_table(slot).sum(axis=1)
-        sub = sub.fit_kinetics(fit_type="nlls", slot=slot, time=time, return_fields="Half-life", show_progress=False)
+        kinetics = _get_kinetics_data(
+            sub,
+            fit_type="nlls",
+            slot=slot,
+            time=time,
+            return_fields="Half-life",
+            show_progress=False,
+            **kwargs
+        ).get(f"kinetics_{cond}")
 
-        hl = sub.get_analysis_table()[f"{cond}_Half-life"]
+        half_live = kinetics[f"{cond}_Half-life"].values
 
-        bins = np.histogram_bin_edges(
-            conds[time], bins=5
+        use_genes = select_top_genes_by_hl_and_expression(
+            half_lives=half_live,
+            totals=totals,
+            time_vector=data.coldata[time].values,
+            gene_names=gene_names,
+            n_top_genes=n_top_genes
         )
-        bins = np.concatenate([bins, [np.inf]])
-        hl_cat = pd.cut(hl, bins=bins, include_lowest=True)
-
-        def select_top_genes_in_bin(s):
-            if len(s) == 0:
-                return pd.DataFrame(columns=["Gene", "use"])  # leere Gruppe
-            n_bins = len(hl_cat.cat.categories)
-            threshold_index = min(len(s) - 1, int(np.ceil(n_estimate / n_bins)))
-            threshold = sorted(s["totals"], reverse=True)[threshold_index]
-            return pd.DataFrame({
-                "Gene": s["Gene"],
-                "use": s["totals"] >= threshold
-            })
-
-        fil = (
-            pd.DataFrame({
-                "Gene": sub.genes,
-                "totals": totals,
-                "HL_cat": hl_cat
-            })
-            .groupby("HL_cat", group_keys=False, observed=False)
-            .apply(select_top_genes_in_bin)
-        )
-
-        use_genes = fil[fil["use"]]["Gene"].astype(str).tolist()
         sub = sub.filter_genes(use=use_genes).with_dropped_analyses()
-
-        init = sub.coldata[time].copy()
+        init = sub.coldata[time]
         init_array = init.values
+
         use_mask = (init_array > 0) & (init_array < init_array.max())
 
-        n_eval = 0
+        if not np.any(use_mask):
+            continue
+
+        eval_bar = tqdm(desc=f"Optimizing {cond}", dynamic_ncols=True, unit=" Iterations", disable=not show_progress)
 
         def opt_fun(times):
-            nonlocal n_eval
             tt = init_array.copy()
             tt[use_mask] = times
-            sub_with_tt = sub.with_coldata("duration.4sU",tt)
-            fit = sub_with_tt.fit_kinetics(return_fields="log_likelihood", slot=slot, **kwargs)
-            loglik_sum = fit.get_analysis_table(with_gene_info=False).iloc[:, 0].sum()
-            n_eval += 1
-            if verbose and n_eval % 10 == 0:
-                print(f"Optimization round {n_eval} (loglik: {loglik_sum:.2f})")
-            return -loglik_sum  # negative for minimization
+            kin = _get_kinetics_data(
+                sub,
+                fit_type="nlls",
+                slot=slot,
+                time=tt,
+                return_fields="log_likelihood",
+                show_progress=False,
+                **kwargs
+            ).get(f"kinetics_{cond}")
 
-        # Schritt 1: Grobe Kalibrierung (verschiebe Startwerte)
+            loglik_array = kin[f"{cond}_log_likelihood"].values
+            loglik_sum = np.sum(loglik_array)
+
+            eval_bar.update(1)
+            return -loglik_sum
+
         def opt_fun_scalar(mini):
             shifted = init_array[use_mask] - mini
             return opt_fun(shifted)
 
-        res_scalar = minimize_scalar(opt_fun_scalar, bounds=(0, init_array[use_mask].min()), method='bounded')
+        res_scalar = minimize_scalar(
+            opt_fun_scalar,
+            bounds=(0, init_array[use_mask].min()),
+            method='bounded'
+        )
         mini = res_scalar.x
         init_array[use_mask] -= mini
 
-        # Schritt 2: Feinoptimierung mit Nebenbedingungen
-        def constraint(x):
-            return x
+        # This would be much faster, but CIs are overestimated by this approximation.
+        # if compute_confidence:
+        #     res = minimize(
+        #         opt_fun,
+        #         init_array[use_mask],
+        #         method="L-BFGS-B",
+        #         options={"maxiter": max_iterations, "gtol": 1e-6}
+        #     )
+        #
+        #     inv_hess = res.hess_inv
+        #
+        #     try:
+        #         inv_hess = inv_hess.todense()
+        #     except:
+        #         inv_hess = np.array(inv_hess)
+        #
+        #     std_err = np.sqrt(np.diag(inv_hess))
+        #     z = norm.ppf(1 - (1 - ci_size) / 2)
+        #
+        #     ci_half = std_err * z
+        #
+        #     conf_tt = np.zeros_like(init_array)
+        #     conf_tt[use_mask] = ci_half
+        #
+        #     result.loc[sub.coldata.index, name + "_conf"] = conf_tt
 
-        cons = {"type": "ineq", "fun": constraint}
         res = minimize(
             opt_fun,
             init_array[use_mask],
             method="Nelder-Mead",
-            options={"maxiter": n_iter}
+            options={'maxiter': max_iterations}
         )
 
+        eval_bar.close()
+
         if not res.success:
-            print(f"Warning: Did not converge for {cond}. Consider increasing n_iter.")
+            warnings.warn(f"The Optimization failed for {cond} with the following message: {res.message}")
 
         final_tt = init_array.copy()
         final_tt[use_mask] = res.x
-        result.loc[sub.coldata.index, time_name] = final_tt
+        result.loc[sub.coldata.index, name] = final_tt
 
-        # if compute_confidence:
-        #     # Approximative Unsicherheiten per numerischer Hesse-Matrix
-        #     import numdifftools as nd
-        #     hess = nd.Hessian(opt_fun)(res.x)
-        #     try:
-        #         std_err = np.sqrt(np.diag(np.linalg.inv(hess)))
-        #         conf = std_err * norm.ppf(1 - (1 - ci_size) / 2)
-        #         conf_tt = np.zeros_like(init_array)
-        #         conf_tt[use_mask] = conf
-        #         result.loc[sub.coldata.index, time_conf_name] = conf_tt
-        #     except Exception as e:
-        #         print(f"Confidence interval computation failed: {e}")
+        if compute_confidence:
+            try:
+                import numdifftools as nd
 
-    return data.with_coldata("calibrated_time", result)
+                bar = tqdm(desc=f"Computing confidence {cond}", unit=" Evaluations", dynamic_ncols=True, disable=not show_progress)
+
+                # wrapper function for progress bar
+                def wrapped_fun(x):
+                    bar.update(1)
+                    return opt_fun(x)
+
+                hess = nd.Hessian(wrapped_fun)(res.x)
+                bar.close()
+
+                cov = np.linalg.inv(hess)
+                std_err = np.sqrt(np.diag(cov))
+                z = norm.ppf(1 - (1 - ci_size) / 2)
+                ci_half = std_err * z
+
+                conf_tt = np.zeros_like(init_array)
+                conf_tt[use_mask] = ci_half
+
+                result.loc[sub.coldata.index, name + "_conf"] = conf_tt
+
+            except Exception as e:
+                warnings.warn(f"Confidence interval computation failed for {cond}: {e}")
+
+    return result
+
+
+def _calibrate_effective_labeling_time_match_halflives(
+    data: "GrandPy",
+    reference_halflives = None,
+    reference_columns = None,
+    slot: str = None,
+    time_labeling = "duration.4sU",
+    time_experiment = None,
+    n_top_genes = 1000,
+    verbose = True
+) -> list[float]:
+    """
+    For a detailed description, see grandpy.GrandPy.calibrate_effective_labeling_time_match_halflives.
+    """
+    if slot is None:
+        slot = data.default_slot
+
+    coldata = data.coldata
+
+    genes = list(reference_halflives.keys())
+
+    # if any(g is None for g in data.get_genes(genes)):
+    #     raise ValueError("Not all names of reference_halflives are known gene names!")
+
+    totals = data.get_matrix(mode_slot=slot, genes=genes).sum(axis=1)
+
+    hl_cat = pd.cut(reference_halflives.values(), bins=[0,2,4,6,8,np.inf], include_lowest=True)
+    df_cat = pd.DataFrame({"Gene": genes, "totals": totals, "HL_cat": hl_cat})
+
+    fil = df_cat.groupby("HL_cat").apply(lambda s: pd.DataFrame({
+        "Gene": s["Gene"],
+        "use": s["totals"] >= sorted(s["totals"], reverse=True)[min(len(s), int(np.ceil(n_top_genes / df_cat["HL_cat"].nunique())))]
+    })).reset_index(drop=True)
+
+    selected_genes = fil[fil["use"]]["Gene"].astype(str).tolist()
+    reference_halflives = {g: reference_halflives[g] for g in selected_genes}
+
+    def fit_column(column):
+        if verbose:
+            print(f"Starting {column}...")
+
+        refcol = reference_columns
+        if isinstance(refcol, np.ndarray):
+            refcol = np.any(refcol[:, data.get_columns(column)] == 1, axis=1)
+
+        df = pd.DataFrame({
+            "ntr": data.get_table(mode_slots="ntr", columns=column, genes=selected_genes).iloc[:, 0],
+            "total": data.get_table(mode_slots=slot, columns=column, genes=selected_genes).iloc[:, 0],
+            "ss": data.get_table(mode_slots=slot, columns=refcol, genes=selected_genes).mean(axis=1),
+            "ref_HL": [reference_halflives[g] for g in selected_genes]
+        })
+
+        if time_experiment is not None:
+            exp_times = np.unique(coldata.loc[refcol, time_experiment])
+            if len(exp_times) != 1:
+                raise ValueError("Steady state has to refer to a unique experimental time!")
+
+        t = time_labeling if isinstance(time_labeling, (float, int)) else coldata.at[column, time_labeling]
+        if t == 0:
+            return 0
+
+        t0 = t if time_experiment is None else coldata.at[column, time_experiment] - exp_times[0]
+        is_steady_state = refcol[data.get_columns(column)]
+        if is_steady_state:
+            return t
+
+        def objective(tt):
+            hl = np.log(2) / transform_snapshot(
+                df["ntr"].to_numpy(),
+                df["total"].to_numpy(),
+                tt,
+                t0,
+                f0=df["ss"].to_numpy()
+            )[:, 1]  # [:,1] -> d-Spalte
+            ratio = np.log2(hl / df["ref_HL"].to_numpy())
+            return np.median(ratio[np.isfinite(ratio)])
+
+        upper = t
+        while objective(upper) < 0:
+            upper *= 2
+
+        t_opt = uniroot_safe(objective, 0, upper)
+
+        if verbose:
+            print(f"Done {column}!")
+        return t_opt
+
+    columns = data.columns
+    calibrated_times = [fit_column(col) for col in columns]
+
+    return calibrated_times
+
+def transform_snapshot(ntr, total, t, t0=None, f0=None, full_return=False):
+    if f0 is None:
+        d = -1 / t * np.log(1 - ntr)
+        s = total * d
+    elif t0 == t:
+        Fval = np.minimum(total * (1 - ntr) / f0, 1)
+        d = np.where(Fval >= 1, 0, -1 / t * np.log(Fval))
+        with np.errstate(divide='ignore', invalid='ignore'):
+            s = -1 / t * total * ntr * np.where(
+                Fval >= 1,
+                -1,
+                np.where(np.isinf(Fval), 0, np.log(Fval) / (1 - Fval))
+            )
+    elif np.size(ntr) > 1 or np.size(total) > 1 or np.size(f0) > 1:
+        m = np.column_stack((ntr, total, f0))
+        result = np.array([
+            transform_snapshot(ntr_i, total_i, t, t0, f0_i, full_return)
+            for ntr_i, total_i, f0_i in m
+        ])
+        return result
+    else:
+        new = total * ntr
+        old = total - new
+        f0new = f0 - new
+        inter = [np.log(2)/48, np.log(2)/0.001]
+
+        def eq(d):
+            return total * np.exp(-t * d) - f0 * np.exp(-t0 * d) * np.exp(-t * d) + f0new * np.exp(-t0 * d) - old
+
+        if eq(inter[0]) < 0:
+            d = 0
+            s = 0
+        elif eq(inter[1]) > 0:
+            d = np.inf
+            s = np.inf
+        else:
+            res = root_scalar(eq, bracket=inter, method='brentq')
+            d = res.root
+            s = new * d / (1 - np.exp(-t * d))
+
+    if full_return:
+        if t0 is None:
+            t0 = t
+        if f0 is None:
+            f0 = s / d
+        if np.size(s) > 1:
+            return np.column_stack((s, d, ntr, total, t*np.ones_like(s), t0*np.ones_like(s), f0))
+        else:
+            return {
+                's': float(s), 'd': float(d), 'ntr': float(ntr), 'total': float(total),
+                't': float(t), 't0': float(t0), 'f0': float(f0)
+            }
+    else:
+        if np.size(s) > 1:
+            return np.column_stack((s, d))
+        else:
+            return {'s': float(s), 'd': float(d)}

@@ -872,33 +872,47 @@ class GrandPy:
             The name of the column to be modified.
 
         value : Mapping or pd.Series or Sequence[Any]
-            The values to assign to the column can be any iterable. Can also be a dictionary when trying to update a column.
-            A Series will be matched to gene_info by its index.
+            The values to assign to the column can be any iterable.
+            Can also be a dictionary when trying to update a column.
+
+            If 'column' is None, the gene_info will be merged with the given value.
+            For this the index of `value` has to match the index of gene_info.
+
+        See Also
+        --------
+        GrandPy.replace: Replace parts of the instance, such as gene_info.
 
         Returns
         -------
         GrandPy
             A new GrandPy object with updated gene_info.
         """
-        new_gene_info = self.gene_info
+        new_geneinfo = self.gene_info
+
+        if column is None:
+            if value is None:
+                raise ValueError("No column name or value provided.")
+
+            new_geneinfo = pd.concat([new_geneinfo, pd.DataFrame(value)], axis=1)
+            return self._dev_replace(coldata=new_geneinfo)
 
         if isinstance(value, Mapping):
             if isinstance(value, Mapping):
-                if all(v in new_gene_info[column].values for v in value.keys()):
+                if all(v in new_geneinfo[column].values for v in value.keys()):
                     for match_value, new_val in value.items():
-                        new_gene_info.loc[new_gene_info[column] == match_value, column] = new_val
+                        new_geneinfo.loc[new_geneinfo[column] == match_value, column] = new_val
                 else:
                     for row_index, new_value in value.items():
-                        if row_index in new_gene_info.index:
-                            new_gene_info.at[row_index, column] = new_value
-            return self._dev_replace(gene_info = new_gene_info)
+                        if row_index in new_geneinfo.index:
+                            new_geneinfo.at[row_index, column] = new_value
+            return self._dev_replace(gene_info = new_geneinfo)
 
         if isinstance(value, pd.Series):
             value.index = _make_unique(value.index, warn = False)
 
-        new_gene_info[column] = value
+        new_geneinfo[column] = value
 
-        return self._dev_replace(gene_info = new_gene_info)
+        return self._dev_replace(gene_info = new_geneinfo)
 
     def get_index(self, genes: Union[str, int, Sequence[Union[str, int, bool]]] = None, *, regex: bool = False) -> list[int]:
         """
@@ -1143,30 +1157,41 @@ class GrandPy:
         """
         return self._adata.var.copy()
 
-    def with_coldata(self, column: str, value: Union[Mapping, pd.Series, Sequence[Any]]) -> "GrandPy":
+    def with_coldata(self, column: str = None, value: Union[Mapping, pd.Series, pd.DataFrame, Sequence] = None) -> "GrandPy":
         """
         Returns a new object with modified coldata. If the column name does not already exist, a new column will be added.
 
         Otherwise, the column will be replaced by the given value or updated if a dictionary was given.
 
-        Examples
+        See Also
         --------
-
+        GrandPy.replace: Replace parts of the instance, such as coldata.
 
         Parameters
         ----------
         column : str
             The name of the column to be modified or added.
 
-        value : Mapping or pd.Series or Sequence[Any]
-            The values to assign to the column can be any iterable. Can also be a dictionary when trying to update a column.
+        value : Mapping or pd.Series or pd.DataFrame or Sequence
+            The values to assign to the column can be any iterable.
+            Can also be a dictionary when trying to update a column.
+
+            If 'column' is None, the coldata will be merged with the given value.
+            For this the index of `value` has to match the index of coldata.
 
         Returns
         -------
         GrandPy
-            A new GrandPy object with updated coldata.
+            A GrandPy instance with updated coldata.
         """
         new_coldata = self.coldata
+
+        if column is None:
+            if value is None:
+                raise ValueError("No column name or value provided.")
+
+            new_coldata = pd.concat([new_coldata, pd.DataFrame(value)], axis=1)
+            return self._dev_replace(coldata=new_coldata)
 
         if column in new_coldata.columns:
             if isinstance(value, Mapping):
@@ -1952,6 +1977,7 @@ class GrandPy:
 
 
     # ----- Functions on the whole object -----
+    # TODO: analysen nicht mergen bei merge und concat, sondern einfach nur hinzufügen.
     def merge(
             self,
             other: "GrandPy",
@@ -1961,9 +1987,8 @@ class GrandPy:
             merge: Union[Literal["same", "unique", "first", "only"], Callable] = "unique",
     ) -> "GrandPy":
         """
-        Merge the 'other' instance with the current instance along a given axis. Uses `unique` for merging metadata and plots.
-
-        Analyses are merged if their names in both objects are identical. Otherwise, they are dropped.
+        Merge the 'other' instance with the current instance along a given axis.
+        Uses `first` for metadata, plots, and analyses.
 
         Parameters
         ----------
@@ -2277,6 +2302,7 @@ class GrandPy:
             ci_size: float = 0.95,
             genes: Union[str, Sequence[str]] = None,
             max_processes: int = None,
+            exact_processes: bool = False,
             show_progress: bool = True,
             **kwargs
     ) -> "GrandPy":
@@ -2301,8 +2327,8 @@ class GrandPy:
         slot: str, optional
             Name of the data slot used to extract old/new RNA expression. Defaults to the default slot.
 
-        time: str or array-like, default "Time"
-            Either a column name in `coldata` or a list of timepoints.
+        time: str or np.ndarray or pd.Series or Sequence, default "duration.4sU"
+            Either a column name in `coldata` or something array-like containing timepoints.
 
         name_prefix: str, optional
             Prefix added to the name of the fit result.
@@ -2332,10 +2358,6 @@ class GrandPy:
         genes: Union[str or int or Sequence[str or int or bool], optional
             Gene(s) to fit. Uses all by default. Specified either by their index, their symbol, their ensamble id, or a boolean mask.
 
-        max_processes: int, optional
-            The maximum number of processes this function will use.
-            If None or not provided, it will start up to available cores - 1 processes (e.g. 8 cores -> 7 processes)
-
         show_progress: bool, default True
             If True, a progress bar will be displayed.
 
@@ -2345,6 +2367,8 @@ class GrandPy:
             For `"nlls"`:
                 - max_iter: Maximum number of optimization iterations, by default 250.
                 - steady_state: Whether to use the steady-state model. It can be set for each condition individually by using a dict. By default, True
+                - max_processes: The maximum number of processes this function will use. If None or not provided, it will start up to available cores - 1 processes (e.g. 8 cores -> 7 processes)
+                - exact_processes: If True, exactly `max_processes` processes will be used.
 
             For `"ntr"`:
                 - transformed_ntr_map: Whether to assume that NTR values are MAP transformed; by default, True.
@@ -2353,11 +2377,13 @@ class GrandPy:
 
             For `"chase"`:
                 - max_iter: Maximum number of optimization iterations, by default 250.
+                - max_processes: The maximum number of processes this function will use. If None or not provided, it will start up to available cores - 1 processes (e.g. 8 cores -> 7 processes)
+                - exact_processes: If True, exactly `max_processes` processes will be used.
 
         Notes
         -----
-        This function decides dynamically how many processes to use.
-        By default, up to: available CPUs - 1. For more control see the `max_processes` parameter.
+        This function decides dynamically how many processes to use for `nlls` and `chase`.
+        By default, up to: available CPUs - 1. For more control see the `max_processes` and `exact_processes` parameters.
 
         See Also
         --------
@@ -2373,7 +2399,8 @@ class GrandPy:
 
         kinetics = _fit_kinetics(data=self, fit_type=fit_type, slot=slot, return_fields=return_fields,
                                  name_prefix=name_prefix, time=time, ci_size=ci_size, genes=genes,
-                                 max_processes=max_processes, show_progress=show_progress, **kwargs)
+                                 max_processes=max_processes, exact_processes=exact_processes,
+                                 show_progress=show_progress, **kwargs)
 
         new_gp = self
         for name, analysis in kinetics.items():
@@ -2384,16 +2411,133 @@ class GrandPy:
     def calibrate_effective_labeling_time_kinetic_fit(
             self,
             slot: str = None,
+            time: str = "duration.4sU",
             name: str = "calibrated_time",
-            time: Union[str, np.ndarray, pd.Series, Sequence] = "duration.4sU",
-            compute_ci: bool = False,
-            name_ci: str = "calibrated_time",
+            n_top_genes: int = 1000,
+            max_iterations: int = 10000,
+            compute_confidence: bool = False,
             ci_size: float = 0.95,
-            n_estimate: int = 1000,
-            n_iter: int = 10000,
-            show_progress: bool = True
+            show_progress: bool = True,
+            **kwargs
     ) -> "GrandPy":
-        ...
+        """
+        Uses the kinetic model to calibrate the effective labeling time.
+
+        The NTRs of each sample might be systematically too small or large. This function identifies such systematic
+        deviations and computes labeling durations without systematic deviations.
+
+        Can optionally compute confidence intervals for the estimation.
+
+        Parameters
+        ----------
+        slot : str, optional
+            The name of the slot used for calibration (Usually normalized counts). Defaults to the default slot.
+
+        time: str, default "duration.4sU"
+            A column name in `coldata` containing timepoints.
+
+        name : str, default "calibrated_time"
+            The name to assign to the calibrated time column in coldata.
+
+        ci_size : float, default 0.95
+            The confidence interval size for the calibration process.
+
+        compute_confidence : bool, default False
+            Whether to compute the confidence intervals for the labeling time.
+
+        n_top_genes : int, default 1000
+            Uses the n top expressed genes for calibration.
+            More genes make the calibration more accurate, but each iteration is slower.
+
+        max_iterations : int, default 10000
+            The number of maximum iterations for the calibration process.
+
+        show_progress : bool, default True
+            If True, the progress will be displayed as the number of iterations. (This doesn't necessarily match `max_iterations`)
+
+        **kwargs : dict
+            Additional keyword arguments to pass to fit_kinetics.
+
+        See Also:
+        --------
+        GrandPy.fit_kinetics: Fits kinetic models to gene expression data.
+
+        Returns
+        -------
+        GrandPy
+            A GrandPy instance containing the effective labeling time information in coldata.
+        """
+        from Py.modeling import _calibrate_effective_labeling_time_kinetic_fit
+
+        new_columns = _calibrate_effective_labeling_time_kinetic_fit(data=self, time=time, name=name, slot=slot,
+                                                                     n_top_genes=n_top_genes, max_iterations=max_iterations,
+                                                                     compute_confidence=compute_confidence,
+                                                                     ci_size=ci_size, show_progress=show_progress, **kwargs)
+
+        return self.with_coldata(value = new_columns)
+
+    # TODO: Funktion überarbeiten (testen + doc string anpassen)
+    def calibrate_effective_labeling_time_match_halflives(
+            self,
+            reference_halflives: Mapping[str, float] = None,
+            reference_columns=None,
+            slot: str = None,
+            time_labeling = "duration.4sU",
+            time_experiment: str = None,
+            name: str = "calibrated_time",
+            n_top_genes: int = 1000
+    ) -> "GrandPy":
+        """
+        Calibrate effective labeling durations by matching observed RNA half-lives to a reference.
+
+        The NTRs of each sample might be systematically too small or large. This function identifies such systematic
+        deviations and computes labeling durations without systematic deviations.
+
+        Parameters
+        ----------
+        reference_halflives : Mapping[str, float], optional
+            Dictionary of reference half-lives (in hours), keyed by gene names.
+
+        reference_columns : list, array-like, or boolean array
+            The columns (samples) used as steady-state references for expression levels.
+
+        slot : str, optional
+            Name of the data slot (e.g. 'total') from which expression values are taken.
+            If None, uses DefaultSlot(data).
+
+        time_labeling : str or float
+            If a string, it's interpreted as the name of a column in the coldata
+            containing the labeling duration for each sample. If a float, a global labeling duration
+            used for all samples.
+
+        time_experiment : str or None, optional
+            Column name in the coldata indicating experimental time points. Used to compute
+            the time offset (`t0`) between measurement and steady-state reference.
+
+        name : str, default="calibrated_time"
+            Name of the column in coldata where the calibrated labeling durations will be stored.
+
+        n_top_genes : int, default=1000
+            Number of top expressed genes used to calibrate the labeling duration.
+
+        Returns
+        -------
+        data : GrandPy
+            A GrandPy object with a column added in coldata, cotaining the calibrated time.
+
+        Raises
+        ------
+        ValueError
+            If `reference_columns` do not correspond to a unique steady-state condition.
+        """
+        from Py.modeling import _calibrate_effective_labeling_time_match_halflives
+
+        calibrated_time = _calibrate_effective_labeling_time_match_halflives(
+            self, reference_halflives=reference_halflives, reference_columns=reference_columns, slot=slot,
+            time_labeling=time_labeling, time_experiment=time_experiment, n_top_genes=n_top_genes
+        )
+
+        return self.with_coldata(column = name, value = calibrated_time)
 
     # ----- Differential Expression functions -----
     def get_summary_matrix(

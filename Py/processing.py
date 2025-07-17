@@ -290,7 +290,7 @@ def _filter_genes(
     if use is None:
         aggregation_matrix = None
         if min_condition is not None:
-            aggregation_matrix = data.get_summary_matrix(no4sU=True, average=False)
+            aggregation_matrix = data._get_summary_matrix(no4sU=True, average=False)
 
         matrix = data.get_table(mode_slots=mode_slot, summarize=aggregation_matrix)
 
@@ -597,43 +597,43 @@ def _compute_total_expression(data: "GrandPy", column: str = "total_expression",
 
     return data.with_coldata(column = column, value = total_expression)
 
-def _compute_absolute(
-        data: "GrandPy",
-        dilution: float = 4e4,
-        volume: float = 10.0,
-        slot: str = "tpm",
-        name: str = "absolute"
-) -> "GrandPy":
-    """
-    Schätzt absolute Molekülzahlen aus TPM-Daten mithilfe von ERCC-Spike-ins.
-    Annäherung an monocle::relative2abs auf Basis von Spike-Summen.
-    """
-
-    # Hole TPM-Matrix (angenommen: numpy-Array mit shape (n_genes, n_cells))
-    mat = data.get_matrix(slot)
-    gene_types = data.gene_info["Type"]
-    is_ercc = (gene_types == "ERCC")
-
-    if not np.any(is_ercc):
-        raise ValueError("Keine ERCC-Gene im Datensatz gefunden.")
-
-    ercc_mat = mat[is_ercc, :]  # TPMs nur der ERCCs
-    ercc_tpm_sum = np.nansum(ercc_mat, axis=0)  # Summe je Zelle
-
-    # Ersetze Nullen durch np.nan, um Division durch 0 zu vermeiden
-    ercc_tpm_sum[ercc_tpm_sum == 0] = np.nan
-
-    # Berechne Skalierungsfaktor je Zelle
-    scaling_factor = (dilution * volume) / ercc_tpm_sum  # shape: (n_cells,)
-
-    # Multipliziere jede Spalte mit passendem Skalierungsfaktor
-    absolute = mat * scaling_factor[np.newaxis, :]  # Broadcasting erzwingen
-
-    # Setze absolute = 0, wo TPM = 0 war
-    absolute[mat == 0] = 0
-
-    # Ergebnis als neuen Slot speichern
-    return data.with_slot(name, absolute)
+# Nicht relavant
+# def _compute_absolute(
+#         data: "GrandPy",
+#         dilution: float = 4e4,
+#         volume: float = 10.0,
+#         slot: str = "tpm",
+#         name: str = "absolute"
+# ) -> "GrandPy":
+#     """
+#     Schätzt absolute Molekülzahlen aus TPM-Daten mithilfe von ERCC-Spike-ins.
+#     Annäherung an monocle::relative2abs auf Basis von Spike-Summen.
+#     """
+#     # Hole TPM-Matrix (angenommen: numpy-Array mit shape (n_genes, n_cells))
+#     mat = data.get_matrix(slot)
+#     gene_types = data.gene_info["Type"]
+#     is_ercc = (gene_types == "ERCC")
+#
+#     if not np.any(is_ercc):
+#         raise ValueError("Keine ERCC-Gene im Datensatz gefunden.")
+#
+#     ercc_mat = mat[is_ercc, :]  # TPMs nur der ERCCs
+#     ercc_tpm_sum = np.nansum(ercc_mat, axis=0)  # Summe je Zelle
+#
+#     # Ersetze Nullen durch np.nan, um Division durch 0 zu vermeiden
+#     ercc_tpm_sum[ercc_tpm_sum == 0] = np.nan
+#
+#     # Berechne Skalierungsfaktor je Zelle
+#     scaling_factor = (dilution * volume) / ercc_tpm_sum  # shape: (n_cells,)
+#
+#     # Multipliziere jede Spalte mit passendem Skalierungsfaktor
+#     absolute = mat * scaling_factor[np.newaxis, :]  # Broadcasting erzwingen
+#
+#     # Setze absolute = 0, wo TPM = 0 war
+#     absolute[mat == 0] = 0
+#
+#     # Ergebnis als neuen Slot speichern
+#     return data.with_slot(name, absolute)
 
 def _compute_expression_percentage(
     data: "GrandPy",

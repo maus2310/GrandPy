@@ -4,11 +4,13 @@ from operator import contains
 import numpy as np
 import pandas as pd
 import pytest
+
 from Py.load import *
+from Py.slot_tool import ModeSlot
 
 read_input = {
     "prefix": "../data/sars_R.tsv",
-    "design": ("Condition", "Time", "Replicate")
+    "design": ("Condition", "dur.4sU", "Replicate")
 }
 
 def test_default_slots_test():
@@ -22,23 +24,12 @@ def test_with_default_slots():
     gp = read_grand(**read_input)
     with_default_slots_test_alpha = gp.with_default_slot("alpha")
     assert with_default_slots_test_alpha.default_slot == "alpha"
-    # with_default_slots_test_beta = gp.with_default_slot("beta")
-    # assert with_default_slots_test_beta.default_slot in "beta"
-    # with_default_slots_test_ntr = gp.with_default_slot("ntr")
-    # assert with_default_slots_test_ntr.default_slot in "ntr"
-    # with_default_slots_test_count = gp.with_default_slot("count")
-    # assert with_default_slots_test_count.default_slot in "count"
 
 def test_with_default_slots_immutability():
 
     gp = read_grand(**read_input)
     with_default_slots_test_immutability = gp.with_default_slot("alpha")
     assert with_default_slots_test_immutability.default_slot != gp.default_slot
-
-def test_slots():
-
-    #work in progress
-    gp = read_grand(**read_input)
 
 def test_slot_names():
 
@@ -51,7 +42,7 @@ def test_slot_names():
 def test_with_dropped_slots():
 
     gp = read_grand(**read_input)
-    control_list_ntr = ['count', 'alpha', 'beta']
+    control_list_ntr = ['alpha', 'beta', 'count']
     with_dropped_slots = gp.with_dropped_slots("ntr")
     assert with_dropped_slots.slots == control_list_ntr
 
@@ -90,30 +81,26 @@ def test_with_renamed_columns_dict():
 def test_with_swapped_columns():
     gp = read_grand(**read_input)
     gp = gp[0:10]
-    with_swapped_columns = gp.with_swapped_columns("Name", "Design_1")
-    # print(with_swapped_columns.columns[0], gp.columns[0], with_swapped_columns.columns[1], gp.columns[1])
-    assert with_swapped_columns.columns[0] != gp.columns[0]
-    assert with_swapped_columns.columns[1] != gp.columns[1]
+    with_swapped_columns = gp.with_swapped_columns("Mock.1h.A", "Mock.2h.A")
+    assert np.all(np.isin(with_swapped_columns.get_matrix(columns="Mock.1h.A"), gp.get_matrix(columns="Mock.2h.A")))
+    assert np.all(np.isin(with_swapped_columns.get_matrix(columns="Mock.2h.A"), gp.get_matrix(columns="Mock.1h.A")))
 
-#grad noch nicht alle spalten, da np.nan != np.flaot(nan) <- grandpy.get_table NaN wert
 def test_get_table():
     test_table = {
-        "Mock.no4sU.A" : [np.nan, np.nan, np.nan],
-        "Mock.1h.A": [0.0000, 0.0000, 0.6667],
-        "Mock.2h.A": [0.5, 0.0, 0.0]
+        "Mock.no4sU.A" : [0.0, 0.0, 0.0],
+        "Mock.1h.A": [201.79815, 118.64680, 531.08850],
+        "Mock.2h.A": [434.818800, 81.973500, 1197.084926]
     }
-    pd_test_table = pd.DataFrame(test_table, index = ["HNRNPLC3", "AL137802.1", "AL137798.2"])
 
     gp = read_grand(**read_input)
-    # gp = gp[0:10]
     test_get_table = gp.get_table(ModeSlot("new", "count"), [0,1,2], [0,1,2])
-    columns = ["Mock.1h.A", "Mock.2h.A"]
+    columns = ["Mock.no4sU.A","Mock.1h.A", "Mock.2h.A"]
     rows = [0,1,2]
     for i in columns:
         for j in rows:
-            assert test_get_table[i][j] == test_table[i][j]
+            assert round(test_get_table[i][j], 3) == round(test_table[i][j], 3)
 
-def test_concat_coldata():
+def test_merge_coldata():
     from io import StringIO
 
     gp =read_grand(**read_input)
@@ -121,38 +108,38 @@ def test_concat_coldata():
     zgp = gp[10:20]
 
     data = """
-    Name,Condition,Time,Replicate,no4sU
-    Mock.no4sU.A,Mock,no4sU,A,True
-    Mock.1h.A,Mock.1h,A,False
-    Mock.2h.A,Mock.2h,A,False
-    Mock.2h.B,Mock.2h,B,False
-    Mock.3h.A,Mock.3h,A,False
-    Mock.4h.A,Mock.4h,A,False
-    SARS.no4sU.A,SARS.no4sU,A,True
-    SARS.1h.A,SARS.1h,A,False
-    SARS.2h.A,SARS.2h,A,False
-    SARS.2h.B,SARS.2h,B,False
-    SARS.3h.A,SARS.3h,A,False
-    SARS.4h.A,SARS.4h,A,False
-    Mock.no4sU.A_1,Mock,no4sU,A,True
-    Mock.1h.A_1,Mock,1h,A,False
-    Mock.2h.A_1,Mock,2h,A,False
-    Mock.2h.B_1,Mock,2h,B,False
-    Mock.3h.A_1,Mock,3h,A,False
-    Mock.4h.A_1,Mock,4h,A,False
-    SARS.no4sU.A_1,SARS,no4sU.A,True
-    SARS.1h.A_1,SARS,1h,A,False
-    SARS.2h.A_1,SARS,2h,A,False
-    SARS.2h.B_1,SARS,2h,B,False
-    SARS.3h.A_1,SARS,3h,A,False
-    SARS.4h.A_1,SARS,4h,A,False
+    Name,Condition,duration.4sU,Replicate,no4sU
+    Mock.no4sU.A,Mock,0,A,True
+    Mock.1h.A,Mock,1,A,False
+    Mock.2h.A,Mock,2,A,False
+    Mock.2h.B,Mock,2,B,False
+    Mock.3h.A,Mock,3,A,False
+    Mock.4h.A,Mock,4,A,False
+    SARS.no4sU.A,SARS,0,A,True
+    SARS.1h.A,SARS,1,A,False
+    SARS.2h.A,SARS,2,A,False
+    SARS.2h.B,SARS,2,B,False
+    SARS.3h.A,SARS,3,A,False
+    SARS.4h.A,SARS,4,A,False
+    Mock.no4sU.A_1,Mock,0,A,True
+    Mock.1h.A_1,Mock,1,A,False
+    Mock.2h.A_1,Mock,2,A,False
+    Mock.2h.B_1,Mock,2,B,False
+    Mock.3h.A_1,Mock,3,A,False
+    Mock.4h.A_1,Mock,4,A,False
+    SARS.no4sU.A_1,SARS,0,A,True
+    SARS.1h.A_1,SARS,1,A,False
+    SARS.2h.A_1,SARS,2,A,False
+    SARS.2h.B_1,SARS,2,B,False
+    SARS.3h.A_1,SARS,3,A,False
+    SARS.4h.A_1,SARS,4,A,False
     """
 
     test_dataframe = pd.read_csv(StringIO(data), index_col=0)
-    test_concat_coldata_df = egp.concat(zgp, axis= 0).coldata
+    test_concat_coldata_df = egp.merge(zgp, axis= 0).coldata
 
-    cols = ["Name", "Condition", "Time", "Replicate", "no4sU"]
-    rows = [0,1,2,3,4]
+    cols = ["Condition", "duration.4sU", "Replicate", "no4sU"]
+    rows = [0,1,2,3]
     print (test_concat_coldata_df.columns)
     for i in cols:
         for j in rows:
@@ -204,13 +191,13 @@ def test_get_genes():
 
     gp = read_grand(**read_input)
     all_genes_test = gp.get_genes()
-    all_genes_test_names = gp.get_genes(use_gene_symbols=False)
+    all_genes_test_names = gp.get_genes(get_gene_symbols=False)
     assert gp.gene_info.shape[0] == len(all_genes_test) and gp.gene_info.shape[0] == len(all_genes_test_names)
     int_genes_test = gp.get_genes(0)
-    int_genes_test_names = gp.get_genes(0, use_gene_symbols=False)
+    int_genes_test_names = gp.get_genes(0, get_gene_symbols=False)
     assert int_genes_test == ["UHMK1"] and int_genes_test_names == ["ENSG00000152332"]
     str_genes_test = gp.get_genes("UHMK1")
-    str_genes_test_names = gp.get_genes("UHMK1", use_gene_symbols=False)
+    str_genes_test_names = gp.get_genes("UHMK1", get_gene_symbols=False)
     assert str_genes_test == ["UHMK1"] and str_genes_test_names == ["ENSG00000152332"]
     list_int_genes_test = gp.get_genes([0, 1])
     assert list_int_genes_test == ["UHMK1", "ATF3"]
@@ -219,7 +206,7 @@ def test_get_genes():
     mixed_genes_test = gp.get_genes([0, "UHMK1"])
     assert mixed_genes_test == ["UHMK1"]
     regex_genes_test = gp.get_genes(r"^U.*1$", regex = True)
-    regex_genes_test_names = gp.get_genes(r"^U.*1$", regex = True, use_gene_symbols=False)
+    regex_genes_test_names = gp.get_genes(r"^U.*1$", regex = True, get_gene_symbols=False)
     assert regex_genes_test == ["UHMK1", "UPP1", "UBA1"] and regex_genes_test_names == ["ENSG00000152332", "ENSG00000183696", "ENSG00000130985"]
 
 def test_get_genes_immutability():
