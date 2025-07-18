@@ -11,11 +11,11 @@ from functools import cached_property, lru_cache
 from dataclasses import dataclass
 
 
-from .slot_tool import ModeSlot
-from .utils import _ensure_list, _get_kinetics_data
+from GrandPy.slot_tool import ModeSlot
+from GrandPy.utils import _ensure_list, _get_kinetics_data
 
 if TYPE_CHECKING:
-    from .grandPy import GrandPy
+    from Py.grandPy import GrandPy
 
 
 def _fit_kinetics(
@@ -261,7 +261,6 @@ def fit_kinetics_chase(
     time: Union[np.ndarray, pd.Series, list] = None,
     ci_size: float = 0.95,
     return_fields: Sequence[str] = None,
-    steady_state: Union[bool, Mapping[str, bool]] = True,
     max_processes: int = None,
     exact_processes: bool = False,
     show_progress: bool = True,
@@ -290,15 +289,6 @@ def fit_kinetics_chase(
 
         parallel = True
 
-    # --- Map steady_state to each condition ---
-    if isinstance(steady_state, bool):
-        steady_state = {cond: steady_state for cond in unique_conditions}
-
-    for cond, state in steady_state.items(): # Ensure steady-state for all conditions
-        if state != True:
-            warnings.warn(f"'steady_state' for condition {cond} is set to False. This is not supported for pulse chase designs. Continuing with steady-state assumption.")
-            steady_state[cond] = True
-
     # --- Retrieve expression matrix ---
     new_expression = correct_new(data.get_matrix(mode_slot="ntr", genes=genes_to_fit), time=time)
 
@@ -324,7 +314,6 @@ def fit_kinetics_chase(
         idx = np.where(condition_vector == condition)[0]
         time_cond = time[idx]
         new_cond = new_expression[:, idx]
-        condition_steady_state = steady_state[condition]
 
         if parallel:
             jobs = []
@@ -341,7 +330,7 @@ def fit_kinetics_chase(
                         ci_size=ci_size,
                         chase=True,
                         total_value=total_value,
-                        steady_state=condition_steady_state,
+                        steady_state=True,
                         **kwargs
                     )
                     jobs.append((gene, job))
@@ -381,7 +370,7 @@ def fit_kinetics_chase(
                     ci_size=ci_size,
                     chase=True,
                     total_value=slot_values_per_gene.get(gene, None),
-                    steady_state=condition_steady_state,
+                    steady_state=True,
                     **kwargs
                 )
                 series = res.to_series(condition=condition, prefix=name_prefix, fields=return_fields)
@@ -652,57 +641,63 @@ class FitResult:
     @cached_property
     def ci_bounds(self) -> tuple[np.ndarray, np.ndarray]:
         if self.opt_result is None or self.opt_result.jac is None:
-            return np.full(2, np.nan), np.full(2, np.nan)
+            return (np.full_like(self.opt_result.x, np.nan),) * 2
 
         try:
             from scipy.stats import t
-
             J = self.opt_result.jac
-            if J.shape[1] != 2:
-                return np.full(2, np.nan), np.full(2, np.nan)
+            x = self.opt_result.x
 
-            res = self.residuals_raw
-            dof = len(res) - J.shape[1]
+            if J.ndim != 2 or J.shape[1] != x.size:
+                return (np.full_like(x, np.nan),) * 2
+
+            dof = len(self.residuals_raw) - x.size
             if dof <= 0:
-                return np.full(2, np.nan), np.full(2, np.nan)
+                return (np.full_like(x, np.nan),) * 2
 
-            sigma2 = np.sum(res ** 2) / dof
-            cov = sigma2 * np.linalg.pinv(J.T @ J)
+            sigma2 = np.sum(self.residuals_raw ** 2) / dof
+
+            JTJ = J.T @ J
+            if np.linalg.cond(JTJ) > 1e12:
+                return (np.full_like(x, np.nan),) * 2
+
+            cov = sigma2 * np.linalg.inv(JTJ)
             se = np.sqrt(np.diag(cov))
             tval = t.ppf(1 - (1 - self.ci_size) / 2, df=dof)
 
-            lower = self.opt_result.x[:2] - tval * se
-            upper = self.opt_result.x[:2] + tval * se
+            lower = x - tval * se
+            upper = x + tval * se
 
             return lower, upper
 
         except (np.linalg.LinAlgError, ValueError):
-            return np.full(2, np.nan), np.full(2, np.nan)
+            return (np.full_like(self.opt_result.x, np.nan),) * 2
 
     @property
     def ci_lower(self) -> dict:
         low, up = self.ci_bounds
-        s, d = low
-        _, d_up = up
-
-        return {
-            "Synthesis": max(0, s),
-            "Degradation": max(0, d),
-            "Half-life": np.log(2) / d_up if d_up > 0 else np.nan
-        }
+        result = {}
+        if len(low) >= 1:
+            result["Synthesis"] = max(0, low[0])
+        if len(low) >= 2:
+            result["Degradation"] = max(0, low[1])
+            d_up = up[1] if len(up) > 1 else np.nan
+            result["Half-life"] = np.log(2) / d_up if d_up > 0 else np.nan
+        return result
 
     @property
     def ci_upper(self) -> dict:
         low, up = self.ci_bounds
-        s, d = up
-        _, d_low = low
-        return {
-            "Synthesis": s,
-            "Degradation": d,
-            "Half-life": np.log(2) / max(0, d_low) if d_low > 0 else np.nan
-        }
+        result = {}
+        if len(up) >= 1:
+            result["Synthesis"] = up[0]
+        if len(up) >= 2:
+            result["Degradation"] = up[1]
+            d_low = low[1] if len(low) > 1 else np.nan
+            result["Half-life"] = np.log(2) / max(0, d_low) if d_low > 0 else np.nan
+        return result
 
-    # --- Serialization ---
+
     def to_dict(self, fields: list[str]) -> dict[str, object]:
         field_funcs = {
             "Synthesis": lambda: self.return_synthesis,
@@ -864,7 +859,7 @@ def get_residuals_and_jacobian_nonequi(time: np.ndarray, v_old: np.ndarray, v_ne
         pred_new = s / d * (1 - np.exp(-d * time))
         return np.concatenate([v_old - pred_old, v_new - pred_new])
 
-    def jocobian_function(par):
+    def jacobian_function(par):
         s, d, f0 = par
         exp_o = np.exp(-d * time)
         exp_n = np.exp(-d * time)
@@ -886,7 +881,7 @@ def get_residuals_and_jacobian_nonequi(time: np.ndarray, v_old: np.ndarray, v_ne
         ]).T
         return J
 
-    return residual_function, jocobian_function
+    return residual_function, jacobian_function
 
 
 def guess_chase_start(values_new: np.ndarray, time: np.ndarray):
@@ -1651,6 +1646,7 @@ def _calibrate_effective_labeling_time_match_halflives(
     calibrated_times = [fit_column(col) for col in columns]
 
     return calibrated_times
+
 
 def transform_snapshot(ntr, total, t, t0=None, f0=None, full_return=False):
     if f0 is None:
