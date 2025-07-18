@@ -83,8 +83,7 @@ class SlotTool:
             raise KeyError(f"Slot '{slot}' not found.")
         return self._adata.layers[slot].copy()
 
-    def with_slot(self, name: str, new_slot: Union[np.ndarray, pd.DataFrame, sp.csr_matrix, Sequence], *,
-                  set_to_default=False) -> tuple[dict[str, Union[np.ndarray, sp.csr_matrix]], dict[str, Any]]:
+    def with_slot(self, name: str, new_slot: Union[np.ndarray, pd.DataFrame, sp.csr_matrix, Sequence], *, set_to_default=False) -> tuple[dict, dict]:
         new_slots = self.slot_data()
         # rows and columns are not modified so there is no need to copy
         rows = self._adata.obs.index
@@ -97,7 +96,7 @@ class SlotTool:
                                            ) -> Union[np.ndarray, sp.csr_matrix]:
             # If DataFrame → to NumPy
             if isinstance(matrix, pd.DataFrame):
-                from GrandPy.utils import _make_unique
+                from grandpy.utils import _make_unique
 
                 matrix.index = _make_unique(pd.Series(matrix.index))
                 matrix = matrix.reindex(index=rows, columns=columns)
@@ -124,8 +123,7 @@ class SlotTool:
 
         return new_slots, new_metadata
 
-    def with_dropped_slots(self,slots_to_remove: Sequence[str]
-            ) -> tuple[dict[str, Union[np.ndarray, sp.csr_matrix]], dict[str, Any]]:
+    def with_dropped_slots(self,slots_to_remove: Sequence[str]) -> tuple[dict, dict]:
         current_slots = self.slot_data()
 
         remaining = [s for s in current_slots if s not in slots_to_remove]
@@ -141,7 +139,7 @@ class SlotTool:
 
         return new_slots, new_metadata
 
-    def check_slot(self, slot: str, *, allow_ntr: bool = True) -> bool:
+    def check_slot(self, slot: Union[str, ModeSlot], *, allow_ntr: bool = True) -> bool:
         if isinstance(slot, ModeSlot):
             slot = slot.slot
         if not allow_ntr and slot == "ntr":

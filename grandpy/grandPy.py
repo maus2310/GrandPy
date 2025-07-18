@@ -50,7 +50,7 @@ class GrandPy:
         Genes and their metadata.
 
     coldata: pd.DataFrame, optional
-        Samples and their metadata.
+        Samples or cells and their metadata.
 
     slots: dict[str, Union[np.ndarray, sp.csr_matrix]]], optional
         Name and the corresponding data matrix.
@@ -62,7 +62,7 @@ class GrandPy:
         Results from analyzing functions.
 
     plots: dict[str, dict[str, Plot]], optional
-        Plot functions. (global or gene plots)
+        Plot functions.
 
     See Also
     --------
@@ -91,50 +91,50 @@ class GrandPy:
             raise ValueError("GrandPy object must have a count slot.")
 
         # obs and var are swapped to allow the data to be gene * sample instead of sample * gene
-        self._adata = ad.AnnData(
+        self._anndata = ad.AnnData(
             X = sp.csr_matrix(np.zeros(slots["count"].shape)),
             obs = gene_info,
             var = coldata,
         )
         self._is_sparse = True if sp.issparse(slots["count"]) else False
 
-        self._initialize_slots(slots)
-        self._initialize_uns_data(prefix, metadata, analyses, plots)
-        self._ensure_no4sU_column()
-        self._ensure_condition_column()
+        self.__initialize_slots(slots)
+        self.__initialize_uns_data(prefix, metadata, analyses, plots)
+        self.__ensure_no4sU_column()
+        self.__ensure_condition_column()
 
-    def _initialize_slots(self, slots=None):
+    def __initialize_slots(self, slots=None):
         for key, matrix in slots.items():
-            self._adata.layers[key] = matrix
+            self._anndata.layers[key] = matrix
 
-    def _initialize_uns_data(self, prefix: str, metadata: dict[str, Any], analyses: dict[str, pd.DataFrame], plots: dict[str, dict[str, Plot]]):
+    def __initialize_uns_data(self, prefix: str, metadata: dict[str, Any], analyses: dict[str, pd.DataFrame], plots: dict[str, dict[str, Plot]]):
         if metadata.get('default_slot') is None:
                 metadata["default_slot"] = "count"
 
-        self._adata.uns['prefix'] = prefix if prefix is not None else "Unknown"
-        self._adata.uns['metadata'] = metadata
-        self._adata.uns['analyses'] = analyses if analyses is not None else {}
-        self._adata.uns['plots'] = plots if plots is not None else {}
+        self._anndata.uns['prefix'] = prefix if prefix is not None else "Unknown"
+        self._anndata.uns['metadata'] = metadata
+        self._anndata.uns['analyses'] = analyses if analyses is not None else {}
+        self._anndata.uns['plots'] = plots if plots is not None else {}
 
-    def _ensure_no4sU_column(self):
-        if 'no4sU' not in self._adata.var.columns:
+    def __ensure_no4sU_column(self):
+        if 'no4sU' not in self._anndata.var.columns:
             warnings.warn("No 'no4sU' entry in coldata, assuming all samples/cells as 4sU treated! "
                           "If the column is supposed to already exist, consider renaming it (see GrandPy.with_coldata())")
-            self._adata.var["no4sU"] = False
+            self._anndata.var["no4sU"] = False
 
-    def _ensure_condition_column(self):
-        if 'Condition' not in self._adata.var.columns:
+    def __ensure_condition_column(self):
+        if 'Condition' not in self._anndata.var.columns:
             warnings.warn("No 'Condition' entry in coldata, assuming all samples/cells as 'Control'! "
                           "Consider changing it (see GrandPy.with_condition()) or "
                           "renaming an existing column if it should already exist. (see GrandPy.with_coldata())")
-            self._adata.var["Condition"] = "Control"
+            self._anndata.var["Condition"] = "Control"
 
 
     def __str__(self):
         return (
             f"GrandPy:\n"
-            f"Read from {self._adata.uns['prefix']}\n"
-            f"{self._adata.n_obs} genes, {self._adata.n_vars} samples/cells\n"
+            f"Read from {self._anndata.uns['prefix']}\n"
+            f"{self._anndata.n_obs} genes, {self._anndata.n_vars} samples/cells\n"
             f"Available data slots: {self.slots}\n"
             f"Available analyses: {self.analyses}\n"
             f"Available plots: {self.plots}\n"
@@ -142,7 +142,7 @@ class GrandPy:
         )
 
     def __getitem__(self, items):
-        new_adata = self._adata.copy()
+        new_adata = self._anndata.copy()
         new_adata = new_adata[items]
 
         # Reorders all existing analyses according to the new genes present in gene_info
@@ -214,7 +214,7 @@ class GrandPy:
                 Retrieves the anndata instance.
         """
         if anndata is None:
-            anndata = self._adata.copy()
+            anndata = self._anndata.copy()
 
         return self.__class__(
             prefix = prefix if prefix is not None else anndata.uns.get('prefix'),
@@ -275,7 +275,7 @@ class GrandPy:
             A new GrandPy object with the given parameters replaced.
         """
         if anndata is None:
-            anndata = self._adata.copy()
+            anndata = self._anndata.copy()
 
         return self.__class__(
             prefix = prefix if prefix is not None else anndata.uns.get('prefix'),
@@ -295,7 +295,7 @@ class GrandPy:
         Get a title for the GrandPy object.
         The title is derived from the prefix.
         """
-        prefix = self._adata.uns.get('prefix')
+        prefix = self._anndata.uns.get('prefix')
         if prefix is None:
             raise KeyError("Title not available. Please specify a prefix when initializing the GrandPy object")
         else:
@@ -307,7 +307,7 @@ class GrandPy:
         """
         Get the dimension of the slots(data).
         """
-        return self._adata.X.shape
+        return self._anndata.X.shape
 
     @property
     def dim_names(self) -> tuple[list[str], list[str]]:
@@ -350,15 +350,15 @@ class GrandPy:
 
     # ----- All slot methods ------
     @property
-    def _slot_tool(self) -> SlotTool:
-        return SlotTool(self._adata, self._is_sparse)
+    def __slot_tool(self) -> SlotTool:
+        return SlotTool(self._anndata, self._is_sparse)
 
     @property
     def slots(self) -> list[str]:
         """
         Get the names of all available slots.
         """
-        return self._slot_tool.slots()
+        return self.__slot_tool.slots()
 
     @property
     def _slot_data(self) -> dict[str, Union[np.ndarray, sp.csr_matrix]]:
@@ -370,9 +370,9 @@ class GrandPy:
         dict[str, Union[np.ndarray, sp.csr_matrix]]
             The data of all available slots.
         """
-        return self._slot_tool.slot_data()
+        return self.__slot_tool.slot_data()
 
-    def _check_slot(self, slot: str, *, allow_ntr: bool = True) -> bool:
+    def __check_slot(self, slot: str, *, allow_ntr: bool = True) -> bool:
         """
         Checks if a given slot exists in the data slots.
 
@@ -389,9 +389,9 @@ class GrandPy:
         bool:
             True if the slot exists, False otherwise.
         """
-        return self._slot_tool.check_slot(slot, allow_ntr=allow_ntr)
+        return self.__slot_tool.check_slot(slot, allow_ntr=allow_ntr)
 
-    def _resolve_mode_slot(self, mode_slot: Union[str, ModeSlot], *, allow_ntr: bool = True, ntr_nan: bool = False) -> Union[np.ndarray, sp.csr_matrix]:
+    def __resolve_mode_slot(self, mode_slot: Union[str, ModeSlot], *, allow_ntr: bool = True, ntr_nan: bool = False) -> Union[np.ndarray, sp.csr_matrix]:
         """
         Checks whether the given slot is valid and computes the resulting mode slot if a mode was specified.
 
@@ -413,7 +413,7 @@ class GrandPy:
         Union[np.ndarray, sp.csr_matrix]
             The resulting slot after the mode has been applied.
         """
-        return self._slot_tool.resolve_mode_slot(mode_slot, allow_ntr=allow_ntr, ntr_nan=ntr_nan)
+        return self.__slot_tool.resolve_mode_slot(mode_slot, allow_ntr=allow_ntr, ntr_nan=ntr_nan)
 
     def with_dropped_slots(self, slots_to_remove: Union[str, Sequence[str]]) -> "GrandPy":
         """
@@ -431,7 +431,7 @@ class GrandPy:
         """
         slots_to_remove = _ensure_list(slots_to_remove)
 
-        new_slots, new_metadata = self._slot_tool.with_dropped_slots(slots_to_remove)
+        new_slots, new_metadata = self.__slot_tool.with_dropped_slots(slots_to_remove)
 
         return self._dev_replace(slots=new_slots, metadata=new_metadata)
 
@@ -460,7 +460,7 @@ class GrandPy:
         GrandPy
             A new GrandPy object with the new slot added.
         """
-        new_slots, new_metadata = self._slot_tool.with_slot(name, new_slot, set_to_default=set_to_default)
+        new_slots, new_metadata = self.__slot_tool.with_slot(name, new_slot, set_to_default=set_to_default)
 
         return self._dev_replace(slots=new_slots, metadata=new_metadata)
 
@@ -503,15 +503,15 @@ class GrandPy:
         ValueError
             When the given name for ntr is not valid.
         """
-        new_slots = self._slot_tool.with_ntr_slot(as_ntr, save_ntr_as=save_ntr_as)
+        new_slots = self.__slot_tool.with_ntr_slot(as_ntr, save_ntr_as=save_ntr_as)
 
         return self._dev_replace(slots=new_slots)
 
 
     # ----- All analysis methods -----
     @property
-    def _analysis_tool(self):
-        return AnalysisTool(self._adata)
+    def __analysis_tool(self):
+        return AnalysisTool(self._anndata)
 
     @property
     def analyses(self) -> list[str]:
@@ -534,7 +534,7 @@ class GrandPy:
         GrandPy.with_analysis:
             Add an analysis to the object. Usually not to be used directly.
         """
-        return self._analysis_tool.analyses()
+        return self.__analysis_tool.analyses()
 
     def get_analyses(self, pattern: Union[str, int, Sequence[Union[str, int, bool]]] = None, regex: bool = True, description: bool = False) -> list[str]:
         """
@@ -572,7 +572,7 @@ class GrandPy:
         GrandPy.with_analysis:
             Add an analysis to the object. Usually not to be used directly.
         """
-        return self._analysis_tool.get_analyses(pattern, regex=regex, description=description)
+        return self.__analysis_tool.get_analyses(pattern, regex=regex, description=description)
 
     def with_analysis(self, name: str, table: pd.DataFrame, by: str = None) -> "GrandPy":
         """
@@ -609,7 +609,7 @@ class GrandPy:
         GrandPy.with_dropped_analyses:
             Remove analyses with a regex pattern.
         """
-        new_analyses = self._analysis_tool.with_analysis(name, table, by=by)
+        new_analyses = self.__analysis_tool.with_analysis(name, table, by=by)
 
         return self._dev_replace(analyses=new_analyses)
 
@@ -639,15 +639,15 @@ class GrandPy:
         GrandPy.with_analysis:
             Add an analysis to the object. Usually not to be used directly.
         """
-        new_analyses = self._analysis_tool.drop_analyses(pattern)
+        new_analyses = self.__analysis_tool.drop_analyses(pattern)
 
         return self._dev_replace(analyses=new_analyses)
 
 
     # ----- All plot methods -----
     @property
-    def _plot_tool(self):
-        return PlotTool(self._adata)
+    def __plot_tool(self):
+        return PlotTool(self._anndata)
 
     @property
     def plots(self) -> dict[str, dict[str, Any]]:
@@ -667,7 +667,7 @@ class GrandPy:
         GrandPy.with_dropped_plots
             Remove plots matching a regex pattern.
         """
-        return self._plot_tool.plots()
+        return self.__plot_tool.plots()
 
     def with_plot(self, name: str, function: Union[Plot, Callable]) -> "GrandPy":
         """
@@ -733,7 +733,7 @@ class GrandPy:
         GrandPy.with_dropped_plots
             Remove plots matching a regex.
         """
-        new_plots = self._plot_tool.add_plot(name, function)
+        new_plots = self.__plot_tool.add_plot(name, function)
 
         return self._dev_replace(plots=new_plots)
 
@@ -764,7 +764,7 @@ class GrandPy:
             Executes a stored global plot function.
         """
         try:
-            return self._adata.uns["plots"]["gene"][name](self, gene)
+            return self._anndata.uns["plots"]["gene"][name](self, gene)
         except KeyError:
             raise KeyError(f"No plot named, '{name}' was found. These are all available gene plots: {self.plots.get('gene', None)}")
 
@@ -792,7 +792,7 @@ class GrandPy:
             Executes a stored plot function for a given gene.
         """
         try:
-            return self._adata.uns["plots"]["global"][name](self)
+            return self._anndata.uns["plots"]["global"][name](self)
         except KeyError:
             raise KeyError(
                 f"No plot named '{name}' was found. These are all available global plots: {self.plots.get('global', None)}")
@@ -819,7 +819,7 @@ class GrandPy:
         GrandPy.with_plot
             Add a plot function.
         """
-        new_plots = self._plot_tool.drop_plot(pattern)
+        new_plots = self.__plot_tool.drop_plot(pattern)
 
         return self._dev_replace(plots=new_plots)
 
@@ -831,7 +831,7 @@ class GrandPy:
         """
         Get the metadata about the GrandPy object.
         """
-        return self._adata.uns.get('metadata').copy()
+        return self._anndata.uns.get('metadata').copy()
 
 
     @property
@@ -839,7 +839,7 @@ class GrandPy:
         """
         Get the gene_info DataFrame.
         """
-        return self._adata.obs.copy()
+        return self._anndata.obs.copy()
 
     def with_gene_info(self, value: Union[Mapping, pd.Series, pd.DataFrame, np.ndarray, Sequence], name:str = None) -> "GrandPy":
         """
@@ -1159,7 +1159,7 @@ class GrandPy:
         """
         Get the coldata DataFrame.
         """
-        return self._adata.var.copy()
+        return self._anndata.var.copy()
 
     def with_coldata(self, value: Union[Mapping, pd.Series, pd.DataFrame, np.ndarray, Sequence], name: str = None, ) -> "GrandPy":
         """
@@ -1428,7 +1428,7 @@ class GrandPy:
         old_geneinfo_index = self.gene_info.index
         old_coldata_index = self.coldata.index
 
-        new_adata = self._adata.copy()
+        new_adata = self._anndata.copy()
 
         # Apply function to gene_info
         if function_gene_info is not None:
@@ -1452,8 +1452,8 @@ class GrandPy:
 
         new_layers = {}
 
-        for key in self._adata.layers.keys():
-            matrix = function(self._adata.layers[key], **kwargs)
+        for key in self._anndata.layers.keys():
+            matrix = function(self._anndata.layers[key], **kwargs)
 
             matrix = matrix[np.ix_(row_indices, column_indices)]
 
@@ -1518,7 +1518,7 @@ class GrandPy:
         if mode_slot is None:
             mode_slot = self.default_slot
 
-        data = self._resolve_mode_slot(mode_slot)
+        data = self.__resolve_mode_slot(mode_slot)
 
         row_indices = self.get_index(genes)
         column_indices = [self.coldata.index.get_loc(column) for column in self.get_columns(columns)]
@@ -1603,7 +1603,7 @@ class GrandPy:
 
         if not by_rows:
             for slot_name in mode_slots:
-                all_data = self._resolve_mode_slot(slot_name, ntr_nan=ntr_nan).T
+                all_data = self.__resolve_mode_slot(slot_name, ntr_nan=ntr_nan).T
                 data_subset = _subset_dense_or_sparse(all_data, row_indices, column_indices)
 
                 if len(mode_slots) > 1:
@@ -1621,7 +1621,7 @@ class GrandPy:
 
         else:
             for slot_name in mode_slots:
-                all_data = self._resolve_mode_slot(slot_name, ntr_nan=ntr_nan).T
+                all_data = self.__resolve_mode_slot(slot_name, ntr_nan=ntr_nan).T
                 data_subset = _subset_dense_or_sparse(all_data, row_indices, column_indices)
 
                 df = pd.DataFrame(data_subset, index=row_names, columns=column_names)
@@ -1734,7 +1734,7 @@ class GrandPy:
         result_df = pd.DataFrame()
 
         for slot_name in mode_slots:
-            all_data = self._resolve_mode_slot(slot_name, ntr_nan=ntr_nan)
+            all_data = self.__resolve_mode_slot(slot_name, ntr_nan=ntr_nan)
 
             if summarize is not None:
                 matrix = all_data @ summarize.values
@@ -1830,7 +1830,7 @@ class GrandPy:
         result_df = pd.DataFrame()
 
         for name in analyses:
-            analysis_data = self._adata.uns["analyses"][name]
+            analysis_data = self._anndata.uns["analyses"][name]
 
             analysis_data.index = pd.Index(gene_info[name_genes_by])
 
@@ -2047,7 +2047,7 @@ class GrandPy:
         result = []
         for group in self.coldata[by].unique():
             mask = self.coldata[by] == group
-            subset = self._adata[:, mask]
+            subset = self._anndata[:, mask]
             obj = self._dev_replace(anndata=subset)
             obj.group = group
 
@@ -2092,7 +2092,7 @@ class GrandPy:
         if x is None:
             x = self.default_slot
 
-        adata = self._adata.copy()
+        adata = self._anndata.copy()
         adata.X = self.get_matrix(x, force_numpy=False)
 
         if original:
@@ -2291,6 +2291,12 @@ class GrandPy:
         -------
         list[str] or GrandPy
         """
+        if mode_slot is None:
+            mode_slot = self.default_slot
+
+        if not self.__check_slot(mode_slot):
+            raise ValueError(f"Slot '{mode_slot}' unknown!")
+
         return _filter_genes(self, mode_slot, min_expression=min_expression, min_columns=min_columns,
                              min_condition=min_condition, use=use, keep=keep, return_genes=return_genes)
 

@@ -1180,13 +1180,13 @@ def _read(file_path, sparse, default_slot, design,
         )
 
 
-def get_table_qc(grand, slot="count"):
+def get_table_qc(data: GrandPy, slot="count"):
     """
     Returns a QC table per sample with detected genes, totals, statistics and optional percentages per gene type.
 
     Parameters
     ----------
-    grand : GrandPy-object
+    data : GrandPy
         A fully initialised GrandPy object.
 
     slot : str, default "count"
@@ -1198,20 +1198,14 @@ def get_table_qc(grand, slot="count"):
         One row per sample with basic stats (detected genes, mean, ...) and
         fractions per gene type; all columns from grand.coldata are appended.
     """
+    mat = data.get_matrix(slot)
 
-    if not grand._check_slot(slot):
-        raise ValueError(f"Slot '{slot}' not found in grand._adata.layers.")
-
-    mat = grand._adata.layers[slot]
-    if sp.issparse(mat):
-        mat = mat.toarray()
-
-    gene_info = grand.gene_info
+    gene_info = data.gene_info
     if "Type" not in gene_info.columns:
         raise ValueError("Gene type classification (column 'Type') not found in gene_info.")
 
     gene_types = gene_info["Type"]
-    col_names = grand.coldata["Name"].tolist()
+    col_names = data.columns
 
     df = pd.DataFrame({
         "Name": col_names,
@@ -1229,7 +1223,7 @@ def get_table_qc(grand, slot="count"):
         frac = mat[mask.values, :].sum(axis=0) / total_per_sample
         df[f"Fraction.{typ}"] = frac
 
-    coldata = grand.coldata.reset_index(drop=True)
+    coldata = data.coldata.reset_index(drop=True)
     df = df.merge(coldata, on="Name", how="left")
 
     return df

@@ -755,7 +755,7 @@ def plot_scatter(
     if mode_slot is None:
         mode_slot = data.default_slot
 
-    raw_matrix = data._resolve_mode_slot(mode_slot)
+    raw_matrix = data.__resolve_mode_slot(mode_slot)
     if _is_sparse_matrix(raw_matrix):
         df = data.get_analysis_table(genes=genes, with_gene_info=False)
     elif analysis:
@@ -789,7 +789,7 @@ def plot_scatter(
         x_vals_all = df.T.iloc[0].to_numpy()
     else:
         col_index = list(data.coldata["Name"]).index(x)
-        matrix = data._resolve_mode_slot(mode_slot)
+        matrix = data.__resolve_mode_slot(mode_slot)
         matrix = matrix.toarray() if hasattr(matrix, "toarray") else matrix
         x_vals_all = matrix[:, col_index]
 
@@ -799,7 +799,7 @@ def plot_scatter(
         y_vals_all = df.T.iloc[1].to_numpy()
     else:
         col_index = list(data.coldata["Name"]).index(y)
-        matrix = data._resolve_mode_slot(mode_slot)
+        matrix = data.__resolve_mode_slot(mode_slot)
         matrix = matrix.toarray() if hasattr(matrix, "toarray") else matrix
         y_vals_all = matrix[:, col_index]
     if np.all(np.isnan(x_vals_all)):

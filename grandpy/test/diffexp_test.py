@@ -164,8 +164,8 @@ if __name__ == "__main__":
                        normalization="total", compute_M=True,
                        verbose=True)
 
-    res_total = sars._adata.uns["analyses"]["total_SARS_vs_Mock"]
-    res_new = sars._adata.uns["analyses"]["new_SARS_vs_Mock"]
+    res_total = sars._anndata.uns["analyses"]["total_SARS_vs_Mock"]
+    res_new = sars._anndata.uns["analyses"]["new_SARS_vs_Mock"]
 
     print("=== total RNA LFC ===")
     print(res_total.head())

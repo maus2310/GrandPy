@@ -57,10 +57,10 @@ def concat(
         else:
             raise ValueError(f"Axis must be either 0, 'gene_info' or 1, 'coldata' not {axis}.")
 
-        adatas = [obj._adata for obj in objects]
+        adatas = [obj._anndata for obj in objects]
         new_adata = ad.concat(adatas, axis=axis, join=join, merge=merge, uns_merge="first")
 
-    return objects[0]._dev_replace(anndata=new_adata)
+    return objects[0].__dev_replace(anndata=new_adata)
 
 
 # Private utility functions

@@ -188,7 +188,7 @@ def test_read_dense_real():
 
 def test_sparse_loader_example():
     obj = read_grand("../test-datasets/test_sparse.targets", design=("Time", "Replicate"))
-    count = obj._adata.X
+    count = obj._anndata.X
     assert count.shape[0] > 0
 
 
@@ -203,7 +203,7 @@ def test_read_dense_and_sparse_load():
 def test_read_grand_url():
     url = "https://zenodo.org/record/5834034/files/sars.tsv.gz"
     obj = read_grand(url, design=("Condition", "Time", "Replicate"))
-    assert "count" in obj._adata.layers
+    assert "count" in obj._anndata.layers
 
 
 def test_validate_input_raises_on_missing_columns():

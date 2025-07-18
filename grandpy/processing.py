@@ -281,16 +281,10 @@ def _filter_genes(
     if use is not None and keep is not None:
         raise ValueError("Do not specify both use and keep!")
 
-    if mode_slot is None:
-        mode_slot = data.default_slot
-
-    if not data._check_slot(mode_slot):
-        raise ValueError(f"Slot '{mode_slot}' unknown!")
-
     if use is None:
         aggregation_matrix = None
         if min_condition is not None:
-            aggregation_matrix = data._get_summary_matrix(no4sU=True, average=False)
+            aggregation_matrix = data.get_summary_matrix(no4sU=True, average=False)
 
         matrix = data.get_table(mode_slots=mode_slot, summarize=aggregation_matrix)
 
