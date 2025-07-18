@@ -289,7 +289,7 @@ def test_get_table_qc_missing_slot_raises():
 # Test für uniqueness:
 
 def test_make_unique_adds_suffix():
-    from GrandPy.utils import _make_unique
+    from grandpy.utils import _make_unique
     series = pd.Series(["A", "B", "A", "C", "B"])
     unique = _make_unique(series)
     assert len(set(unique)) == 5
