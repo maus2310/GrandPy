@@ -20,6 +20,14 @@ from .utils import concat
 from .slot_tool import ModeSlot
 from .plot_tool import Plot
 
+from .test import (
+    test_diffexp,
+    test_grandPy,
+    test_load,
+    test_modeling,
+    test_plot,
+)
+
 __all__ = [
     "GrandPy",
     "read_grand",
@@ -38,5 +46,10 @@ __all__ = [
     "plot_ma",
     "concat",
     "ModeSlot",
-    "Plot"
+    "Plot",
+    "test_diffexp",
+    "test_grandPy",
+    "test_load",
+    "test_modeling",
+    "test_plot"
 ]

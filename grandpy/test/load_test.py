@@ -2,7 +2,7 @@ from pathlib import Path
 import pytest
 from scipy import sparse
 
-from GrandPy.load import *
+from grandpy.load import *
 
 CURRENT_FILE = Path(__file__).resolve()
 PROJECT_ROOT = Path(__file__).resolve().parents[2]

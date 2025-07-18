@@ -26,7 +26,7 @@ sars = read_grand("../data/sars_R.tsv",
 def test_plot_outputs():
     with tempfile.TemporaryDirectory() as tmpdirname:
         path = Path(tmpdirname)
-        test_plot_run(sars=sars, gene="SRSF6", pathforsave=path)
+        plot_run(sars=sars, gene="SRSF6", pathforsave=path)
         out_of_range = []
         missing = []
 
@@ -52,18 +52,19 @@ def test_plot_outputs():
         if out_of_range:
             pytest.fail("Files with size out of range:\n" + "\n".join(out_of_range))
 
-def test_plot_run(sars=sars, gene = "SRSF6", pathforsave=Path.cwd()): #"C:/Users/Andre/Desktop/plots"
-        sars = sars.normalize()
-        sars = sars.compute_ntr_ci()
-        highlightgenes = sars.get_classified_genes("Moin")
-        plot_scatter(sars, x="SARS.1h.A", highlight = highlightgenes, label=highlightgenes, log=True, y_label_offset=0.01, remove_outlier=True, diagonal=True,  path_for_save=pathforsave)
-        plot_pca(sars, path_for_save=pathforsave)
-        plot_heatmap(sars, transform="vst", cluster_genes=False, path_for_save=pathforsave, title="Heatmap", genes=highlightgenes)
-        plot_gene_old_vs_new(sars, gene, show_ci=True, path_for_save=pathforsave)
-        plot_gene_total_vs_ntr(sars, gene, slot="total_count" ,show_ci=True, path_for_save=pathforsave)
-        plot_gene_groups_points(sars, gene, show_ci=True, path_for_save=pathforsave, dodge=True)
-        plot_gene_groups_bars(sars, gene, xlabels="Condition + '.' + Replicate", show_ci=True, path_for_save=pathforsave)
-        plot_gene_snapshot_timecourse(sars, gene, show_ci=True, mode_slot="ntr", path_for_save=pathforsave, dodge=True)
-        plot_gene_progressive_timecourse(sars, gene, path_for_save=pathforsave)
-        plot_expression_test(sars, "SARS.1h.A", "SARS.no4sU.A", path_for_save=pathforsave)
-        plot_type_distribution(sars, relative=True, path_for_save=pathforsave)
+def plot_run(sars, gene, pathforsave):
+    sars = sars.normalize()
+    sars = sars.compute_ntr_ci()
+    highlightgenes = sars.get_classified_genes("Moin")
+
+    plot_scatter(sars, x="SARS.1h.A", highlight=highlightgenes, label=highlightgenes, log=True, y_label_offset=0.01, remove_outlier=True, diagonal=True, path_for_save=pathforsave)
+    plot_pca(sars, path_for_save=pathforsave)
+    plot_heatmap(sars, transform="vst", cluster_genes=False, path_for_save=pathforsave, title="Heatmap", genes=highlightgenes)
+    plot_gene_old_vs_new(sars, gene, show_ci=True, path_for_save=pathforsave)
+    plot_gene_total_vs_ntr(sars, gene, slot="total_count", show_ci=True, path_for_save=pathforsave)
+    plot_gene_groups_points(sars, gene, show_ci=True, path_for_save=pathforsave, dodge=True)
+    plot_gene_groups_bars(sars, gene, xlabels="Condition + '.' + Replicate", show_ci=True, path_for_save=pathforsave)
+    plot_gene_snapshot_timecourse(sars, gene, show_ci=True, mode_slot="ntr", path_for_save=pathforsave, dodge=True)
+    plot_gene_progressive_timecourse(sars, gene, path_for_save=pathforsave)
+    plot_expression_test(sars, "SARS.1h.A", "SARS.no4sU.A", path_for_save=pathforsave)
+    plot_type_distribution(sars, relative=True, path_for_save=pathforsave)

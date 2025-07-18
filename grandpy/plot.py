@@ -2400,7 +2400,7 @@ def plot_gene_progressive_timecourse(
 
 
 
-    from GrandPy.utils import _get_kinetics_data
+    from .utils import _get_kinetics_data
     fit_results = _get_kinetics_data(
         data,
         genes=gene,
