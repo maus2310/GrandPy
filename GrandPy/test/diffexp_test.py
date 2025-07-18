@@ -52,6 +52,21 @@ def test_center_median_values():
     y = center_median(x)
     assert np.allclose(y, expected)
 
+def test_psi_lfc_with_ci_output():
+    """Psi_LFC mit credible intervals liefert Tuple (lfc_array, ci_matrix) ohne Fehler und konsistentes CI-Layout."""
+    A6 = np.random.normal(loc=50, scale=5, size=200)
+    B6 = np.random.normal(loc=50, scale=5, size=200)
+    lfc, ci = Psi_LFC(A6, B6, cre=True)
+    # Typ und Form prüfen
+    assert isinstance(lfc, np.ndarray)
+    assert isinstance(ci, np.ndarray)
+    assert lfc.shape == A6.shape
+    assert ci.shape == (A6.shape[0], 2)
+    # CI sollte den LFC enthalten: min(ci[i]) <= lfc[i] <= max(ci[i])
+    lows = np.min(ci, axis=1)
+    highs = np.max(ci, axis=1)
+    assert np.all(lows <= lfc)
+    assert np.all(lfc <= highs)
 
 def test_norm_lfc_output_shape_and_type():
     """Prüft, dass norm_lfc ein numpy-Array gleicher Länge zurückgibt."""
@@ -86,24 +101,6 @@ def test_psi_lfc_no_ci_output():
     assert isinstance(lfc, np.ndarray)
     assert lfc.shape == A5.shape
     assert np.isclose(np.median(lfc), 0.0, atol=1e-6)
-
-# TODO: dieser Test funktioniert alleine, aber nicht im Gesamtdurchlauf
-# def test_psi_lfc_with_ci_output():
-#     """Psi_LFC mit credible intervals liefert Tuple (lfc_array, ci_matrix) ohne Fehler und konsistentes CI-Layout."""
-#     A6 = np.random.normal(loc=50, scale=5, size=200)
-#     B6 = np.random.normal(loc=50, scale=5, size=200)
-#     lfc, ci = Psi_LFC(A6, B6, cre=True)
-#     # Typ und Form prüfen
-#     assert isinstance(lfc, np.ndarray)
-#     assert isinstance(ci, np.ndarray)
-#     assert lfc.shape == A6.shape
-#     assert ci.shape == (A6.shape[0], 2)
-#     # CI sollte den LFC enthalten: min(ci[i]) <= lfc[i] <= max(ci[i])
-#     lows = np.min(ci, axis=1)
-#     highs = np.max(ci, axis=1)
-#     assert np.all(lows <= lfc)
-#     assert np.all(lfc <= highs)
-
 
 def test_psi_lfc_zero_input():
     """Bei identischen Bedingungen ist LFC-Vektor praktisch Null."""
