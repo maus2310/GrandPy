@@ -5,10 +5,10 @@ import numpy as np
 import pandas as pd
 
 from typing import Union, TYPE_CHECKING, Optional, Callable, Sequence
-from GrandPy.utils import _ensure_list
-from GrandPy.grandPy import GrandPy
-from GrandPy.analysis_tool import AnalysisTool
-from GrandPy.slot_tool import ModeSlot
+from .utils import _ensure_list
+from .grandPy import GrandPy
+from .analysis_tool import AnalysisTool
+from .slot_tool import ModeSlot
 
 from scipy.special import digamma, polygamma
 from scipy.stats import norm
@@ -20,7 +20,7 @@ except ImportError:
     DeseqDataSet = DeseqStats = None
 
 if TYPE_CHECKING:
-    from GrandPy.grandPy import GrandPy
+    from .grandPy import GrandPy
 
 # TODO: DELETE EXAMPLES IN THE LAST SPRINT!!!!!
 

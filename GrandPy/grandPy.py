@@ -8,11 +8,11 @@ import pandas as pd
 import anndata as ad
 import scipy.sparse as sp
 
-from GrandPy.slot_tool import SlotTool, ModeSlot
-from GrandPy.plot_tool import PlotTool, Plot
-from GrandPy.analysis_tool import AnalysisTool
-from GrandPy.processing import _filter_genes
-from GrandPy.utils import _ensure_list, _make_unique, _reindex_by_index_name, _subset_dense_or_sparse
+from .slot_tool import SlotTool, ModeSlot
+from .plot_tool import PlotTool, Plot
+from .analysis_tool import AnalysisTool
+from .processing import _filter_genes
+from .utils import _ensure_list, _make_unique, _reindex_by_index_name, _subset_dense_or_sparse
 
 
 class GrandPy:

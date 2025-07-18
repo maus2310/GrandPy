@@ -14,8 +14,8 @@ from pathlib import Path
 from scipy.io import mmread
 from urllib.parse import urlparse, unquote
 
-from GrandPy.utils import _to_sparse, _make_unique
-from GrandPy.grandPy import GrandPy
+from .utils import _to_sparse, _make_unique
+from .grandPy import GrandPy
 
 
 # Predefined design variable names for harmonized analysis (mirrors R's Design list)

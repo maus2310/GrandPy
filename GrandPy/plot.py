@@ -16,9 +16,8 @@ from IPython.core.pylabtools import figsize
 from scipy.sparse import issparse
 
 
-from GrandPy.grandPy import GrandPy
-from GrandPy.slot_tool import ModeSlot, _parse_as_mode_slot
-#TODO Default parameter checken
+from .grandPy import GrandPy
+from .slot_tool import ModeSlot, _parse_as_mode_slot
 
 def _is_sparse_matrix(mat: any)-> bool:
     """

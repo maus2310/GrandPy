@@ -6,8 +6,8 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING, Union, Optional, Any
 
 if TYPE_CHECKING:
-    from GrandPy.grandPy import GrandPy
-    from GrandPy.slot_tool import ModeSlot
+    from .grandPy import GrandPy
+    from .slot_tool import ModeSlot
 
 def _comp_hl(p, time=1):
     """Computes half-life from NTR-value p and time t"""
