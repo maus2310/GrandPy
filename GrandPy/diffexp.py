@@ -258,7 +258,7 @@ def Psi_LFC(A: np.ndarray,
     return lfc_centered
 
 
-# kinda done - not quite sure about the output yet
+# FEEDBACK-READY
 def compute_lfc(data: GrandPy,
                 name_prefix: str,
                 contrasts: Optional[pd.DataFrame] = None,
@@ -270,157 +270,105 @@ def compute_lfc(data: GrandPy,
                 genes: Optional[list[str]] = None,
                 verbose: bool = False,
                 **kwargs) -> GrandPy:
-
     """
     Estimate log2 fold changes and optional M values for each contrast and store analyses.
 
     Parameters
     ----------
     data : GrandPy
-        The grandPy object. Must contain a 'Condition' column in its coldata. See Notes for more.
-
+        The grandPy object. Must contain a 'Condition' column in its coldata.
     name_prefix : str
-        The prefix for the new analysis name;
-        a "_" and the column names of the contrast matrix are appended;
-        can be None (then only the contrast matrix names are used)
-
-    contrasts : pd.DataFrame
+        The prefix for the new analysis name; e.g. 'total' or 'new'.
+    contrasts : pd.DataFrame, optional
         Contrast matrix defining comparisons (samples x contrasts; values 1, -1).
-
     slot : str
-        The slot of the grandPy object to take the data from;
-        for Psi_LFC-functions this really should be "count"!
-
+        The slot of the grandPy object to take the data from (e.g. "count").
     LFC_fun : function
-        Function to compute the log2 fold changes.
-        (default Psi_LFC, other viable option: "Norm_LFC") #TODO Norm_LFC()
-
+        Function to compute the log2 fold changes (default Psi_LFC).
     mode : str
-        Computes LFCs for "total", "new" or "old" RNA.
-
-    normalization :  str or sequence, optional
-        If str: use the <normalization>_<slot> slot of normalized counts;
-        if sequence: divide each sample by the provided size factor.
-
+        Computes LFCs for "total", "new", or "old" RNA.
+    normalization : str or sequence, optional
+        If str: name of normalization slot (e.g. "total");
+        if sequence: size factors per sample.
     compute_M : bool, default True
-        If True and LFC_fun returns M, include the "M" column.
-
+        If True, include the "M" column (base mean) for each contrast.
     genes : list of str, optional
         Restrict analysis to these genes; None means all genes.
-
     verbose : bool
-        If True status updates will be provided.
-
+        If True, status updates will be printed.
     **kwargs
-        Additional keyword arguments are passed to LFC_fun.
+        Passed to LFC_fun.
 
     Returns
     -------
     GrandPy
-        New GrandPy object with one analysis per contrast. Columns are
-        "LFC" (log2 fold change) and optionally "M".
-
-    Notes
-    -----
-    This functino uses the 'Condition' column in data.coldata to define
-    groups for comparison.
-    If you need to use a different column, you can rename it to 'Condition'
-    before calling this function.
+        New GrandPy object with one analysis per contrast. Each analysis
+        adds two columns named "{prefix}_{contrast}_LFC" and
+        "{prefix}_{contrast}_M".
     """
-    # TODO @Marius?
-    # dadurch dass _get_summary_matrix() die Condition-Spalte festlegt, kann
-    # kein anderes Argument verwendet werden.
-    # müsste abgeändert werden bei Bedarf, um näher an grandR dran zu sein
-
-    # Filtern der Contrasts
+    # prepare contrasts
     if contrasts is None:
         contrasts = data.get_contrasts()
     if isinstance(contrasts, dict):
         contrasts = pd.DataFrame(contrasts)
-
     valid = [col for col in contrasts.columns
-        if (1 in contrasts[col].values and -1 in contrasts[col].values)]
+             if (1 in contrasts[col].values and -1 in contrasts[col].values)]
     contrasts = contrasts.loc[:, valid]
     if contrasts.shape[1] == 0:
         raise ValueError("Contrasts do not define any comparison!")
 
-    # Roh-Counts aus mode_slot
+    # retrieve raw expression matrix
     mode_slot_obj = ModeSlot(mode, slot)
     try:
         raw_mat = data.get_matrix(mode_slot=str(mode_slot_obj))
     except Exception:
         raise ValueError(f"Invalid mode slot: '{mode_slot_obj}'")
-    raw_expr = pd.DataFrame(raw_mat, index=data.genes, columns=data.coldata.index)
 
-    # Thema Genes
-    if genes is not None:
-        raw_expr = raw_expr.loc[genes]
-
-    # Normalisierungspart
-    if isinstance(normalization, (list, np.ndarray, pd.Series)):
-        sf = np.array(normalization)
-        if sf.shape[0] != raw_expr.shape[1]:
-            raise ValueError("Invalid numeric normalization: length mismatch.")
-    elif isinstance(normalization, str):
-        norm_slot_obj = ModeSlot(normalization, slot)
-        try:
-            norm_mat = data.get_matrix(mode_slot=str(norm_slot_obj))
-        except Exception:
-            raise ValueError(f"Invalid normalization slot: '{norm_slot_obj}'")
-        norm_expr = pd.DataFrame(norm_mat, index=data.genes, columns=data.coldata.index)
-        if genes is not None:
-            norm_expr = norm_expr.loc[genes]
+    # optional: subset genes
+    gene_list = data.genes if genes is None else genes
 
     new_data = data
 
     for contrast in contrasts.columns:
         c = contrasts[contrast]
-        A_idx = c[c == 1].index
-        B_idx = c[c == -1].index
+        A = np.where(c == 1)[0]
+        B = np.where(c == -1)[0]
 
-        sumA = raw_expr[A_idx].sum(axis=1)
-        sumB = raw_expr[B_idx].sum(axis=1)
+        # sum counts per group
+        mat = data.get_matrix(mode_slot=f"{mode}_{slot}")
+        A_counts = np.sum(mat[:, A], axis=1)
+        B_counts = np.sum(mat[:, B], axis=1)
 
+        # define normalization shift
         if isinstance(normalization, (list, np.ndarray, pd.Series)):
-            # Shift berechnen
-            sf_series = pd.Series(sf, index=raw_expr.columns)
-            shift = np.log2(sf_series.loc[A_idx].sum() / sf_series.loc[B_idx].sum())
-            lfc_vec = LFC_fun(
-                sumA.values, sumB.values,
-                normalize_fun=lambda x: x - shift,
-                verbose=verbose, **kwargs)
+            sf = np.asarray(normalization)
+            shift = np.log2(sf[A].sum() / sf[B].sum())
+            normalize_fun = lambda x: x - shift
         elif isinstance(normalization, str):
-            # erst normalized counts ohne Verschiebung
-            nA = norm_expr[A_idx].sum(axis=1).values
-            nB = norm_expr[B_idx].sum(axis=1).values
-            nlfc = LFC_fun(nA, nB, normalize_fun=lambda x: x, verbose=verbose, **kwargs)
-            med = np.median(nlfc)
-            # dann raw counts mit Verschiebung um median
-            lfc_vec = LFC_fun(
-                sumA.values, sumB.values,
-                normalize_fun=lambda x: x - med,
-                verbose=verbose, **kwargs)
+            norm_mat = data.get_matrix(mode_slot=f"{normalization}_{slot}")
+            A_norm = np.sum(norm_mat[:, A], axis=1)
+            B_norm = np.sum(norm_mat[:, B], axis=1)
+            res = LFC_fun(A_norm, B_norm, normalize_fun=lambda i: i, **kwargs)
+            raw_norm = res[0] if isinstance(res, tuple) else res
+            med = np.median(raw_norm)
+            normalize_fun = lambda x: x - med
         else:
-            # ohne Normalisierung
-            lfc_vec = LFC_fun(
-                sumA.values, sumB.values,
-                verbose=verbose, **kwargs)
+            normalize_fun = None
 
-        # DataFrame bauen
-        df = pd.DataFrame({"LFC": lfc_vec}, index=sumA.index)
-
-        # M‑Value
+        # compute LFC (and optional M)
+        result = LFC_fun(A_counts, B_counts, normalize_fun=normalize_fun, **kwargs)
+        lfc_vals = result[0] if isinstance(result, tuple) else result
+        # create named columns
+        lfc_col = f"{name_prefix}_{contrast}_LFC"
+        table = pd.DataFrame({lfc_col: lfc_vals}, index=gene_list)
         if compute_M:
-            M = 10 ** (0.5 * (np.log10(sumA + 0.5) + np.log10(sumB + 0.5)))
-            df["M"] = M
+            M_vals = 10 ** (0.5 * (np.log10(A_counts + 0.5) + np.log10(B_counts + 0.5)))
+            m_col = f"{name_prefix}_{contrast}_M"
+            table[m_col] = M_vals
 
-        df.index.name = "Symbol"
-
-        # Analyse speichern
+        # append analysis to object
         name = f"{name_prefix}_{contrast}"
-        adata = new_data._adata
-        analyses = adata.uns.setdefault("analyses", {})
-        analyses[name] = df
+        new_data = new_data.with_analysis(name=name, table=table)
 
     return new_data
 
