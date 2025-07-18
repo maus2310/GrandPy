@@ -1216,7 +1216,7 @@ class NTRFitResult:
 
     def loglik(self, d):
         exp = np.exp(-self.time * d)
-        safe_exp = np.clip(exp, 1e-8, 1 - 1e-8)
+        safe_exp = np.clip(exp, 1e-10, 1 - 1e-10)
         log_term = np.log1p(-safe_exp)
 
         if self.transformed_ntr_map:
