@@ -1,5 +1,8 @@
 import pytest
-from GrandPy.load import *
+import numpy as np
+import re
+from grandpy import read_grand
+
 
 # Reading in the test data
 @pytest.fixture(scope="module")

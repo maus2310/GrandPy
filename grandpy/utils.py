@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from typing import Union, Iterable, Callable, Literal, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from grandPy import GrandPy
+    from grandpy import GrandPy
 
 # Public utility functions
 def concat(

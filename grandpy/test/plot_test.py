@@ -1,6 +1,7 @@
 import pytest
-from GrandPy.load import *
-from GrandPy.plot import *
+import tempfile
+from pathlib import Path
+from grandpy import *
 
 TOLERANCE_KB = 10
 
