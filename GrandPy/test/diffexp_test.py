@@ -3,9 +3,9 @@ import pandas as pd
 import pytest
 from mpmath import polygamma
 
-from Py.diffexp import empirical_bayes_prior, center_median, norm_lfc, Psi_LFC, _get_summary_matrix, compute_lfc
-from Py.load import read_grand
-from Py.grandPy import GrandPy
+from GrandPy.diffexp import empirical_bayes_prior, center_median, norm_lfc, Psi_LFC, _get_summary_matrix, compute_lfc
+from GrandPy.load import read_grand
+from GrandPy.grandPy import GrandPy
 
 np.random.seed(123)
 A = np.random.normal(loc=200, scale=1, size=1000)

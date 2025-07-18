@@ -8,11 +8,11 @@ import pandas as pd
 import anndata as ad
 import scipy.sparse as sp
 
-from Py.slot_tool import SlotTool, ModeSlot
-from Py.plot_tool import PlotTool, Plot
-from Py.analysis_tool import AnalysisTool
-from Py.processing import _filter_genes
-from Py.utils import _ensure_list, _make_unique, _reindex_by_index_name, _subset_dense_or_sparse
+from GrandPy.slot_tool import SlotTool, ModeSlot
+from GrandPy.plot_tool import PlotTool, Plot
+from GrandPy.analysis_tool import AnalysisTool
+from GrandPy.processing import _filter_genes
+from GrandPy.utils import _ensure_list, _make_unique, _reindex_by_index_name, _subset_dense_or_sparse
 
 
 class GrandPy:
@@ -2021,7 +2021,7 @@ class GrandPy:
         GrandPy
             A new merged GrandPy object.
         """
-        from Py.utils import concat
+        from GrandPy.utils import concat
 
         objects = [self, other]
 
@@ -2140,7 +2140,7 @@ class GrandPy:
             The size factors used for normalization if `return_size_factors` is True.
             Otherwise, returns a grandPy object.
         """
-        from Py.processing import _normalize
+        from GrandPy.processing import _normalize
 
         return _normalize(self, genes=genes, name=name, slot=slot, set_to_default=set_to_default,
                           size_factors=size_factors, return_size_factors=return_size_factors)
@@ -2178,23 +2178,23 @@ class GrandPy:
     """
 
     def normalize_tpm(self, genes=None, name: str = "tpm", slot: str = "count", set_to_default=True, total_len=None) -> "GrandPy":
-        from Py.processing import _normalize_tpm
+        from GrandPy.processing import _normalize_tpm
 
         return _normalize_tpm(self, genes=genes, name=name, slot=slot, set_to_default=set_to_default,
                               total_len=total_len)
 
     def normalize_rpm(self, genes=None, name: str = "norm", slot: str = "count", set_to_default=True, factor=1e6):
-        from Py.processing import _normalize_rpm
+        from GrandPy.processing import _normalize_rpm
 
         # return _normalize_rpm(self, genes=genes, name=name, slot=slot, set_to_default=set_to_default, factor=factor)
 
     def compute_ntr_ci(self, ci_size: float = 0.95, name_lower: str = "lower", name_upper: str = "upper")-> "GrandPy":
-        from Py.processing import _compute_ntr_ci
+        from GrandPy.processing import _compute_ntr_ci
 
         return _compute_ntr_ci(self, ci_size, name_lower, name_upper)
 
     def compute_steady_state_half_lives(self, time=None, name="HL", columns=None, max_hl=48.0, ci_size=0.95, compute_ci=False, as_analysis=False) -> "GrandPy":
-        from Py.processing import _compute_steady_state_half_lives
+        from GrandPy.processing import _compute_steady_state_half_lives
 
         return _compute_steady_state_half_lives(self, time, name=name ,columns=columns, max_hl=max_hl, ci_size=ci_size, compute_ci=compute_ci, as_analysis=as_analysis)
 
@@ -2232,17 +2232,17 @@ class GrandPy:
         ValueError
              If no ERCC genes are found in the dataset.
         """
-        from Py.processing import _compute_absolute
+        from GrandPy.processing import _compute_absolute
 
         return _compute_absolute(self, dilution=dilution, volume=volume, slot=slot, name=name)
 
     def compute_total_expression(self, column: str = "total_expression", genes: Union[str, Sequence[str]] = None, mode_slot: str = None) -> "GrandPy":
-        from Py.processing import _compute_total_expression
+        from GrandPy.processing import _compute_total_expression
 
         return _compute_total_expression(self, column=column, genes=genes, mode_slot=mode_slot)
 
     def compute_expression_percentage(self,name: str, genes: Union[str, Sequence[str]] = None, slot: str = None, genes_total: Union[str, Sequence[str]] = None, slot_total: str = None, float_to_percent: bool = True):
-        from Py.processing import _compute_expression_percentage
+        from GrandPy.processing import _compute_expression_percentage
 
         return _compute_expression_percentage(self, name=name, genes=genes, slot=slot, genes_total=genes_total, slot_total=slot_total, float_to_percent=float_to_percent)
 
@@ -2398,7 +2398,7 @@ class GrandPy:
         GrandPy
             A GrandPy instance with analysis results added per condition.
         """
-        from Py.modeling import _fit_kinetics
+        from GrandPy.modeling import _fit_kinetics
 
         kinetics = _fit_kinetics(data=self, fit_type=fit_type, slot=slot, return_fields=return_fields,
                                  name_prefix=name_prefix, time=time, ci_size=ci_size, genes=genes,
@@ -2469,7 +2469,7 @@ class GrandPy:
         GrandPy
             A GrandPy instance containing the effective labeling time information in coldata.
         """
-        from Py.modeling import _calibrate_effective_labeling_time_kinetic_fit
+        from GrandPy.modeling import _calibrate_effective_labeling_time_kinetic_fit
 
         new_columns = _calibrate_effective_labeling_time_kinetic_fit(data=self, time=time, name=name, slot=slot,
                                                                      n_top_genes=n_top_genes, max_iterations=max_iterations,
@@ -2532,7 +2532,7 @@ class GrandPy:
         ValueError
             If `reference_columns` do not correspond to a unique steady-state condition.
         """
-        from Py.modeling import _calibrate_effective_labeling_time_match_halflives
+        from GrandPy.modeling import _calibrate_effective_labeling_time_match_halflives
 
         calibrated_time = _calibrate_effective_labeling_time_match_halflives(
             self, reference_halflives=reference_halflives, reference_columns=reference_columns, slot=slot,
@@ -2573,7 +2573,7 @@ class GrandPy:
         pd.DataFrame
             A (samples × conditions) matrix indicating group membership (optionally normalized).
         """
-        from Py.diffexp import _get_summary_matrix
+        from GrandPy.diffexp import _get_summary_matrix
 
         return _get_summary_matrix(self, no4sU, columns, average)
 
@@ -2612,7 +2612,7 @@ class GrandPy:
             A contrast matrix where rows are samples and columns represent contrasts.
             Values are -1, 0, or 1 depending on contrast design.
         """
-        from Py.diffexp import _get_contrasts
+        from GrandPy.diffexp import _get_contrasts
 
         return _get_contrasts(self, contrast = contrast, columns = columns, group = group, name_format = name_format)
 

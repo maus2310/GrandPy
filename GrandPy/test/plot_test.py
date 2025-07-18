@@ -1,6 +1,6 @@
 import pytest
-from Py.load import *
-from Py.plot import *
+from GrandPy.load import *
+from GrandPy.plot import *
 
 TOLERANCE_KB = 10
 

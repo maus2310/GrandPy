@@ -6,7 +6,7 @@ import pandas as pd
 from typing import Union
 from collections.abc import Sequence
 
-from Py.utils import _ensure_list, _make_unique, _reindex_by_index_name
+from GrandPy.utils import _ensure_list, _make_unique, _reindex_by_index_name
 
 
 class AnalysisTool:

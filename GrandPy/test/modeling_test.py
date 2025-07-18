@@ -1,5 +1,5 @@
 import pytest
-from Py.load import *
+from GrandPy.load import *
 
 # Reading in the test data
 @pytest.fixture(scope="module")

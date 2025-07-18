@@ -97,7 +97,7 @@ class SlotTool:
                                            ) -> Union[np.ndarray, sp.csr_matrix]:
             # If DataFrame → to NumPy
             if isinstance(matrix, pd.DataFrame):
-                from Py.utils import _make_unique
+                from GrandPy.utils import _make_unique
 
                 matrix.index = _make_unique(pd.Series(matrix.index))
                 matrix = matrix.reindex(index=rows, columns=columns)

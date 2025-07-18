@@ -16,8 +16,8 @@ from IPython.core.pylabtools import figsize
 from scipy.sparse import issparse
 
 
-from Py.grandPy import GrandPy
-from Py.slot_tool import ModeSlot, _parse_as_mode_slot
+from GrandPy.grandPy import GrandPy
+from GrandPy.slot_tool import ModeSlot, _parse_as_mode_slot
 #TODO Default parameter checken
 
 def _is_sparse_matrix(mat: any)-> bool:
@@ -2401,7 +2401,7 @@ def plot_gene_progressive_timecourse(
 
 
 
-    from Py.utils import _get_kinetics_data
+    from GrandPy.utils import _get_kinetics_data
     fit_results = _get_kinetics_data(
         data,
         genes=gene,
@@ -2603,18 +2603,26 @@ def plot_gene_progressive_timecourse(
     g.set_ylabels("Expression")
     g.set_titles("{col_name}")
     g.add_legend(title="RNA")
+
     # Exact tics
-    if exact_tics and "time_original" in df.columns:
-        brdf = df[["time_values", "time_original"]].drop_duplicates().sort_values("time_values")
-        brdf["time_original"] = brdf["time_original"].astype(str).str.replace("_", ".", regex=False)
-        for ax in g.axes.flat:
-            ax.set_xticks(brdf["time_values"])
-            ax.set_xticklabels(brdf["time_original"], rotation=45)
-            ax.set_xlabel("")
+    if exact_tics:
+        if "time_original" in df.columns:
+            brdf = df[["time_values", "time_original"]].drop_duplicates().sort_values("time_values")
+            brdf["time_original"] = brdf["time_original"].astype(str).str.replace("_", ".", regex=False)
+            for ax in g.axes.flat:
+                ax.set_xticks(brdf["time_values"])
+                ax.set_xticklabels(brdf["time_original"], rotation=45)
+                ax.set_xlabel("")
+        else:
+            unique_times = sorted(df["time_values"].unique())
+            for ax in g.axes.flat:
+                ax.set_xticks(unique_times)
+                ax.set_xticklabels([f"{x:.2f}" for x in unique_times], rotation=0)
+                ax.set_xlabel("4sU labeling [h]")
     else:
-        import matplotlib.ticker as mticker
+        from matplotlib.ticker import MaxNLocator
         for ax in g.axes.flat:
-            ax.xaxis.set_major_locator(mticker.MaxNLocator(nbins=6, prune=None))
+            ax.xaxis.set_major_locator(MaxNLocator(nbins=5))
             ax.set_xlabel("4sU labeling [h]")
             ax.tick_params(axis='x', rotation=0)
     if path_for_save:
@@ -2622,7 +2630,7 @@ def plot_gene_progressive_timecourse(
     plt.show()
     plt.close()
     if return_tables:
-        print(df[["condition", "time_values", "total", "new", "old"]])
+        print(df)
 
 
 def plot_ma(

@@ -11,11 +11,11 @@ from functools import cached_property, lru_cache
 from dataclasses import dataclass
 
 
-from Py.slot_tool import ModeSlot
-from Py.utils import _ensure_list, _get_kinetics_data
+from GrandPy.slot_tool import ModeSlot
+from GrandPy.utils import _ensure_list, _get_kinetics_data
 
 if TYPE_CHECKING:
-    from Py.grandPy import GrandPy
+    from GrandPy.grandPy import GrandPy
 
 
 def _fit_kinetics(

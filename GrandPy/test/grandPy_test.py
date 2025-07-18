@@ -5,8 +5,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from Py.load import *
-from Py.slot_tool import ModeSlot
+from GrandPy.load import *
+from GrandPy.slot_tool import ModeSlot
 
 read_input = {
     "prefix": "../data/sars_R.tsv",

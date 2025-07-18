@@ -6,8 +6,6 @@ import scipy.sparse as sp
 from collections.abc import Sequence
 from typing import Union, Iterable, Callable, Literal, TYPE_CHECKING
 
-from matplotlib.style.core import available
-
 if TYPE_CHECKING:
     from grandPy import GrandPy
 
@@ -225,7 +223,7 @@ def _get_kinetics_data(
     This function is almost the same as `GrandPy.fit_kinetics`.
     The only difference is that it returns the kinetics data instead of a GrandPy object.
     """
-    from Py.modeling import _fit_kinetics
+    from GrandPy.modeling import _fit_kinetics
 
     kinetics = _fit_kinetics(data=data, fit_type=fit_type, slot=slot, genes=genes, name_prefix=name_prefix, time=time,
                              ci_size=ci_size, return_fields=return_fields, show_progress=show_progress, **kwargs)
