@@ -5,7 +5,7 @@ import pandas as pd
 from collections.abc import Sequence, Mapping
 from typing import Union, Literal, TYPE_CHECKING, Callable
 from scipy.optimize import minimize, minimize_scalar, least_squares, OptimizeResult, brentq, root_scalar
-from scipy.stats import norm
+from scipy.stats import norm, t
 from tqdm import tqdm
 from functools import cached_property, lru_cache
 from dataclasses import dataclass
@@ -34,7 +34,7 @@ def _fit_kinetics(
     """
     Wrapper for fit_kinetics_nlls, fit_kinetics_chase, and fit_kinetics_ntr.
 
-    For detailed documentation, see grandPy.GrandPy.fit_kinetics.
+    For detailed documentation, see GrandPy.fit_kinetics.
     """
     # Preprocess the parameters
     if slot is None:
@@ -144,11 +144,8 @@ def fit_kinetics_nlls(
     **kwargs
 ) -> dict[str, pd.DataFrame]:
     """
-    For a detailed documentation, see grandpy.GrandPy.fit_kinetics.
+    For a detailed documentation, see GrandPy.fit_kinetics.
     """
-    if show_progress:
-        from tqdm import tqdm
-
     genes_to_fit = data.get_genes(genes)
 
     condition_vector = data.coldata["Condition"].values
@@ -207,26 +204,18 @@ def fit_kinetics_nlls(
                 rows = []
                 symbols = []
 
-                if show_progress:
-                    for gene, future in tqdm(jobs, desc=f"Fitting {condition}", total=len(jobs)):
-                        res = future.result()
-                        series = res.to_series(condition=condition, prefix=name_prefix, fields=return_fields)
-                        rows.append(series.values)
-                        symbols.append(gene)
-                else:
-                    for gene, future in jobs:
-                        res = future.result()
-                        series = res.to_series(condition=condition, prefix=name_prefix, fields=return_fields)
-                        rows.append(series.values)
-                        symbols.append(gene)
+                for gene, future in tqdm(jobs, desc=f"Fitting {condition}", total=len(jobs), disable=not show_progress):
+                    res = future.result()
+                    series = res.to_series(condition=condition, prefix=name_prefix, fields=return_fields)
+                    rows.append(series.values)
+                    symbols.append(gene)
 
         else:
             rows = []
             symbols = []
 
             gene_index_iterator = enumerate(genes_to_fit)
-            if show_progress:
-                gene_index_iterator = tqdm(gene_index_iterator, total=len(genes_to_fit), desc=f"Fitting {condition}")
+            gene_index_iterator = tqdm(gene_index_iterator, total=len(genes_to_fit), desc=f"Fitting {condition}", disable=not show_progress)
 
             for gene_index, gene in gene_index_iterator:
                 new_values = new_cond[gene_index, :]
@@ -267,11 +256,8 @@ def fit_kinetics_chase(
     **kwargs
 ) -> dict[str, pd.DataFrame]:
     """
-    For a detailed documentation, see grandpy.GrandPy.fit_kinetics.
+    For a detailed documentation, see GrandPy.fit_kinetics.
     """
-    if show_progress:
-        from tqdm import tqdm
-
     genes_to_fit = data.get_genes(genes)
 
     condition_vector = data.coldata["Condition"].values
@@ -338,27 +324,18 @@ def fit_kinetics_chase(
                 rows = []
                 symbols = []
 
-                if show_progress:
-                    for gene, future in tqdm(jobs, desc=f"Fitting {condition}", total=len(jobs)):
-                        res = future.result()
-                        series = res.to_series(condition=condition, prefix=name_prefix, fields=return_fields)
-                        rows.append(series.values)
-                        symbols.append(gene)
-                else:
-                    for gene, future in jobs:
-                        res = future.result()
-                        series = res.to_series(condition=condition, prefix=name_prefix, fields=return_fields)
-                        rows.append(series.values)
-                        symbols.append(gene)
+                for gene, future in tqdm(jobs, desc=f"Fitting {condition}", total=len(jobs), disable= not show_progress):
+                    res = future.result()
+                    series = res.to_series(condition=condition, prefix=name_prefix, fields=return_fields)
+                    rows.append(series.values)
+                    symbols.append(gene)
 
         else:
             rows = []
             symbols = []
 
             gene_index_iterator = enumerate(genes_to_fit)
-            if show_progress:
-                gene_index_iterator = tqdm(gene_index_iterator, total=len(genes_to_fit),
-                                           desc=f"Fitting {condition}")
+            gene_index_iterator = tqdm(gene_index_iterator, total=len(genes_to_fit),desc=f"Fitting {condition}", disable=not show_progress)
 
             for gene_index, gene in gene_index_iterator:
                 new_values = new_cond[gene_index, :]
@@ -422,7 +399,7 @@ def fit_kinetics_gene_least_squares(
        Whether to perform the fit in "chase" mode (only v_new is used).
 
     steady_state : bool, default True
-        Wheter to use steady for a condition.
+        Whether to use steady for a condition.
 
     total_value : float, optional
        Optional total expression values used to estimate initial concentration in chase mode.
@@ -452,9 +429,11 @@ def fit_kinetics_gene_least_squares(
             bounds = ([0, 1e-4], [np.inf, np.inf])
     else:
         res_fun, jac = get_residuals_and_jacobian_nonequi(time, old_values, new_values)
+
         s0 = np.maximum(np.max(new_values[time > 0] / time[time > 0]), 1e-3)
         d0 = guess_d0_from_old(old_values, time)
         f00 = np.mean(old_values[time == 0]) if np.any(time == 0) else np.mean(old_values)
+
         x0 = [s0, d0, f00]
         bounds = ([0, 1e-4, 0], [np.inf, np.inf, np.inf])
 
@@ -557,13 +536,19 @@ class FitResult:
     def pred_old(self) -> np.ndarray:
         if self.chase:
             return np.zeros_like(self.time)
-        return self.synthesis * self.inv_deg * self.exp_old
+        if self.steady_state:
+            return self.synthesis * self.inv_deg * self.exp_old
+        else:
+            return self.f0 * np.exp(-self.degradation * self.time)
 
     @cached_property
     def pred_new(self) -> np.ndarray:
         if self.chase:
             return self.synthesis * self.inv_deg * self.exp_new
-        return self.synthesis * self.inv_deg * (1 - self.exp_new)
+        if self.steady_state:
+            return self.synthesis * self.inv_deg * (1 - self.exp_new)
+        else:
+            return self.synthesis * self.inv_deg * (1 - np.exp(-self.degradation * self.time))
 
     # --- Residuals ---
     @cached_property
@@ -592,10 +577,7 @@ class FitResult:
     # --- Metrics ---
     @property
     def rmse(self) -> float:
-        if self.chase:
-            return np.sqrt(np.sum(self.residuals_raw ** 2)/(self.residuals_raw.size))
         return np.sqrt(np.sum(self.residuals_raw ** 2)/self.residuals_raw.size)
-        # return np.sqrt(np.mean(self.residuals_raw ** 2)) if self.residuals_raw.size > 0 else np.nan
 
     @property
     def rmse_old(self) -> float:
@@ -620,7 +602,6 @@ class FitResult:
         else:
             N = self.residuals_raw.size
         return -N * (np.log(2 * np.pi) + 1 - np.log(N) + np.log(sum(self.residuals_raw ** 2)))/2
-        # return -0.5 * np.sum(self.residuals_raw ** 2)
 
     @property
     def total_expr(self) -> float:
@@ -635,7 +616,7 @@ class FitResult:
         if self.steady_state:
             return self.return_synthesis / self.degradation if self.degradation > 0 else np.nan
         if len(self.opt_result.x) >= 3:
-            return self.opt_result.x[2]
+            return self.opt_result.x[2] # steady_state = False
         return np.nan
 
     @cached_property
@@ -644,7 +625,6 @@ class FitResult:
             return (np.full_like(self.opt_result.x, np.nan),) * 2
 
         try:
-            from scipy.stats import t
             J = self.opt_result.jac
             x = self.opt_result.x
 
@@ -812,8 +792,8 @@ def get_residuals_and_jacobian_equi(time: np.ndarray, v_old: np.ndarray, v_new: 
     else:
         def residual_function(par):
             s, d = par
-            ro = np.zeros_like(v_old) if chase else v_old - f_old_equi(time, s, d)
-            rn = v_new - (f_old_equi(time, s, d) if chase else f_new(time, s, d))
+            ro = v_old - f_old_equi(time, s, d)
+            rn = v_new - f_new(time, s, d)
             return np.concatenate([ro, rn])
 
         def jacobian_function(par):
@@ -852,26 +832,24 @@ def get_residuals_and_jacobian_nonequi(time: np.ndarray, v_old: np.ndarray, v_ne
     tuple
         A tuple (residual_function, jacobian_function) for least-squares optimization.
     """
-
     def residual_function(par):
         s, d, f0 = par
-        pred_old = f_old_nonequi(time, f0, s, d)
-        pred_new = s / d * (1 - np.exp(-d * time))
-        return np.concatenate([v_old - pred_old, v_new - pred_new])
+        ro = v_old - f_old_nonequi(time, f0, s, d)
+        rn = v_new - f_new(time, s, d)
+        return np.concatenate([ro, rn])
 
     def jacobian_function(par):
         s, d, f0 = par
-        exp_o = np.exp(-d * time)
-        exp_n = np.exp(-d * time)
+        exp = np.exp(-d * time)
 
         # r_old derivatives
         j_old_s = np.zeros_like(time)
-        j_old_d = f0 * time * exp_o
-        j_old_f0 = -exp_o
+        j_old_d = f0 * time * exp
+        j_old_f0 = -exp
 
         # r_new derivatives
-        j_new_s = -(1 - exp_n) / d
-        j_new_d = s / d ** 2 * (1 - exp_n) - s / d * time * exp_n
+        j_new_s = -(1 - exp) / d
+        j_new_d = s / d ** 2 * (1 - exp) - s / d * time * exp
         j_new_f0 = np.zeros_like(time)
 
         J = np.vstack([
@@ -967,9 +945,6 @@ def fit_kinetics_ntr(
     if not ("alpha" in data.slots and "beta" in data.slots):
         raise ValueError("NTR-basierte Anpassung erfordert alpha-, beta-Slots.")
 
-    if show_progress:
-        from tqdm import tqdm
-
     genes_to_fit = data.get_genes(genes)
 
     condition_vector = data.coldata["Condition"].values
@@ -1049,8 +1024,7 @@ def fit_kinetics_ntr(
         #                 symbols.append(gene)
 
         gene_iter = enumerate(genes_to_fit)
-        if show_progress:
-            gene_iter = tqdm(gene_iter, total=len(genes_to_fit), desc=f"Fitting {condition}")
+        gene_iter = tqdm(gene_iter, total=len(genes_to_fit), desc=f"Fitting {condition}", disable=not show_progress)
 
         for gene_index, gene_id in gene_iter:
             alpha_values = alpha_cond[gene_index, :]
@@ -1134,6 +1108,11 @@ def fit_kinetics_gene_ntr(
     from scipy.optimize import minimize_scalar
 
     def loglik(d):
+        # time_mask = time > 0
+        # alpha = alpha[time_mask]
+        # beta = beta[time_mask]
+        # time = time[time_mask]
+
         exp = np.exp(-time * d)
         safe_exp = np.clip(exp, 1e-10, 1 - 1e-10)
         log_term = np.log1p(-safe_exp)
@@ -1152,12 +1131,14 @@ def fit_kinetics_gene_ntr(
 
     f0 = total_function(total_values)
 
+    time_mask = time > 0
+
     return NTRFitResult(
         result=result.x,
-        time=time,
-        alpha=alpha,
-        beta=beta,
-        ntr=ntr_values,
+        time=time[time_mask],
+        alpha=alpha[time_mask],
+        beta=beta[time_mask],
+        ntr=ntr_values[time_mask],
         exact_ci=exact_ci,
         ci_size=ci_size,
         f0 = f0,
@@ -1237,7 +1218,7 @@ class NTRFitResult:
 
     @cached_property
     def rmse(self) -> float:
-        return np.sqrt(np.mean((self.predicted_ntr - self.ntr) ** 2))
+        return sum(np.sqrt((1 - np.exp(-self.time * self.degradation) - self.ntr) ** 2)) / len(self.time)
 
     @cached_property
     def log_likelihood(self) -> float:

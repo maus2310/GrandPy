@@ -755,11 +755,9 @@ def plot_scatter(
     if mode_slot is None:
         mode_slot = data.default_slot
 
-    raw_matrix = data.__resolve_mode_slot(mode_slot)
-    if _is_sparse_matrix(raw_matrix):
+    raw_matrix = data.get_matrix(mode_slot, force_numpy=False)
+    if _is_sparse_matrix(raw_matrix) or analysis:
         df = data.get_analysis_table(genes=genes, with_gene_info=False)
-    elif analysis:
-        df = data.get_analysis_table(genes = genes, with_gene_info=False)
     else:
         df = data.get_table(mode_slots=mode_slot, genes=genes)
 
@@ -789,9 +787,7 @@ def plot_scatter(
         x_vals_all = df.T.iloc[0].to_numpy()
     else:
         col_index = list(data.coldata["Name"]).index(x)
-        matrix = data.__resolve_mode_slot(mode_slot)
-        matrix = matrix.toarray() if hasattr(matrix, "toarray") else matrix
-        x_vals_all = matrix[:, col_index]
+        x_vals_all = data.get_matrix(mode_slot, columns=col_index, force_numpy=True)
 
     if y in df.columns:
         y_vals_all = df[y].to_numpy()
@@ -799,9 +795,7 @@ def plot_scatter(
         y_vals_all = df.T.iloc[1].to_numpy()
     else:
         col_index = list(data.coldata["Name"]).index(y)
-        matrix = data.__resolve_mode_slot(mode_slot)
-        matrix = matrix.toarray() if hasattr(matrix, "toarray") else matrix
-        y_vals_all = matrix[:, col_index]
+        y_vals_all = data.get_matrix(mode_slot, columns=col_index, force_numpy=True)
     if np.all(np.isnan(x_vals_all)):
         raise ValueError(f"All Values for '{x}' in slot '{mode_slot}' are NaN. - Plot not possible!")
     if np.all(np.isnan(y_vals_all)):

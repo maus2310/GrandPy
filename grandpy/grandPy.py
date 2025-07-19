@@ -1012,16 +1012,17 @@ class GrandPy:
         """
         Get gene names or symbols.
 
-        Either by their index, their symbol, their ensamble id, a boolean mask, or a regex.
-
         If no genes are specified, all genes are returned.
 
         Parameters
         ----------
         genes: str or int or Sequence[str or int or bool], optional
-            Genes to be retrieved.
+            Genes to be retrieved. Either by their index, their symbol, their ensemble ID, a boolean mask, or a regex.
+
         get_gene_symbols: bool, default True
-            If True, gene symbols will be returned. Otherwise, gene names will be returned.
+            If True, gene symbols will be returned.
+            Otherwise, gene names (Ensemble IDs) will be returned.
+
         regex: bool, default False
             If True, `genes` will be interpreted as a regular expression.
 
@@ -1034,6 +1035,9 @@ class GrandPy:
         --------
         GrandPy.get_columns
             Get the sample/cell names.
+
+        GrandPy.gene_info
+            Get the entire gene_info DataFrame.
 
         GrandPy.get_index
             Get the index of gene names/symbols.
@@ -1268,14 +1272,14 @@ class GrandPy:
 
     def get_columns(self, columns: Union[str, int, Sequence[Union[str, int, bool]]] = None, *, reorder: bool = False) -> list[str]:
         """
-        Get sample/cell names. Either by their index, their name, or a boolean mask.
+        Get sample/cell names.
 
         If no columns are specified, all sample/cell names are returned.
 
         Parameters
         ----------
         columns: str or int or Sequence[str or int or bool], optional
-            Samples/cells to be retrieved.
+            Samples/cells to be retrieved. Either by their index, their name, or a boolean mask.
 
         reorder: bool, default False
             If True, the returned list will be in the same order as the original column data.
@@ -1290,7 +1294,10 @@ class GrandPy:
         See Also
         --------
         GrandPy.get_genes
-            get the gene symbols/names.
+            Get the gene symbols/names.
+
+        GrandPy.coldata
+            Get the entire coldata DataFrame.
         """
         coldata = self.coldata
 
@@ -1302,14 +1309,14 @@ class GrandPy:
         if all(isinstance(column, int) for column in columns):
             result = coldata.iloc[columns].index
 
-        elif all(isinstance(column, (str, bool)) for column in columns):
-            result = coldata.loc[columns, :].index
-
         else:
-            raise TypeError("The input must be either string, int or a boolean mask. They cannot be mixed")
+            try:
+                result = coldata.loc[columns, :].index
+            except KeyError as e:
+                raise e
 
         if reorder:
-            result = result.reindex(coldata.index).dropna()
+            result = result.reindex(coldata.index).dropna(how="all", axis=0)
 
         return list(result)
 
@@ -2370,14 +2377,14 @@ class GrandPy:
         show_progress: bool, default True
             If True, a progress bar will be displayed.
 
-        **kwargs: dict
+        **kwargs
             Additional parameters passed to the model-specific fitting function.
 
             For `"nlls"`:
                 - max_iter: Maximum number of optimization iterations, by default 250.
                 - steady_state: Whether to use the steady-state model. It can be set for each condition individually by using a dict. By default, True
                 - max_processes: The maximum number of processes this function will use. If None or not provided, it will start up to available cores - 1 processes (e.g. 8 cores -> 7 processes)
-                - exact_processes: If True, exactly `max_processes` processes will be used.
+                - exact_processes: If True, exactly `max_processes` will be used.
 
             For `"ntr"`:
                 - transformed_ntr_map: If True, use the transformed NTR MAP estimator instead of the MAP of the transformed posterior; by default, True.
@@ -2387,7 +2394,7 @@ class GrandPy:
             For `"chase"`:
                 - max_iter: Maximum number of optimization iterations, by default 250.
                 - max_processes: The maximum number of processes this function will use. If None or not provided, it will start up to available cores - 1 processes (e.g. 8 cores -> 7 processes)
-                - exact_processes: If True, exactly `max_processes` processes will be used.
+                - exact_processes: If True, exactly `max_processes` will be used.
 
         Notes
         -----
@@ -2396,8 +2403,16 @@ class GrandPy:
 
         See Also
         --------
-        GrandPy.get_analysis_table: Retrieves stored analyses.
-        GrandPy.normalize: Normalizes the expression data.
+        :meth:`GrandPy.get_analysis_table`
+            Retrieves stored analyses.
+        :meth:`GrandPy.normalize`
+            Normalizes the expression data.
+        :func:`plot_gene_progressive_timecourse`
+            Plots the kinetic model of a gene.
+        :meth:`GrandPy.calibrate_effective_labeling_time_kinetic_fit`
+            Calibrates the effective labeling time using kinetic models.
+        :meth:`GrandPy.calibrate_effective_labeling_time_match_halflives`
+            Calibrates the effective labeling time using known halflives from genes.
 
         Returns
         -------
