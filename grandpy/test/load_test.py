@@ -303,16 +303,16 @@ if __name__ == "__main__":
     grand_obj = read_grand("https://zenodo.org/record/5834034/files/sars.tsv.gz", design=("Condition", "Time", "Replicate"))
     print(grand_obj)
 
-    sars = read_grand("data/sars_R.tsv", design=("Condition", "Time", "Replicate"))
+    sars = read_grand("../data/sars_R.tsv", design=("Condition", "Time", "Replicate"))
     print(sars) # funktioniert
 
-    sparse_data = read_grand("test-datasets/test_sparse.targets", design=("Time", "Replicate"))
+    sparse_data = read_grand("../test-datasets/test_sparse.targets", design=("Time", "Replicate"))
     print(sparse_data) # funktioniert
 
-    grand_sparse = read_grand("test-datasets/test_sc_sparse.targets", design=("Condition", "Time", "Replicate"))
+    grand_sparse = read_grand("../test-datasets/test_sc_sparse.targets", design=("Condition", "Time", "Replicate"))
     print(grand_sparse)
 
-    sc_dense = read_grand("test-datasets/test_sc_dense.targets", design=("Time", "Replicate"))
+    sc_dense = read_grand("../test-datasets/test_sc_dense.targets", design=("Time", "Replicate"))
     print(sc_dense)
 
     banp = read_grand("https://zenodo.org/record/6976391/files/BANP.tsv.gz", design=("Cell", "Experimental.time", "Genotype", "dur.4sU", "has4.U", "Replicate"))
@@ -325,7 +325,7 @@ if __name__ == "__main__":
     gp_url = read_grand(url, design=("Condition", "dur.4sU", "Replicate"))
     print(gp_url)
 
-    grand = read_grand("test-datasets/test_sparse.targets", design=("Time", "Replicate"))
+    grand = read_grand("../test-datasets/test_sparse.targets", design=("Time", "Replicate"))
     qc = get_table_qc(grand)
     print(qc.head())
 

@@ -1,9 +1,5 @@
-import numpy as np
-import pandas as pd
-import pytest
 from mpmath import polygamma
-
-from grandpy.diffexp import empirical_bayes_prior, center_median, norm_lfc, Psi_LFC, _get_summary_matrix, compute_lfc
+from grandpy.diffexp import *
 from grandpy import read_grand
 
 np.random.seed(123)
@@ -56,16 +52,15 @@ def test_psi_lfc_with_ci_output():
     A6 = np.random.normal(loc=50, scale=5, size=200)
     B6 = np.random.normal(loc=50, scale=5, size=200)
     lfc, ci = Psi_LFC(A6, B6, cre=True)
-    # Typ und Form prüfen
     assert isinstance(lfc, np.ndarray)
     assert isinstance(ci, np.ndarray)
     assert lfc.shape == A6.shape
     assert ci.shape == (A6.shape[0], 2)
-    # CI sollte den LFC enthalten: min(ci[i]) <= lfc[i] <= max(ci[i])
-    lows = np.min(ci, axis=1)
-    highs = np.max(ci, axis=1)
-    assert np.all(lows <= lfc)
-    assert np.all(lfc <= highs)
+    lowers = ci[:, 0]
+    uppers = ci[:, 1]
+    assert np.all(lowers <= uppers), "First Column must be the lower CI."
+    assert np.all(lowers <= lfc), "Some LFC-values are below your CI."
+    assert np.all(lfc <= uppers), "Some LFC-vaLues are above your CI."
 
 def test_norm_lfc_output_shape_and_type():
     """Prüft, dass norm_lfc ein numpy-Array gleicher Länge zurückgibt."""
@@ -139,35 +134,50 @@ if __name__ == "__main__":
 
     # ------------------------------------------------------------------------------------------
 
-    # sars <- ReadGRAND(system.file("extdata", "sars.tsv.gz", package = "grandR"),
-    #                   design=c(Design$Condition,Design$dur.4sU,Design$Replicate))
-    # sars <- subset(sars,Coldata(sars,Design$dur.4sU)==2)
+    # sars <- ReadGRAND(system.file("extdata", "sars.tsv.gz", package = "grandR"), design=c(Design$Condition,Design$dur.4sU,Design$Replicate))
+    # sars <- subset(sars, Coldata(sars,Design$dur.4sU)==2)
     # sars<-LFC(sars,mode="total",contrasts=GetContrasts(sars,contrast=c("Condition","Mock")))
-    # sars<-LFC(sars,mode="new",normalization="total",
-    #                             contrasts=GetContrasts(sars,contrast=c("Condition","Mock")))
-    # head(GetAnalysisTable(sars)
+    # sars<-LFC(sars,mode="new",normalization="total", contrasts=GetContrasts(sars,contrast=c("Condition","Mock")))
+    # head(GetAnalysisTable(sars))
+
+    # Ausgabe
+    pd.set_option('display.max_columns', None)
+    pd.set_option('display.width', 0)
 
     sars = read_grand("data/sars_R.tsv", design=("Condition", "dur.4sU", "Replicate"))
+
+    # subset:
     mask = sars.coldata["duration.4sU"] == 2
     sars = sars[:, mask]
 
-    sm = _get_summary_matrix(sars, no4sU=False, average=False)
-    contrasts = pd.DataFrame({"SARS_vs_Mock": sm["SARS"].astype(int) * 1
-                                              + sm["Mock"].astype(int) * -1})
-    sars = compute_lfc(data=sars, name_prefix="total", contrasts=contrasts,
-                       slot="count", mode="total",
-                       normalization=None, compute_M=True, verbose=True)
+    contrasts = sars.get_contrasts(contrast=["Condition", "Mock"], name_format="$A_vs_$B")
 
-    # new RNA
-    sars = compute_lfc(data=sars, name_prefix="new", contrasts=contrasts,
-                       slot="count", mode="new",
-                       normalization="total", compute_M=True,
-                       verbose=True)
+    sars = compute_lfc(data=sars, mode="total", contrasts=contrasts)
+    sars = compute_lfc(data=sars, mode="new", normalization="total", contrasts=contrasts,
+                       LFC_fun=norm_lfc)  # TODO
 
-    res_total = sars._anndata.uns["analyses"]["total_SARS_vs_Mock"]
-    res_new = sars._anndata.uns["analyses"]["new_SARS_vs_Mock"]
+    result = sars.get_analysis_table(with_gene_info=True)
+    print(result)
 
-    print("=== total RNA LFC ===")
-    print(res_total.head())
-    print("\n=== new RNA LFC ===")
-    print(res_new.head())
+    # ---------------------------------------------------------------------------------------------
+
+    # ' sars <- ReadGRAND(system.file("extdata", "sars.tsv.gz", package = "grandR"), design=c(Design$Condition,Design$dur.4sU,Design$Replicate))
+    # ' sars <- subset(sars,Coldata(sars,Design$dur.4sU)==2)
+    # ' sars<-PairwiseDESeq2(sars,mode="total", contrasts=GetContrasts(sars,contrast=c("Condition","Mock")))
+    # ' sars<-PairwiseDESeq2(sars,mode="new",normalization="total", contrasts=GetContrasts(sars,contrast=c("Condition","Mock")))
+    # ' head(GetAnalysisTable(sars,column="Q"))
+
+    # TODO ... fit_type?
+    sars = read_grand("data/sars_R.tsv", design=("Condition", "dur.4sU", "Replicate"))
+
+    mask = sars.coldata["duration.4sU"] == 2
+    sars = sars[:, mask]
+    # sars = sars._dev_replace(anndata=sars._anndata[:, mask])
+
+    contrasts = sars.get_contrasts(contrast=("Condition", "Mock"), name_format="$A_vs_$B")
+
+    sars = pairwise_DESeq2(sars, mode="total", contrasts=contrasts, name_prefix="total")
+    sars = pairwise_DESeq2(sars, mode="new", normalization="total", contrasts=contrasts, name_prefix="new")
+
+    df = sars.get_analysis_table(columns=["Q"], with_gene_info=True)
+    print(df)

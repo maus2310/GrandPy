@@ -144,6 +144,9 @@ def _reindex_by_index_name(df: pd.DataFrame, by: pd.DataFrame) -> pd.DataFrame:
     pd.DataFrame
         The sorted DataFrame.
     """
+    if df.index.name is None:
+        df.index.name = by.index.name or "index"
+
     colname_to_sort_by = df.index.name
 
     if colname_to_sort_by is None:
