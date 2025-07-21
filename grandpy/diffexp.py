@@ -690,32 +690,33 @@ def pairwise(data: GrandPy,
 
 def _get_contrasts(
         data: "GrandPy",
-        contrast: list = ["Condition"],
-        columns: Union[Sequence[str], str] = None,
+        contrast: Union[Sequence[str], str] = "Condition",
+        columns: Union[Sequence[bool], bool] = None,
         group: Union[Sequence[str], str] = None,
         name_format: str = None,
         no4sU: bool = False,
         ) -> Union["GrandPy", pd.DataFrame]:
 
-    our_coldata = data.coldata
+    coldata = data.coldata
+
+    contrast = _ensure_list(contrast)
 
     if len(contrast) not in [1, 2, 3]:
         raise ValueError("Contrast must be of length 1, 2, or 3.")
 
-    if contrast[0] not in our_coldata.columns:
+    if contrast[0] not in coldata.columns:
         raise ValueError(f"Column {contrast[0]} not found in coldata.")
     col = contrast[0]
 
-    # Untermenge der Daten, falls columns gesetzt ist
-    use_mask = np.ones(len(our_coldata), dtype=bool)
+    use_mask = np.ones(len(coldata), dtype=bool)
     if columns is not None:
-        use_mask = our_coldata.index.isin(columns) if isinstance(columns, list) else columns
+        use_mask = coldata.index.isin(columns) if isinstance(columns, list) else columns
 
     if name_format is None:
         name_format = "$A vs $B" if group is None else "$A vs $B.$GRP"
 
-    if not no4sU and "no4sU" in our_coldata.columns:
-        use_mask &= ~our_coldata["no4sU"].fillna(False)
+    if not no4sU and "no4sU" in coldata.columns:
+        use_mask &= ~coldata["no4sU"].fillna(False)
 
     def make_name(a, b, grp=""):
         return (name_format
@@ -725,56 +726,54 @@ def _get_contrasts(
                 .replace("$GRP", grp))
 
     def make_vector(a, b, use):
-        re = np.zeros(len(our_coldata))
-        re[(our_coldata[col] == a) & use] = 1
-        re[(our_coldata[col] == b) & use] = -1
+        re = np.zeros(len(coldata))
+        re[(coldata[col] == a) & use] = 1
+        re[(coldata[col] == b) & use] = -1
         return re
 
-    def contrast_df_for_level_pairs(level_pairs, group_name=""):
-        df = {}
+    def contrast_df_for_level_pairs(level_pairs, group_name, use_mask_local):
+        base_data_frame = {}
         for a, b in level_pairs:
-            vec = make_vector(a, b, use_mask)
+            vec = make_vector(a, b, use_mask_local)
             name = make_name(a, b, group_name)
-            df[name] = vec
-        return pd.DataFrame(df, index=data.coldata.index)
+            base_data_frame[name] = vec
+        return pd.DataFrame(base_data_frame, index=coldata.index)
 
-    # Hauptlogik für Kontrastgenerierung
-    match len(contrast):
-        case 1:
-            levels = our_coldata.loc[use_mask, col].dropna().unique().tolist()
-            level_pairs = list(combinations(levels, 2))
-            contrast_df = contrast_df_for_level_pairs(level_pairs)
-        case 2:
-            levels = our_coldata.loc[use_mask, col].dropna().unique().tolist()
-            other_levels = [l for l in levels if l != contrast[1]]
-            contrast_df = contrast_df_for_level_pairs([(l, contrast[1]) for l in other_levels])
-        case 3:
-            contrast_df = contrast_df_for_level_pairs([(contrast[1], contrast[2])])
-        case _: raise ValueError("Illegal contrasts (either a name from design (all pairwise comparisons), a name and a reference level (all comparisons vs. the reference), or a name and two levels (exactly this comparison))")
-
-
-    # Falls Gruppierung gewünscht → innerhalb jeder Gruppe Kontraste berechnen
     if group is not None:
         all_dfs = []
-        for grp_val in data.coldata[group].dropna().unique():
-            group_mask = (data.coldata[group] == grp_val)
+        for grp_val in coldata[group].dropna().unique():
+            group_mask = (coldata[group] == grp_val)
             use_mask_group = use_mask & group_mask
-            if len(our_coldata.loc[use_mask_group]) < 2:
+            if len(coldata.loc[use_mask_group]) < 2:
                 continue
-            levels = our_coldata.loc[use_mask_group, col].dropna().unique().tolist()
+            levels = coldata.loc[use_mask_group, col].dropna().unique().tolist()
             if len(levels) < 2:
                 continue
-            level_pairs = list(combinations(levels, 2)) if len(contrast) == 1 else \
-                [(l, contrast[1]) for l in levels if l != contrast[1]] if len(contrast) == 2 else \
-                    [(contrast[1], contrast[2])]
-            df = contrast_df_for_level_pairs(level_pairs, group_name=str(grp_val))
+            if len(contrast) == 1:
+                level_pairs = list(combinations(levels, 2))
+            elif len(contrast) == 2:
+                level_pairs = [(l, contrast[1]) for l in levels if l != contrast[1]]
+            else:
+                level_pairs = [(contrast[1], contrast[2])]
+            df = contrast_df_for_level_pairs(level_pairs, group_name=str(grp_val), use_mask_local=use_mask_group)
             all_dfs.append(df)
+        if not all_dfs:
+            raise ValueError("No valid contrasts could be generated for any group.")
         contrast_df = pd.concat(all_dfs, axis=1)
+    else:
+        levels = coldata.loc[use_mask, col].dropna().unique().tolist()
+        if len(contrast) == 1:
+            level_pairs = list(combinations(levels, 2))
+        elif len(contrast) == 2:
+            level_pairs = [(l, contrast[1]) for l in levels if l != contrast[1]]
+        else:
+            level_pairs = [(contrast[1], contrast[2])]
+        contrast_df = contrast_df_for_level_pairs(level_pairs, group_name="", use_mask_local=use_mask)
 
-    # Entferne Spalten mit nur 0 (irrelevant)
+    # Remove zero-columns (all zeros)
     contrast_df = contrast_df.loc[:, ~(contrast_df == 0).all(axis=0)]
 
-    # Entferne Kontraste mit nur +1 oder nur -1 (nicht sinnvoll)
+    # Remove uninformative contrasts (e.g., all values ≥ 0 or all ≤ 0)
     remove_mask = ((contrast_df >= 0).all(axis=0)) | ((contrast_df <= 0).all(axis=0))
     if remove_mask.any():
         removed_cols = contrast_df.columns[remove_mask].tolist()

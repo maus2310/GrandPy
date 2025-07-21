@@ -2598,22 +2598,23 @@ class GrandPy:
 
         return _get_summary_matrix(self, no4sU, columns, average)
 
-    def get_contrasts(self, contrast: list = ["Condition"], columns: Union[Sequence[str], str] = None, group: Union[Sequence[str], str] = None, name_format: str = None) -> "GrandPy":
+    def get_contrasts(self, contrast: Union[str, Sequence[str]] = "Condition", columns: Union[Sequence[bool], bool] = None, group: Union[Sequence[str], str] = None, name_format: str = None, no4sU: bool = False) -> "GrandPy":
         """
         Generate contrast matrix for differential comparisons.
 
         Parameters
         ----------
-        coldata : pd.DataFrame
+        grandPy object or a column annotation table:
             DataFrame containing sample metadata (e.g., conditions, groups).
 
-        contrast : list[str]
+        contrast : str or Sequence[str]
             Defines the contrast logic:
-            - [condition_column] → all pairwise contrasts
-            - [condition_column, reference_level] → all vs. reference
-            - [condition_column, level_A, level_B] → specific comparison A vs B
 
-        columns : list[str], optional
+            - to compare one specific factor level A against another level B in a particular column COL of the column annotation table, specify contrast = ["COL", "A", "B"]
+            - to compare all levels against a specific level A in a particular column COL of the column annotation table, specify contrast = ["COL","A"]
+            - to perform all pairwise comparisons of all levels from a particular column COL of the column annotation table, specify contrast = ["COL"]
+
+        columns : list[bool], optional
             Subset of sample IDs to consider in contrast computation. If None, all samples are used.
 
         group : str, optional
@@ -2625,7 +2626,7 @@ class GrandPy:
             Default: "$A vs $B" (or "$A vs $B.$GRP" if `group` is set)
 
         no4sU : bool, default False
-            If True, samples where `coldata['no4sU'] == False` are excluded from contrast computation.
+            Use no4sU columns (True) or not (False)
 
         Returns
         -------
@@ -2635,7 +2636,7 @@ class GrandPy:
         """
         from .diffexp import _get_contrasts
 
-        return _get_contrasts(self, contrast = contrast, columns = columns, group = group, name_format = name_format)
+        return _get_contrasts(self, contrast = contrast, columns = columns, group = group, name_format = name_format, no4sU = no4sU)
 
 
 
