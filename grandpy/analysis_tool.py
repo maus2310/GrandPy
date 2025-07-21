@@ -38,32 +38,36 @@ class AnalysisTool:
             Helper function to check if the given names or regex pattern match the available analyses.
             """
             if regex:
-                return [any(re.search(pat, analysis) for analysis in available_analyses) for pat in pattern]
+                return [any((re.search(pat, analysis)) for pat in pattern) for analysis in available_analyses]
             else:
-                if all(isinstance(pat, (bool, int)) for pat in pattern):
-                    return [True] * len(available_analyses)
+                if all(isinstance(pat, (int, np.integer)) for pat in pattern):
+                    mask = np.zeros(len(available_analyses), dtype=bool)
+                    mask[pattern] = True
+                    return mask.tolist()
+
+                elif(all(isinstance(pat, str) for pat in pattern)):
+                    return [analysis in pattern for analysis in available_analyses]
+
+                elif(all(isinstance(pat, (bool, np.bool)) for pat in pattern)):
+                    return pattern
+
                 else:
-                    return [analysis in available_analyses for analysis in pattern]
+                    raise TypeError(f"pattern must be either int, str, bool, or a Sequence of those, not {pattern}")
 
         checks = check_analyses(pattern, available_analyses, regex)
 
-        if not all(checks):
-            missing = [analysis for analysis, check in zip(pattern, checks) if not check]
-            raise ValueError(f"No analysis found for pattern: {', '.join(map(str, missing))}")
-
-        if all(isinstance(pat, (bool, int)) for pat in pattern):
-            checks = pattern
-
         result = np.array(available_analyses)[checks].tolist()
 
-        result = list(dict.fromkeys(result))
-
         if description:
-            return {name: df.columns.tolist() if name in result else {} for name, df in self._adata.uns["analyses"].items()}
+            all_descriptions = {name: df.columns.tolist() for name, df in self._adata.uns["analyses"].items()}
+            result = {k: v for (k, v), m in zip(all_descriptions.items(), checks) if m}
 
         return result
 
     def with_analysis(self, name: str, table: pd.DataFrame, by: str = None) -> dict[str, pd.DataFrame]:
+        if not isinstance(table, pd.DataFrame):
+            raise TypeError(f"'table' has to be a pd.DataFrame, not {type(table)}")
+
         new_analyses = self._adata.uns["analyses"].copy()
 
         new_analyses = {} if new_analyses is None else new_analyses

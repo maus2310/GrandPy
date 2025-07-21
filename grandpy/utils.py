@@ -60,6 +60,9 @@ def concat(
         adatas = [obj._anndata for obj in objects]
         new_adata = ad.concat(adatas, axis=axis, join=join, merge=merge, uns_merge="first")
 
+    new_adata.obs.index = _make_unique(pd.Series(new_adata.obs.index))
+    new_adata.var.index = _make_unique(pd.Series(new_adata.var.index))
+
     return objects[0]._dev_replace(anndata=new_adata)
 
 
@@ -125,6 +128,7 @@ def _make_unique(series: pd.Series, warn = True) -> pd.Series:
             else:
                 counts[val] += 1
                 result.append(f"{val}_{counts[val]}")
+
     return pd.Series(result, index=series.index)
 
 def _reindex_by_index_name(df: pd.DataFrame, by: pd.DataFrame) -> pd.DataFrame:

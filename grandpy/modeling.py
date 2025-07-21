@@ -956,8 +956,6 @@ def fit_kinetics_ntr(
     #
     # max_workers = get_dynamic_process_count(datasize, max_processes)
     #
-    # print(max_workers)
-    #
     # if max_workers == 1:
     #     parallel = False
     # else:
@@ -1347,31 +1345,54 @@ def uniroot_safe(fun, lower, upper):
 
 
 # ----- time calibration functions -----
-def select_top_genes_by_hl_and_expression(half_lives, totals, time_vector, gene_names, n_top_genes):
-    """
-    Selects about n top genes by half-life and expression.
-    """
-    max_time = np.max(time_vector)
-    bins = np.linspace(0, 2 * max_time, 5)
-    bins = np.concatenate([bins, [np.inf]])
-
-    hl_cat_indices = np.digitize(half_lives, bins, right=False)  # 1-based bin indices
-    n_bins = len(bins)
+def compute_use_mask(HLs, totals, time, n_estimate):
+    bin_edges = np.concatenate([np.linspace(0, 2 * np.max(time), num=5), [np.inf]])
+    HL_cat = np.digitize(HLs, bin_edges, right=False)
 
     use_mask = np.zeros_like(totals, dtype=bool)
+    unique_cats = np.unique(HL_cat)
+    n_groups = len(unique_cats)
+    group_threshold = int(np.ceil(n_estimate / n_groups))
 
-    for bin_idx in range(1, n_bins + 1):
-        in_bin = hl_cat_indices == bin_idx
-        n_in_bin = np.sum(in_bin)
-        if n_in_bin == 0:
+    for cat in unique_cats:
+        group_idx = np.where(HL_cat == cat)[0]
+        group_totals = totals[group_idx]
+
+        if len(group_totals) == 0:
             continue
-        threshold_index = min(n_in_bin - 1, int(np.ceil(n_top_genes / n_bins)))
-        sorted_indices = np.argsort(-totals[in_bin])
-        keep_indices = np.where(in_bin)[0][sorted_indices[:threshold_index + 1]]
-        use_mask[keep_indices] = True
 
-    return np.array(gene_names)[use_mask].tolist()
+        sorted_totals = np.sort(group_totals)[::-1]
+        threshold_index = min(len(sorted_totals), group_threshold) - 1
+        threshold = sorted_totals[threshold_index]
 
+        use_mask[group_idx] = group_totals >= threshold
+
+    return use_mask
+
+# def select_top_genes_by_hl_and_expression(half_lives, totals, time_vector, gene_names, n_top_genes):
+#     """
+#     Selects about n top genes by half-life and expression.
+#     """
+#     max_time = np.max(time_vector)
+#     bins = np.linspace(0, 2 * max_time, 5)
+#     bins = np.concatenate([bins, [np.inf]])
+#
+#     hl_cat_indices = np.digitize(half_lives, bins, right=False)  # 1-based bin indices
+#     n_bins = len(bins)
+#
+#     use_mask = np.zeros_like(totals, dtype=bool)
+#
+#     for bin_idx in range(1, n_bins + 1):
+#         in_bin = hl_cat_indices == bin_idx
+#         n_in_bin = np.sum(in_bin)
+#         if n_in_bin == 0:
+#             continue
+#         threshold_index = min(n_in_bin - 1, int(np.ceil(n_top_genes / n_bins)))
+#         sorted_indices = np.argsort(-totals[in_bin])
+#         keep_indices = np.where(in_bin)[0][sorted_indices[:threshold_index + 1]]
+#         use_mask[keep_indices] = True
+#
+#     return np.array(gene_names)[use_mask].tolist()
 
 def _calibrate_effective_labeling_time_kinetic_fit(
     data,
@@ -1393,10 +1414,11 @@ def _calibrate_effective_labeling_time_kinetic_fit(
 
     conditions = data.condition
     sample_names = data.columns
-    result = pd.DataFrame(np.nan, index=sample_names, columns=[name])
-    result.index.name = "Name"
+    result = pd.DataFrame(np.nan, index=pd.Index(sample_names, name="Name"), columns=[name])
 
     for cond in np.unique(conditions):
+        eval_bar = tqdm(desc=f"Optimizing {cond}", dynamic_ncols=True, unit=" Iterations", disable=not show_progress)
+
         mask = np.array(conditions) == cond
         sub = data[:, mask].with_dropped_analyses()
 
@@ -1414,29 +1436,29 @@ def _calibrate_effective_labeling_time_kinetic_fit(
             **kwargs
         ).get(f"kinetics_{cond}")
 
-        half_live = kinetics[f"{cond}_Half-life"].values
+        half_live = kinetics.values.squeeze()
 
-        use_genes = select_top_genes_by_hl_and_expression(
-            half_lives=half_live,
-            totals=totals,
-            time_vector=data.coldata[time].values,
-            gene_names=gene_names,
-            n_top_genes=n_top_genes
-        )
-        sub = sub.filter_genes(use=use_genes).with_dropped_analyses()
+        use_mask_genes = compute_use_mask(half_live, totals, data.coldata[time].values, n_top_genes)
+
+        # use_genes = select_top_genes_by_hl_and_expression(
+        #     half_lives=half_live,
+        #     totals=totals,
+        #     time_vector=data.coldata[time].values,
+        #     gene_names=gene_names,
+        #     n_top_genes=n_top_genes
+        # )
+
+        sub = sub[use_mask_genes].with_dropped_analyses()
         init = sub.coldata[time]
         init_array = init.values
 
-        use_mask = (init_array > 0) & (init_array < init_array.max())
-
-        if not np.any(use_mask):
+        use_mask_columns = (init_array > 0) & (init_array < init_array.max())
+        if not np.any(use_mask_columns):
             continue
-
-        eval_bar = tqdm(desc=f"Optimizing {cond}", dynamic_ncols=True, unit=" Iterations", disable=not show_progress)
 
         def opt_fun(times):
             tt = init_array.copy()
-            tt[use_mask] = times
+            tt[use_mask_columns] = times
             kin = _get_kinetics_data(
                 sub,
                 fit_type="nlls",
@@ -1454,16 +1476,16 @@ def _calibrate_effective_labeling_time_kinetic_fit(
             return -loglik_sum
 
         def opt_fun_scalar(mini):
-            shifted = init_array[use_mask] - mini
+            shifted = init_array[use_mask_columns] - mini
             return opt_fun(shifted)
 
         res_scalar = minimize_scalar(
             opt_fun_scalar,
-            bounds=(0, init_array[use_mask].min()),
+            bounds=(0, init_array[use_mask_columns].min()),
             method='bounded'
         )
         mini = res_scalar.x
-        init_array[use_mask] -= mini
+        init_array[use_mask_columns] -= mini
 
         # This would be much faster, but CIs are overestimated by this approximation.
         # if compute_confidence:
@@ -1493,7 +1515,7 @@ def _calibrate_effective_labeling_time_kinetic_fit(
 
         res = minimize(
             opt_fun,
-            init_array[use_mask],
+            init_array[use_mask_columns],
             method="Nelder-Mead",
             options={'maxiter': max_iterations}
         )
@@ -1504,7 +1526,7 @@ def _calibrate_effective_labeling_time_kinetic_fit(
             warnings.warn(f"The Optimization failed for {cond} with the following message: {res.message}")
 
         final_tt = init_array.copy()
-        final_tt[use_mask] = res.x
+        final_tt[use_mask_columns] = res.x
         result.loc[sub.coldata.index, name] = final_tt
 
         if compute_confidence:
@@ -1527,7 +1549,7 @@ def _calibrate_effective_labeling_time_kinetic_fit(
                 ci_half = std_err * z
 
                 conf_tt = np.zeros_like(init_array)
-                conf_tt[use_mask] = ci_half
+                conf_tt[use_mask_columns] = ci_half
 
                 result.loc[sub.coldata.index, name + "_conf"] = conf_tt
 
@@ -1562,7 +1584,7 @@ def _calibrate_effective_labeling_time_match_halflives(
 
     totals = data.get_matrix(mode_slot=slot, genes=genes).sum(axis=1)
 
-    hl_cat = pd.cut(reference_halflives.values(), bins=[0,2,4,6,8,np.inf], include_lowest=True)
+    hl_cat = pd.cut(list(reference_halflives.values()), bins=[0,2,4,6,8,np.inf], include_lowest=True)
     df_cat = pd.DataFrame({"Gene": genes, "totals": totals, "HL_cat": hl_cat})
 
     fil = df_cat.groupby("HL_cat").apply(lambda s: pd.DataFrame({

@@ -32,7 +32,7 @@ class GrandPy:
 
     >>> import grandpy as gp
     >>> sars = gp.read_grand("./data/sars.tsv", design=("Condition", "Time", "Replicate"))
-    >>> print(sars)
+    >>> sars
     GrandPy:
     Read from ./data/sars.tsv
     1045 genes, 12 samples/cells
@@ -171,8 +171,6 @@ class GrandPy:
 
         This function is useful when you want to modify the GrandPy instance on your own.
 
-        Should be handled with care, as no additional checks are performed.
-
         Parameters
         ----------
         prefix: str, optional
@@ -200,18 +198,14 @@ class GrandPy:
             Use with caution. GrandPy uses anndata internally. This will replace the whole anndata instance.
             Anndata can be retrieved from the instance via GrandPy.to_anndata().
 
+        See Also
+        --------
+        GrandPy.to_anndata: Retrieves the internal anndata instance.
+
         Returns
         -------
         GrandPy
-            A new GrandPy object with the given parameters replaced.
-
-        See Also
-        --------
-            get_matrix()
-                Gives the raw data for a slot, as it is stored internally.
-
-            to_anndata()
-                Retrieves the anndata instance.
+            A GrandPy instance with the given parameters replaced.
         """
         if anndata is None:
             anndata = self._anndata.copy()
@@ -554,12 +548,7 @@ class GrandPy:
         Returns
         -------
         list[str]
-            A list containing the names of all found analyses.
-
-        Raises
-        ------
-        ValueError
-            Raises an error if any pattern has no matches.
+            A list containing the names of all matching analyses.
 
         See Also
         --------
@@ -873,7 +862,11 @@ class GrandPy:
             if not isinstance(value, (pd.Series, pd.DataFrame)):
                 raise ValueError("If column is None, value must be a pandas Series or DataFrame.")
 
+            if isinstance(value, pd.Series):
+                value = value.to_frame()
+
             value.index = _make_unique(value.index, warn=False)
+
             for name in value.columns:
                 new_geneinfo[name] = value[name]
 
@@ -894,110 +887,6 @@ class GrandPy:
         new_geneinfo[name] = value
 
         return self._dev_replace(gene_info = new_geneinfo)
-
-    def get_index(self, genes: Union[str, int, Sequence[Union[str, int, bool]]] = None, *, regex: bool = False) -> list[int]:
-        """
-        Get the index of: a gene, a list of genes, or in accordance to a boolean filter.
-
-        Either by gene name or symbol, or by a boolean mask.
-
-        Integers are returned unchanged.
-
-        If names and indices are mixed, only one of them will be used. Chosen by the higher number of matches.
-
-        Parameters
-        ----------
-        genes: str or int or Sequence[str or int or bool], optional
-            Specifies which indices to return.
-        regex: bool, default False
-            If True, `gene` will be interpreted as a regular expression.
-
-        Returns
-        -------
-        list[int]
-            A list containing the specified indices.
-        """
-        gene_info = self.gene_info
-        n = len(gene_info)
-
-        if genes is None:
-            return list(range(n))
-
-        gene_col = gene_info["Gene"].astype(str)
-        symbol_col = gene_info["Symbol"].astype(str)
-
-        genes = _ensure_list(genes)
-
-        if any(pd.isna(genes)):
-            warnings.warn("NaN values removed from gene input.")
-            genes = [g for g in genes if pd.notna(g)]
-
-        # Regex matching (only works with str input)
-        if regex:
-            pattern = genes[0]
-            mask = gene_col.str.contains(pattern, regex=True) | symbol_col.str.contains(pattern, regex=True)
-            return list(np.flatnonzero(mask))
-
-        # Boolean mask
-        if all(isinstance(g, (bool, np.bool_)) for g in genes):
-            if len(genes) != n:
-                raise ValueError("Boolean mask length does not match gene count.")
-            return list(np.flatnonzero(genes))
-
-        # Integer index
-        if all(isinstance(g, (int, np.integer)) for g in genes):
-            if not all(0 <= g < n for g in genes):
-                raise IndexError("One or more gene indices out of bounds.")
-            return genes
-
-        # Matching by Gene/Symbol string
-        genes_str = pd.Series(genes, dtype=str)
-
-        matches_gene = genes_str[genes_str.isin(set(gene_col))]
-        matches_symbol = genes_str[genes_str.isin(set(symbol_col))]
-
-        use_col = gene_col if len(matches_gene) >= len(matches_symbol) else symbol_col
-        ref_map = pd.Series(np.arange(n), index=use_col)
-
-        found = genes_str[genes_str.isin(ref_map.index)]
-        missing = genes_str[~genes_str.isin(ref_map.index)]
-
-        if not missing.empty:
-            preview = ", ".join(missing.head(5))
-            more = " ..." if len(missing) > 5 else ""
-            warnings.warn(f"Could not find {len(missing)} genes (e.g. {preview}{more})")
-
-        return ref_map.loc[found].tolist()
-
-    # TODO with_updated_symbols vervollständigen. Aktuell wird noch nicht unique gemacht und
-    #  auch nur die Spalte 'Symbol' wird geändert. None Behandlung ebenfalls fraglich
-    def with_updated_symbols(self, species: str = "human") -> "GrandPy":
-        import mygene
-
-        new_gene_info = self.gene_info.copy()
-        genes = new_gene_info["Gene"].tolist()
-
-        mg = mygene.MyGeneInfo()
-
-        # Query: get the symbols in batches (a single large request is not possible with mygene)
-        try:
-            result = mg.querymany(
-                genes,
-                scopes="ensembl.gene",  # Oder "symbol", je nach Inhalt
-                fields="symbol",
-                species=species,
-                as_dataframe=True,
-            )
-        except Exception as e:
-            raise RuntimeError(f"MyGeneInfo request failed: {e}")
-
-        # Turn the query output into a gene_info dataframe.
-        result = result.reset_index()
-        result = result[["query","symbol"]]
-        symbol_map = dict(zip(result["query"], result["symbol"]))
-        new_gene_info["Symbol"] = new_gene_info["Gene"].map(symbol_map)
-
-        return self._dev_replace(gene_info=new_gene_info)
 
     @property
     def genes(self) -> list[str]:
@@ -1056,6 +945,129 @@ class GrandPy:
             indices = self.get_index(genes, regex=regex)
             return self.gene_info.iloc[indices]["Gene"].tolist()
 
+    def get_index(self, genes: Union[str, int, Sequence[Union[str, int, bool]]] = None, *, regex: bool = False) -> list[int]:
+        """
+        Get the index of: a gene, a list of genes, or in accordance to a boolean filter.
+
+        Either by gene name or symbol, or by a boolean mask.
+
+        Integers are returned unchanged.
+
+        If names and indices are mixed, only one of them will be used. Chosen by the higher number of matches.
+
+        Parameters
+        ----------
+        genes: str or int or Sequence[str or int or bool], optional
+            Specifies which indices to return.
+        regex: bool, default False
+            If True, `gene` will be interpreted as a regular expression.
+
+        Returns
+        -------
+        list[int]
+            A list containing the specified indices.
+        """
+        gene_info = self.gene_info
+        n = len(gene_info)
+
+        if genes is None:
+            return list(range(n))
+
+        gene_col = gene_info["Gene"].astype(str)
+        symbol_col = gene_info["Symbol"].astype(str)
+
+        genes = _ensure_list(genes)
+
+        if any(pd.isna(genes)):
+            warnings.warn("NaN values removed from gene input.")
+            genes = [g for g in genes if pd.notna(g)]
+
+        # Regex matching (only works with str input)
+        if regex:
+            pattern = genes[0]
+            if not isinstance(pattern, str):
+                raise ValueError("If 'regex' is True, 'genes' must be a string.")
+            mask = gene_col.str.contains(pattern, regex=True) | symbol_col.str.contains(pattern, regex=True)
+            return list(np.flatnonzero(mask))
+
+        # Boolean mask
+        if all(isinstance(g, (bool, np.bool_)) for g in genes):
+            if len(genes) != n:
+                raise ValueError("Boolean mask length does not match gene count.")
+            return list(np.flatnonzero(genes))
+
+        # Integer index
+        if all(isinstance(g, (int, np.integer)) for g in genes):
+            for g in genes:
+                if not 0 <= g < n:
+                    raise IndexError(f"Gene index out of range. Must be between 0 and {n - 1}. Got {g}.")
+            return genes
+
+        # Matching by Gene/Symbol string
+        genes_str = pd.Series(genes, dtype=str)
+
+        matches_gene = genes_str[genes_str.isin(set(gene_col))]
+        matches_symbol = genes_str[genes_str.isin(set(symbol_col))]
+
+        use_col = gene_col if len(matches_gene) >= len(matches_symbol) else symbol_col
+        ref_map = pd.Series(np.arange(n), index=use_col)
+
+        found = genes_str[genes_str.isin(ref_map.index)]
+        missing = genes_str[~genes_str.isin(ref_map.index)]
+
+        if not missing.empty:
+            preview = ", ".join(missing.head(5))
+            more = " ..." if len(missing) > 5 else ""
+            warnings.warn(f"Could not find {len(missing)} genes (e.g. {preview}{more})")
+
+        return ref_map.loc[found].tolist()
+
+    def with_updated_symbols(self, species: str = "human") -> "GrandPy":
+        """
+        Adds or updates(if it already exists) the column 'Symbols' in the gene_info.
+        Symbols are derived from the column 'Gene', containg Ensemble IDs.
+
+        Parameters
+        ----------
+        species: str, default "human"
+            The species the genes belong to. See mygene(https://pypi.org/project/mygene/) for supported species.
+            The most common species include: 'human', 'mouse', 'rat', 'zebrafish', 'fruitfly', 'worm', 'yeast', 'chicken'.
+
+        Returns
+        -------
+        GrandPy
+            A GrandPy instance with the column 'Symbols' added to the gene_info.
+        """
+        import mygene
+
+        new_gene_info = self.gene_info.copy()
+        genes = new_gene_info["Gene"].tolist()
+
+        mg = mygene.MyGeneInfo()
+
+        # Query: get the symbols in batches (a single large request is not possible with mygene)
+        try:
+            result = mg.querymany(
+                genes,
+                scopes="ensembl.gene",
+                fields="symbol",
+                species=species,
+                as_dataframe=True,
+            )
+        except Exception as e:
+            raise RuntimeError(f"MyGeneInfo request failed: {e}")
+
+        result = _make_unique(result["symbol"].dropna())
+        result.index.name = "Gene"
+        result = _reindex_by_index_name(result, new_gene_info)
+
+        if new_gene_info.get("Symbol", None) is not None:
+            new_gene_info.update(result)
+
+            return self._dev_replace(gene_info = new_gene_info)
+
+        return self.with_gene_info(name="Symbol", value=result.values)
+
     def get_classified_genes(self, classification_label: str) -> list:
         """
         Returns a list of gene names corresponding to the given classification label.
@@ -1077,7 +1089,7 @@ class GrandPy:
         list:
             A list of gene names corresponding to the given classification label.
         """
-        return self.gene_info[self.gene_info["Type"] == classification_label].index.tolist()
+        return self.gene_info[self.gene_info["Type"] == classification_label].get("Symbol").tolist()
 
     # TODO: get_significant_genes() doc string umschreiben
     def get_significant_genes(
@@ -1171,6 +1183,8 @@ class GrandPy:
 
         Otherwise, the column 'name' will be replaced by the given value or updated if a dictionary was given.
 
+        If 'name' is None or not given, 'value' is expected to be a pandas Series or DataFrame.
+
         Parameters
         ----------
         value : Mapping or pd.Series or pd.DataFrame or np.ndarray or Sequence
@@ -1196,6 +1210,9 @@ class GrandPy:
         if name is None:
             if not isinstance(value, (pd.Series, pd.DataFrame)):
                 raise ValueError("If column is None, value must be a pandas Series or DataFrame.")
+
+            if isinstance(value, pd.Series):
+                value = value.to_frame()
 
             for name in value.columns:
                 new_coldata[name] = value[name]
@@ -1485,9 +1502,9 @@ class GrandPy:
             force_numpy: bool = True
     ) -> Union[np.ndarray, sp.csr_matrix]:
         """
-        Get the raw data from a data slot, without row or column names.
+        Get the data from a data slot as a numpy array, without row or column names.
 
-        This function is mostly not needed, as get_table() or get_data() are usually better suited.
+        This function is mostly not needed, as get_table() or get_data() are usually better suited and more versitile.
 
         Parameters
         ----------
@@ -1497,7 +1514,7 @@ class GrandPy:
             A mode("new"|"old"|"total") can be specified in the following formats: ModeSlot('<mode>', '<slot>') or '<mode>_<slot>'
 
         genes: str or int or Sequence[str or int]
-            The genes to be retrieved. Either by gene symbols, names(Ensembl ids), indices, or a boolean mask.
+            The genes to be retrieved. Either by gene symbols, names(Ensembl IDs), indices, or a boolean mask.
 
         columns: str or int or Sequence[str or int]
             The samples/cells to be retrieved. Either by names, indices, or a boolean mask.
@@ -1509,15 +1526,15 @@ class GrandPy:
         Returns
         -------
         Union[np.ndarray, sp.csr_matrix]
-            A raw data matrix, without column or row names.
+            A data matrix, without column or row names.
 
         See Also
         --------
         GrandPy.get_table
-            Similar to get_matrix(), but with row and column names and coldata can be concatenated.
+            Similar to get_matrix, but with row and column names and coldata can be concatenated.
 
         GrandPy.get_data
-            Similar to get_data(), but slots are transposed, so gene_info can be concatenated.
+            Similar to get_table, but slots are transposed, so gene_info can be concatenated.
 
         GrandPy.get_analysis_table:
             Get a DataFrame containing analysis tables.
@@ -1556,7 +1573,7 @@ class GrandPy:
             A mode("new"|"old"|"total") can be specified in the following formats: ModeSlot('<mode>', '<slot>') or '<mode>_<slot>'
 
         genes: str or int or Sequence[str or int], optional
-            The genes to be retrieved. Either by gene symbols, names(Ensembl ids), or indices.
+            The genes to be retrieved. Either by gene symbols, names(Ensembl IDs), or indices.
 
         columns: str or int or Sequence[str or int], optional
             The samples/cells to be retrieved. Either by names or indices.
@@ -1566,7 +1583,7 @@ class GrandPy:
 
         name_genes_by: str, default "Symbol"
             A column in the gene_info DataFrame to be used as the name of the genes.
-            Usually either `Symbol`(Symbols) or 'Gene'(Ensembl IDs).
+            Usually either 'Symbol'(Symbols) or 'Gene'(Ensembl IDs).
 
         by_rows: bool, default False
             If True, add rows if there are multiple genes or mode_slots.
@@ -1584,13 +1601,13 @@ class GrandPy:
         See Also
         --------
         GrandPy.get_table
-            Similar to get_data(), but slots are transposed, so gene_info can be concatenated.
+            Similar to get_data, but slots are transposed, so gene_info can be concatenated.
 
         GrandPy.get_analysis_table:
             Get a DataFrame containing analysis tables.
 
         GrandPy.get_matrix
-            Similar to get_data(), but transposed and only gives raw_data without row or column names.
+            Similar to get_data, but transposed and gives numpy arrays without row or column names.
         """
         coldata = self.coldata
         gene_info = self.gene_info
@@ -1673,7 +1690,7 @@ class GrandPy:
             A mode("new"|"old"|"total") can be specified in the following formats: ModeSlot('<mode>', '<slot>') or '<mode>_<slot>'
 
         genes: str or int or Sequence[str or int], optional
-            The genes to be retrieved. Either by gene symbols, names(Ensembl ids), or indices.
+            The genes to be retrieved. Either by gene symbols, names(Ensembl IDs), or indices.
 
         columns: str or int or Sequence[str or int], optional
             The samples/cells to be retrieved. Either by names or indices.
@@ -1683,7 +1700,7 @@ class GrandPy:
 
         name_genes_by: str, default "Symbol"
             A column in the gene_info DataFrame to be used as the name of the genes.
-            Usually either `Symbol`(Symbols) or `Gene`(Ensembl IDs).
+            Usually either 'Symbol'(Symbols) or 'Gene'(Ensembl IDs).
 
         summarize: pd.DataFrame, default None
             A summary DataFrame. This can be retrieved via GrandPy.get_summary_matrix().
@@ -1708,16 +1725,16 @@ class GrandPy:
         See Also
         --------
         GrandPy.get_data:
-            Similar to get_table(), but slots are transposed, so coldata can be concatenated.
+            Similar to get_table, but slots are transposed, so coldata can be concatenated.
 
         GrandPy.get_analysis_table:
             Get a DataFrame containing analysis tables.
 
         GrandPy.get_summary_matrix:
-            Get a summarization matrix for averaging or aggregation. Can be provided to get_table() via `summarize`.
+            Get a summarization matrix for averaging or aggregation. Can be provided to get_table via `summarize`.
 
         GrandPy.get_matrix:
-            Similar to get_table(), but gives raw data without row or column names.
+            Similar to get_table, but gives numpy array without row or column names.
         """
         gene_info = self.gene_info
         coldata = self.coldata
@@ -1761,7 +1778,7 @@ class GrandPy:
 
         if with_gene_info:
             gene_info_block = gene_info.iloc[gene_indices].copy()
-            gene_info_block.index = result_df.index  # match exactly
+            gene_info_block.index = result_df.index
             result_df = pd.concat([gene_info_block, result_df], axis=1)
 
         if prefix is not None:
@@ -1770,7 +1787,6 @@ class GrandPy:
         result_df.index = gene_names
         return result_df
 
-    # TODO: get_analysis_table() add by_rows
     def get_analysis_table(
             self,
             analyses: Union[str, int, Sequence[Union[str, int, bool]]] = None,
@@ -1780,6 +1796,7 @@ class GrandPy:
             regex: bool = True,
             with_gene_info: bool = True,
             name_genes_by: str = "Symbol",
+            prefix_by_analyses: bool = True,
             by_rows: bool = False,
     ) -> pd.DataFrame:
         """
@@ -1794,20 +1811,26 @@ class GrandPy:
             The genes for which to retrieve the analysis tables. Either by gene symbols, names(Ensembl ids), or indices.
 
         columns: str, optional
-            A regular expression to match the name of the columns in the analysis tables.
+            A regular expression to match the names of the columns in the analysis tables.
 
         regex: bool, default True
-            If True, 'analyses' will be interpreted as a regular expression.
+            If True, `analyses` will be interpreted as a regular expression.
 
         with_gene_info: bool, default True
             If True, the gene_info DataFrame will be concatenated to the result.
 
         name_genes_by: str, default "Symbol"
             The name of the column in the gene_info DataFrame to be used as the name of the genes.
-            Usually either `Symbol`(Symbols) or `Gene`(Ensembl IDs).
+            Usually either 'Symbol'(Symbols) or 'Gene'(Ensembl IDs).
+
+        prefix_by_analyses: bool, default True
+            If True, the columns in the result will be prefixed with the given prefix and the name of the condition.
+            Otherwise, they will only be named after the respective analysis.
+
+            This will automatically be False when `by_rows` is True
 
         by_rows: bool, default False
-            If True, add rows if there are multiple analyses.
+            If True, add rows if there are analyses for multiple conditions.
             Otherwise, add columns.
 
         Returns
@@ -1815,49 +1838,109 @@ class GrandPy:
         pd.DataFrame
             A DataFrame containing the specified analyses for the genes and columns.
 
+        Examples
+        --------
+        Perform any analysis on the instance.
+
+        >>> sars = sars.fit_kinetics()
+        >>> sars.analyses
+        ['kinetics_Mock', 'kinetics_SARS']
+
+        Retrieve the results.
+
+        >>> sars.get_analysis_table(with_gene_info=False)
+                Mock_Synthesis  Mock_Half-life  SARS_Synthesis  SARS_Half-life
+        Symbol
+        UHMK1       175.303203        7.509571    3.123868e+02        2.813804
+        ATF3         34.018585        0.943541    4.843992e+02        0.932378
+        ...                ...             ...             ...             ...
+        ORF1ab      792.905313        1.241805    1.546125e+06        1.270006
+        S           522.247609        1.068520    9.717529e+05        1.262822
+
+        Only retrieve specific results for the first three genes.
+
+        >>> sars.get_analysis_table(analyses="kinetics_Mock", columns="Synthesis",
+        ...                         genes=[0,1,2], with_gene_info=False)
+                Mock_Synthesis
+        Symbol
+        UHMK1       146.375312
+        ATF3         26.020881
+        PABPC4      220.606945
+
         See Also
         --------
         GrandPy.analyses
             Get the names of all stored analyses.
 
+        GrandPy.with_dropped_analysis
+            Drop analyses from the object with a regex.
+
         GrandPy.get_analyses
             Get the names of analyses. Either by a regex, names, indices, or a boolean mask.
 
         GrandPy.with_analysis
-            Add a new analysis to the object.
-
-        GrandPy.with_dropped_analysis
-            Drop analyses from the object with a regex.
+            Add a new analysis to the object. Usually not called directly.
         """
-        analyses = self.get_analyses(analyses, regex = regex)
+        if by_rows:
+            prefix_by_analyses = False
+
+        analyses = self.get_analyses(analyses, regex=regex)
 
         row_indices = self.get_index(genes)
         gene_info = self.gene_info
 
+        if genes is not None:
+            gene_info = gene_info.iloc[row_indices]
+
         result_df = pd.DataFrame()
+        result_rows = []
 
         for name in analyses:
             analysis_data = self._anndata.uns["analyses"][name]
 
-            analysis_data.index = pd.Index(gene_info[name_genes_by])
+            if columns is not None:
+                selected_columns = [col for col in analysis_data.columns if re.search(columns, col)]
+                analysis_data = analysis_data[selected_columns]
 
-            # Only take rows that match 'genes', if specified.
+            analysis_data.index = pd.Index(self.gene_info[name_genes_by])
+
             if genes is not None:
                 analysis_data = analysis_data.iloc[row_indices]
 
-            # Only take columns that match 'columns', if specified.
             if columns is not None:
                 if regex:
-                    matching_cols = [col for col in analysis_data.columns if any(re.search(pat, col) for pat in columns)]
+                    matching_cols = [col for col in analysis_data.columns if
+                                     any(re.search(pat, col) for pat in columns)]
                 else:
                     matching_cols = [col for col in columns if col in analysis_data.columns]
             else:
                 matching_cols = analysis_data.columns
 
-            result_df = pd.concat([result_df, analysis_data[matching_cols]], axis=1)
+            selected_data = analysis_data[matching_cols].copy()
 
-        if with_gene_info:
-            result_df = pd.concat([gene_info.iloc[row_indices], result_df], axis=1)
+            if not prefix_by_analyses:
+                cond = name.rsplit("_", 1)[-1]
+                selected_data.columns = [col.rsplit(f"{cond}_", 1)[-1] for col in selected_data.columns]
+
+            if by_rows:
+                selected_data = selected_data.copy()
+                selected_data.insert(0, "Analysis", name)
+
+                if with_gene_info:
+                    merged = pd.concat([gene_info.reset_index(drop=True), selected_data.reset_index(drop=True)], axis=1)
+                else:
+                    merged = selected_data.reset_index(drop=True)
+
+                result_rows.append(merged)
+            else:
+                result_df = pd.concat([result_df, selected_data], axis=1)
+
+        if by_rows:
+            result_df = pd.concat(result_rows, axis=0).reset_index(drop=True)
+        else:
+            if with_gene_info:
+                result_df = pd.concat([gene_info, result_df], axis=1)
+            result_df.columns = _make_unique(pd.Series(result_df.columns), warn=False)
 
         return result_df
 
@@ -1969,7 +2052,7 @@ class GrandPy:
 
         if isinstance(reference, str):
             try:
-                mask_df = df_subset.eval(reference, engine="python") # Alternativ: selected_refs = df_subset.query(reference).index
+                mask_df = df_subset.eval(reference, engine="python")
                 if isinstance(mask_df, pd.Series) and mask_df.dtype == bool:
                     selected_refs = df_subset.index[mask_df].tolist()
                 else:
@@ -1989,7 +2072,6 @@ class GrandPy:
 
 
     # ----- Functions on the whole object -----
-    # TODO: analysen nicht mergen bei merge und concat, sondern einfach nur hinzufügen.
     def merge(
             self,
             other: "GrandPy",
@@ -2481,7 +2563,11 @@ class GrandPy:
         **kwargs : dict
             Additional keyword arguments to pass to fit_kinetics.
 
-        See Also:
+        Notes
+        -----
+        For large enough datasets, fit_kinetics will run in parallel. For control over this, see `kwargs` and GrandPy.fit_kinetics.
+
+        See Also
         --------
         GrandPy.fit_kinetics: Fits kinetic models to gene expression data.
 
@@ -2598,23 +2684,22 @@ class GrandPy:
 
         return _get_summary_matrix(self, no4sU, columns, average)
 
-    def get_contrasts(self, contrast: Union[str, Sequence[str]] = "Condition", columns: Union[Sequence[bool], bool] = None, group: Union[Sequence[str], str] = None, name_format: str = None, no4sU: bool = False) -> "GrandPy":
+    def get_contrasts(self, contrast: list = ["Condition"], columns: Union[Sequence[str], str] = None, group: Union[Sequence[str], str] = None, name_format: str = None) -> pd.DataFrame:
         """
         Generate contrast matrix for differential comparisons.
 
         Parameters
         ----------
-        grandPy object or a column annotation table:
+        coldata : pd.DataFrame
             DataFrame containing sample metadata (e.g., conditions, groups).
 
-        contrast : str or Sequence[str]
+        contrast : list[str]
             Defines the contrast logic:
+            - [condition_column] → all pairwise contrasts
+            - [condition_column, reference_level] → all vs. reference
+            - [condition_column, level_A, level_B] → specific comparison A vs B
 
-            - to compare one specific factor level A against another level B in a particular column COL of the column annotation table, specify contrast = ["COL", "A", "B"]
-            - to compare all levels against a specific level A in a particular column COL of the column annotation table, specify contrast = ["COL","A"]
-            - to perform all pairwise comparisons of all levels from a particular column COL of the column annotation table, specify contrast = ["COL"]
-
-        columns : list[bool], optional
+        columns : list[str], optional
             Subset of sample IDs to consider in contrast computation. If None, all samples are used.
 
         group : str, optional
@@ -2626,7 +2711,7 @@ class GrandPy:
             Default: "$A vs $B" (or "$A vs $B.$GRP" if `group` is set)
 
         no4sU : bool, default False
-            Use no4sU columns (True) or not (False)
+            If True, samples where `coldata['no4sU'] == False` are excluded from contrast computation.
 
         Returns
         -------
@@ -2636,7 +2721,7 @@ class GrandPy:
         """
         from .diffexp import _get_contrasts
 
-        return _get_contrasts(self, contrast = contrast, columns = columns, group = group, name_format = name_format, no4sU = no4sU)
+        return _get_contrasts(self, contrast = contrast, columns = columns, group = group, name_format = name_format)
 
 
 

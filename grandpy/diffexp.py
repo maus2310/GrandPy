@@ -695,7 +695,7 @@ def _get_contrasts(
         group: Union[Sequence[str], str] = None,
         name_format: str = None,
         no4sU: bool = False,
-        ) -> Union["GrandPy", pd.DataFrame]:
+        ) -> pd.DataFrame:
 
     coldata = data.coldata
 
