@@ -375,7 +375,7 @@ def _transform_z(matrix: np.ndarray, center: bool = True, scale: bool = True) ->
     from scipy.stats import zscore
     return zscore(matrix, axis=1, ddof=1, nan_policy='omit' if (center or scale) else 'propagate')
 
-def _transform_vst(data: np.ndarray, selected_columns: list, mode_slot, genes) -> pd.DataFrame:
+def _transform_vst(data: GrandPy, selected_columns: list, mode_slot: str, genes: str) -> pd.DataFrame:
     """
         Perform variance stabilizing transformation (VST) on selected gene expression data.
 
@@ -408,7 +408,7 @@ def _transform_vst(data: np.ndarray, selected_columns: list, mode_slot, genes) -
     vst_df = pd.DataFrame(vst_array, index=slotmat.index, columns=slotmat.columns)
     return vst_df
 
-def _transform_logFC(m: np.ndarray, reference_columns: Optional[list[int]] = None, lfc_fun: Optional[Callable[[np.ndarray, np.ndarray], np.ndarray]] = None) -> np.ndarray:
+def _transform_logfc(m: np.ndarray, reference_columns: Optional[list[int]] = None, lfc_fun: Optional[Callable[[np.ndarray, np.ndarray], np.ndarray]] = None) -> np.ndarray:
     """
     Compute log2 fold changes for a matrix against a reference (e.g., mean of columns).
 
@@ -493,7 +493,9 @@ def _f_new(t: float, s: float, d: float)-> float | np.ndarray:
         """
     return s / d * (1 - np.exp(-t * d))
 
-def _format_correlation(method: str = "pearson", n_format: str | None = None, coeff_format: str | None = ".2f", p_format: str | None = ".2g", slope_format: str | None = None, rmsd_format: str | None = None, min_obs: int = 5) -> callable:
+def format_correlation(method: str = "pearson", n_format: str | None = None,
+                       coeff_format: str | None = ".2f", p_format: str | None = ".2g",
+                       slope_format: str | None = None, rmsd_format: str | None = None, min_obs: int = 5) -> callable:
     """
         Create a function to compute and format correlation statistics between two arrays.
 
@@ -551,8 +553,8 @@ def _format_correlation(method: str = "pearson", n_format: str | None = None, co
         else:
             raise ValueError("Invalid correlation method. Choose from 'pearson', 'spearman', or 'kendall'.")
 
-        formatted_n = f"n={len(x)}" if n_format else ""
-        formatted_p = f"p{'<' if p_value < 2.2e-16 else '='}{p_format}" if p_format else ""
+        formatted_n = f"n={len(x):{n_format}}" if n_format else ""
+        formatted_p = f"p<'{2.2e-16:.2g}'" if p_value < 2.2e-16 else f"p={p_value:{p_format}}" if p_format else ""
         formatted_coeff = f"{p_name}={cc:{coeff_format}}" if coeff_format else ""
 
         if slope_format:
@@ -597,12 +599,15 @@ def plot_scatter(
     diagonal: Optional[bool | float | tuple] = None,
     highlight: Optional[Union[list[str], dict[str, list[str]]]] = None,
     highlight_size: float = 3,
+    x_axis_label: Optional[str] = None,
+    y_axis_label: Optional[str] = None,
     label: Optional[Union[list[int], list[str]]] = None,
     y_label_offset: float = 0.001,
     analysis: str = None,
     rasterized: bool = False,
     density_margin: str = "n",
     density_n: int = 100,
+    correlation: Optional[Callable[[np.ndarray, np.ndarray], Optional[str]]] = None,
     path_for_save: Optional[str] | Path = None,
     save_fig_format: str = "svg",
     figsize: tuple[float, float] = (10, 6),
@@ -698,6 +703,12 @@ def plot_scatter(
         highlight_size : float, default=3
             Size of highlighted points (multiplied with base size).
 
+        x_axis_label : str, optional
+            Label on the x-axis.
+
+        y_axis_label : str, optional
+            Label on the y-axis.
+
         label : list[int] | list[str], optional
             Genes to label in the plot (by name or index).
 
@@ -715,6 +726,9 @@ def plot_scatter(
 
         density_n : int, default=100
             Number of bins or grid size for density computation.
+
+        correlation : Callable, str, optional
+            A correlation function that takes two arrays as input and return a scalar. For example: format_correlation(method="spearman")
 
         path_for_save : str, optional
             If given, save the figure as a PNG to this directory with auto-generated filename.
@@ -862,6 +876,11 @@ def plot_scatter(
     ax.set_ylabel(y)
     ax.set_title(f"{x} vs {y} ({mode_slot})")
 
+    if x_axis_label is not None:
+        plt.xlabel(x_axis_label)
+    if y_axis_label is not None:
+        plt.ylabel(y_axis_label)
+
     if x_limit:
         ax.set_xlim(x_limit)
     if y_limit:
@@ -875,6 +894,13 @@ def plot_scatter(
     if cross:
         ax.axhline(0, linestyle="--", color="gray")
         ax.axvline(0, linestyle="--", color="gray")
+
+    if correlation is not None:
+        stats = correlation(x_vals, y_vals)
+        if stats:
+            ax.text(0.05, 0.95, stats, transform=ax.transAxes,
+                    ha="left", va="top", fontsize=10,
+                    bbox=dict(boxstyle="round", facecolor="white", alpha=0.7))
 
     # Highlight
     if highlight:
@@ -920,7 +946,7 @@ def plot_heatmap(
     cluster_genes: bool = True,
     cluster_columns: bool = False,
     label_genes: Optional[bool] = None,
-    xlabels: Optional[list] = None,
+    x_labels: Optional[list] = None,
     breaks: Optional[list] = None,
     colors: Optional[Union[list, str]] = None,
     title: Optional[str] = None,
@@ -969,7 +995,7 @@ def plot_heatmap(
             Whether to show gene names on the y-axis. Defaults to True if number
             of genes is <=50, otherwise False.
 
-        xlabels : list, optional
+        x_labels : list, optional
             Custom labels for the x-axis. Only valid if a single mode_slot is specified.
 
         breaks : list, optional
@@ -992,6 +1018,9 @@ def plot_heatmap(
 
         save_fig_format: str, default="svg"
             The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
+
+        show_plot : bool, default=True
+            Whether to show the heatmap.
 
         See Also
         --------
@@ -1025,12 +1054,12 @@ def plot_heatmap(
         selected_columns = data.get_columns(columns)
 
     if is_slot:
-        if len(mode_slots) > 1 and xlabels is not None:
+        if len(mode_slots) > 1 and x_labels is not None:
             raise ValueError("Cannot use 'xlabels' with multiple slots")
 
         table = data.get_table(mode_slots=mode_slot, genes=genes, columns=selected_columns, summarize=summarize)
     else:
-        table = data.get_analysis_table(names=[ms.slot for ms in mode_slots], genes=genes)
+        table = data.get_analysis_table(genes=genes)
         table = table[selected_columns]
     mat = table.to_numpy(dtype=np.float64)
     gene_names = table.index.to_list()
@@ -1057,8 +1086,7 @@ def plot_heatmap(
         elif transform == "logfc":
             if selected_columns is None or len(selected_columns) == 0:
                 raise ValueError("Need columns=... to compute logFC reference")
-            ref_cols = list(range(len(selected_columns)))
-            mat = _transform_logFC(mat)
+            mat = _transform_logfc(mat)
             label = "log2 FC"
         else:
             raise ValueError(f"Unknown transform: {transform}")
@@ -1066,8 +1094,8 @@ def plot_heatmap(
     if na_to is not None:
         mat = np.where(np.isnan(mat), na_to, mat)
 
-    if xlabels is not None and len(xlabels) == len(sample_names):
-        sample_names = xlabels
+    if x_labels is not None and len(x_labels) == len(sample_names):
+        sample_names = x_labels
     if label_genes is None:
         label_genes = len(gene_names) <= 50
 
@@ -1195,13 +1223,7 @@ def plot_pca(
     slotmat = mat.T.round().astype(int)
 
     if do_vst:
-        try:
-            dds = DeseqDataSet(counts=slotmat, metadata=coldata, design_factors="Condition", low_memory=True, quiet=show_progress)
-
-        except Exception:
-            warnings.warn(
-                "Column 'Condition' not found in coldata. Please add a 'Condition' column to use this function.")
-
+        dds = DeseqDataSet(counts=slotmat, metadata=coldata, design_factors="Condition", low_memory=True, quiet=show_progress)
         dds.deseq2()
         dds.vst_fit()
         vst_array = dds.vst_transform()
@@ -1283,6 +1305,8 @@ def plot_gene_old_vs_new(
             If provided, saves the resulting plot as a PNG in the given directory.
         save_fig_format: str, default="svg"
             The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
+        show_plot: bool, default=True
+            Whether to show the plot.
         See Also
         --------
         GrandPy.plots
@@ -1307,8 +1331,6 @@ def plot_gene_old_vs_new(
         selected_columns = list(data.coldata.query(columns).index)
     else:
         selected_columns = data.get_columns(columns)
-
-    coldata = data.coldata.loc[selected_columns]
 
     plot_df = data.get_data(mode_slots=[ModeSlot("old", slot), ModeSlot("new", slot)], genes=gene, columns=selected_columns, with_coldata=True)
 
@@ -1467,6 +1489,8 @@ def plot_gene_total_vs_ntr(
             If provided, saves the resulting plot as a PNG in the given directory.
         save_fig_format: str, default="svg"
             The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
+        show_plot: bool, default=True
+            Whether to show the plot.
         See Also
         --------
         GrandPy.plots
@@ -1596,7 +1620,6 @@ def plot_gene_total_vs_ntr(
         plt.show()
         plt.close()
 
-#Beispielaufruf: plot_gene_groups_points(sars, "UHMK1", group="Time")
 def plot_gene_groups_points(
     data: GrandPy,
     gene: str,
@@ -1651,7 +1674,8 @@ def plot_gene_groups_points(
             If provided, saves the plot as a PNG file in the specified path.
         save_fig_format: str, default="svg"
             The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
-
+        show_plot: bool, default=True
+            Whether to show the plot.
         Notes
         -----
         - If `show_ci=True`, confidence interval slots (`lower` and `upper`) must be available.
@@ -1684,8 +1708,6 @@ def plot_gene_groups_points(
         selected_columns = list(data.coldata.query(columns).index)
     else:
         selected_columns = data.get_columns(columns)
-
-    coldata = data.coldata.loc[selected_columns]
 
     if slot == "ntr":
         plot_df = data.get_data(mode_slots="ntr", genes=gene, columns=selected_columns, with_coldata=True)
@@ -1824,7 +1846,6 @@ def plot_gene_groups_points(
         plt.show()
         plt.close()
 
-#Beispielaufruf: plot_gene_groups_bars(sars, "UHMK1", xlabels="Condition + '.' + Replicate")
 def plot_gene_groups_bars(
     data: GrandPy,
     gene: str,
@@ -1871,6 +1892,8 @@ def plot_gene_groups_bars(
             If provided, saves the plot as PNG in the given path.
         save_fig_format: str, default="svg"
             The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
+        show_plot : bool, default=True
+            Whether to show the plot or not.
         See Also
         --------
         GrandPy.plots
@@ -1916,40 +1939,21 @@ def plot_gene_groups_bars(
 
     plot_df["xlab"] = xlabels
 
-    if isinstance(transform, str):
-        mat = plot_df[["old", "new"]]
-        transform = transform.lower()
-        if transform == "z":
-            mat = _transform_z(mat)
-            label = "z score"
-        elif transform in ["no", "none"]:
-            mat = _transform_no(mat)
-            label = " "
-        elif transform == "vst":
-            df_vst = _transform_vst(data, selected_columns, mode_slot=slot, genes=gene)
-
-            if gene is not None:
-                df_vst = df_vst[gene]
-            sample_names = df_vst.index.to_list()
-            gene_names = df_vst.columns.to_list()
-            mat = df_vst.to_numpy()
-            mat = mat.T
-            label = "VST"
-        elif transform == "logfc":
-            if selected_columns is None or len(selected_columns) == 0:
-                raise ValueError("Need columns=... to compute logFC reference")
-            ref_cols = list(range(len(selected_columns)))
-            mat = _transform_logFC(mat, ref_columns=ref_cols)
-            label = "log2 FC"
-        else:
-            raise ValueError(f"Unknown transform: {transform}")
+    if callable(transform):
+        mat = transform(plot_df[["old", "new"]].to_numpy())
+        if isinstance(mat, pd.DataFrame):
+            mat = mat.to_numpy()
+        if mat.shape != (len(plot_df), 2):
+            raise ValueError("Custom transform must return a matrix with shape (n_samples, 2)")
+        plot_df["old"] = mat[:, 0]
+        plot_df["new"] = mat[:, 1]
 
     x = np.arange(len(plot_df))
     width = 0.8
 
     fig, ax = plt.subplots(figsize=(10, 6))
-    bar1 = ax.bar(x, plot_df["old"], width, label="Old", color="lightgray")
-    bar2 = ax.bar(x, plot_df["new"], width, bottom=plot_df["old"], label="New", color="red")
+    ax.bar(x, plot_df["old"], width, label="Old", color="lightgray")
+    ax.bar(x, plot_df["new"], width, bottom=plot_df["old"], label="New", color="red")
 
     ax.set_xticks(x)
     ax.set_xticklabels(plot_df["xlab"], rotation=90)
@@ -2914,7 +2918,7 @@ def plot_expression_test(
     n = n[valid]
 
     m = np.vstack([w, n]).T
-    lfc_mat = _transform_logFC(m, reference_columns=[1])
+    lfc_mat = _transform_logfc(m, reference_columns=[1])
     lfc = lfc_mat[:, 0]
     M = (np.log10(w + 1) + np.log10(n + 1)) / 2
     xy = np.vstack([M, lfc])

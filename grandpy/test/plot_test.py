@@ -1,9 +1,12 @@
 import pytest
 import tempfile
 from pathlib import Path
+import contextlib
+import io
 from grandpy import *
+from grandpy.diffexp import pairwise_DESeq2
 
-#TODO Es fehlt noch ma und vulcano
+#TODO Es fehlt noch ma
 
 TOLERANCE_KB = 10
 FAILED_PLOTS = []
@@ -21,16 +24,19 @@ EXPECTED_FILE_SIZES = {
     "SRSF6_Snapshot_Timecourse.svg": 41,
     "SRSF6_Total_vs_Ntr.svg": 47,
     "Type_Distribution.svg": 49,
-    "scatter.svg": 60
+    "Vulcano.svg": 210,
 }
 
 @pytest.fixture(scope="module")
 def sars_dataset():
-    sars = read_grand("../data/sars_R.tsv",
-                      design=("Condition", "duration.4sU", "Replicate"),
-                      classification_genes=['UHMK1', 'ATF3', 'PABPC4', 'ROR1', 'ZC3H11A', 'ZBED6', 'PRDX6', 'PRRC2C'],
-                      classification_genes_label="Moin")
-    sars = sars.normalize().compute_ntr_ci()
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        sars = read_grand("../data/sars_R.tsv",
+                          design=("Condition", "duration.4sU", "Replicate"),
+                          classification_genes=['UHMK1', 'ATF3', 'PABPC4', 'ROR1', 'ZC3H11A', 'ZBED6', 'PRDX6', 'PRRC2C'],
+                          classification_genes_label="Moin")
+        sars = sars.normalize().compute_ntr_ci()
+        contrasts = sars.get_contrasts()
+        sars = pairwise_DESeq2(sars, contrasts)
     return sars
 
 @pytest.fixture(scope="module")
@@ -135,24 +141,10 @@ def test_plot_type_distribution(sars_dataset, temp_output_dir):
     except Exception as e:
         FAILED_PLOTS.append(f"Type_Distribution.svg: {e}")
 
-import warnings
-def test_summary():
-    red = "\033[91m"
-    yellow = "\033[93m"
-    green = "\033[92m"
-    reset = "\033[0m"
-
-    if FAILED_PLOTS:
-        print(f"\n\n\n{red} Failed Plots:{reset}")
-        for fail in FAILED_PLOTS:
-            print(f"   - {red}{fail}{reset}")
-
-    if OUT_OF_RANGE:
-        print(f"\n\n\n{yellow} Plots with unexpected size:{reset}")
-        for warn in OUT_OF_RANGE:
-            print(f"   - {yellow}{warn}{reset}")
-
-    if FAILED_PLOTS or OUT_OF_RANGE:
-        warnings.warn("\nSome plots failed or had wrong sizes. See above.")
-    else:
-        print(f"\n\n\n{green} All plots passed successfully.{reset}")
+def test_vulcano(sars_dataset, temp_output_dir):
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            plot_vulcano(sars_dataset, x_lim=(-2, 2), y_lim=(-9, 50), lfc_cutoff=0.5, path_for_save=temp_output_dir, show_plot=False)
+        check_file_size(temp_output_dir, "Vulcano.svg")
+    except Exception as e:
+        FAILED_PLOTS.append(f"Vulcano.svg: {e}")
