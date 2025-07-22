@@ -189,7 +189,7 @@ def norm_lfc(A: np.ndarray,
 def Psi_LFC(A: np.ndarray,
             B: np.ndarray,
             prior: Optional[tuple[float, float] | None] = None,
-            normalize_fun: Optional[Callable[[np.ndarray], np.ndarray]] = None,
+            normalize_fun: Callable[[np.ndarray], np.ndarray] = center_median,
             cre: Union[bool, list[float]] = False,
             verbose: bool = False) -> Union[np.ndarray, tuple[np.ndarray, np.ndarray]]:
 
@@ -235,16 +235,13 @@ def Psi_LFC(A: np.ndarray,
 
     lfc = (digamma(A + a) - digamma(B + b)) / np.log(2)
 
-    if normalize_fun is not None:
-        lfc_shifted = normalize_fun(lfc)
-        median_lfc = np.nanmedian(lfc_shifted)
-        lfc_centered = lfc_shifted - median_lfc
-    else:
-        median_lfc = np.nanmedian(lfc)
-        lfc_centered = center_median(lfc)
+    lfc_centered = normalize_fun(lfc)
 
     if verbose:
-        print(f"Normalization, median before: {np.nanmedian(lfc):.4f}, after: {np.nanmedian(lfc_centered):.4f}")
+        med_before = np.nanmedian(lfc)
+        med_after = np.nanmedian(lfc_centered)
+        print(f"Median before/after normalizing: {med_before:.4f} -> {med_after:.4f}")
+
 
     if cre is True:
         cre = [0.05, 0.95]
@@ -258,14 +255,13 @@ def Psi_LFC(A: np.ndarray,
 
         raw_qlfc = np.log2(proportion_q / (1.0 - proportion_q))
 
-        ci_centered = raw_qlfc - median_lfc
+        ci_centered = normalize_fun(raw_qlfc)
 
         return lfc_centered, ci_centered
 
     return lfc_centered
 
 
-# FEEDBACK-READY - #TODO: LFC_fun has to be set to "norm_lfc", when it comes to "mode="new"" ...
 def compute_lfc(data: GrandPy,
                 name_prefix: Optional[str] = None,
                 contrasts: Optional[pd.DataFrame] = None,
@@ -313,10 +309,6 @@ def compute_lfc(data: GrandPy,
         adds two columns named "{prefix}_{contrast}_LFC" and
         "{prefix}_{contrast}_M".
 
-    Notes
-    -----
-    When using mode="new", it is recommended to use LFC_fun=norm_lfc
-    to replicate the behavior of grandR's LFC function.
     """
 
     if name_prefix is None:
@@ -371,7 +363,7 @@ def compute_lfc(data: GrandPy,
             med = np.median(raw_norm)
             normalize_fun = lambda x: x - med
         else:
-            normalize_fun = None
+            normalize_fun = center_median
 
         # compute LFC (and optional M)
         result = LFC_fun(A_counts, B_counts, normalize_fun=normalize_fun, **kwargs)
@@ -507,7 +499,7 @@ def pairwise_DESeq2(
 
             dds = DeseqDataSet(counts=counts_df, metadata=coldata, design_factors="comparison", ref_level=None)
             dds.size_factors = size_factors
-            dds.deseq2(fit_type="mean") # TODO: default mean / parametric
+            dds.deseq2(fit_type="parametric")
             stats = DeseqStats(dds)
             stats.summary()
 
@@ -579,7 +571,7 @@ def pairwise_DESeq2(
 
     dds = DeseqDataSet(counts=counts_df, metadata=coldata, design_factors="comparison", ref_level=None)
     dds.size_factors = size_factors
-    dds.deseq2(fit_type="mean") # TODO default mean / parametric
+    dds.deseq2(fit_type="parametric")
 
     for contrast_name, A_group, B_group in dds_contrasts:
         stats = DeseqStats(dds, contrast=("comparison", A_group, B_group))

@@ -150,11 +150,11 @@ if __name__ == "__main__":
     mask = sars.coldata["duration.4sU"] == 2
     sars = sars[:, mask]
 
-    contrasts = sars.get_contrasts(contrast=["Condition", "Mock"], name_format="$A_vs_$B")
+    contrasts = sars.get_contrasts(contrast=["Condition", "Mock"])
 
     sars = compute_lfc(data=sars, mode="total", contrasts=contrasts)
     sars = compute_lfc(data=sars, mode="new", normalization="total", contrasts=contrasts,
-                       LFC_fun=norm_lfc)  # TODO
+                       LFC_fun=norm_lfc)
 
     result = sars.get_analysis_table(with_gene_info=True)
     print(result)
@@ -167,17 +167,16 @@ if __name__ == "__main__":
     # ' sars<-PairwiseDESeq2(sars,mode="new",normalization="total", contrasts=GetContrasts(sars,contrast=c("Condition","Mock")))
     # ' head(GetAnalysisTable(sars,column="Q"))
 
-    # TODO ... fit_type?
     sars = read_grand("data/sars_R.tsv", design=("Condition", "dur.4sU", "Replicate"))
 
     mask = sars.coldata["duration.4sU"] == 2
     sars = sars[:, mask]
     # sars = sars._dev_replace(anndata=sars._anndata[:, mask])
 
-    contrasts = sars.get_contrasts(contrast=("Condition", "Mock"), name_format="$A_vs_$B")
+    contrasts = sars.get_contrasts(contrast=("Condition", "Mock"))
 
     sars = pairwise_DESeq2(sars, mode="total", contrasts=contrasts, name_prefix="total")
     sars = pairwise_DESeq2(sars, mode="new", normalization="total", contrasts=contrasts, name_prefix="new")
 
-    df = sars.get_analysis_table(columns=["Q"], with_gene_info=True)
+    df = sars.get_analysis_table(columns="Q", with_gene_info=True)
     print(df)
