@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker
 import matplotlib.colors as mcolors
 
+from pathlib import Path
 from matplotlib import cm
 from typing import Optional, Union, Callable
 from scipy.stats import gaussian_kde, iqr, pearsonr, spearmanr, kendalltau
@@ -602,9 +603,10 @@ def plot_scatter(
     rasterized: bool = False,
     density_margin: str = "n",
     density_n: int = 100,
-    path_for_save: Optional[str] = None,
+    path_for_save: Optional[str] | Path = None,
     save_fig_format: str = "svg",
-    figsize: tuple[float, float] = (10, 6)
+    figsize: tuple[float, float] = (10, 6),
+    show_plot: bool = True,
 ):
     """
         Plot a scatter plot of expression values from a GrandPy object.
@@ -722,6 +724,9 @@ def plot_scatter(
 
         figsize : tuple[float, float], default=(10, 6)
             Size of the figure in inches (width, height).
+
+        show_plot : bool, default=True
+            Show the plot.
         See Also
         --------
         GrandPy.plots
@@ -900,8 +905,9 @@ def plot_scatter(
     plt.tight_layout()
     if path_for_save:
         fig.savefig(f"{path_for_save}/{x}_{y}_{mode_slot}.{save_fig_format}", format=save_fig_format, dpi=300)
-    plt.show()
-    plt.close()
+    if show_plot:
+        plt.show()
+        plt.close()
 
 
 def plot_heatmap(
@@ -920,8 +926,9 @@ def plot_heatmap(
     title: Optional[str] = None,
     return_matrix: bool = False,
     na_to: Optional[float] = None,
-    path_for_save: Optional[str] = None,
+    path_for_save: Optional[str] | Path = None,
     save_fig_format: str = "svg",
+    show_plot: bool = True,
 ):
     """
         Create heatmaps from grandR objects.
@@ -1101,8 +1108,9 @@ def plot_heatmap(
     #plt.tight_layout()     # Makes cbar way to big :(
     if path_for_save:
         g.savefig(f"{path_for_save}/Heatmap_{mode_slot}.{save_fig_format}", format=save_fig_format, dpi=300)
-    plt.show()
-    plt.close()
+    if show_plot:
+        plt.show()
+        plt.close()
 
 
 #Beispielaufruf: plot_pca(sars)
@@ -1116,8 +1124,9 @@ def plot_pca(
     columns: Union[str, list, None] = None,
     do_vst: bool = True,
     show_progress: bool = True,
-    path_for_save: Optional[str] = None,
+    path_for_save: Optional[str] | Path = None,
     save_fig_format: str = "svg",
+    show_plot: bool = True,
 ):
     """
         Perform a principal component analysis (PCA) on a GrandPy dataset and visualize the results.
@@ -1225,7 +1234,9 @@ def plot_pca(
     plt.tight_layout()
     if path_for_save:
         plt.savefig(f"{path_for_save}/PCA_{mode_slot}.{save_fig_format}", format = save_fig_format, dpi=300)
-    plt.show()
+    if show_plot:
+        plt.show()
+        plt.close()
 
 #Beispielaufruf: plot_gene_old_vs_new(sars, "UHMK1", show_ci=True)
 def plot_gene_old_vs_new(
@@ -1237,8 +1248,9 @@ def plot_gene_old_vs_new(
     show_ci: bool = False,
     aest: Optional[dict] = None,
     size: float = 50,
-    path_for_save: Optional[str] = None,
+    path_for_save: Optional[str] | Path = None,
     save_fig_format: str = "svg",
+    show_plot: bool = True,
 ):
     """
         Plot old versus new RNA for a single gene, optionally including confidence intervals.
@@ -1407,8 +1419,9 @@ def plot_gene_old_vs_new(
     plt.tight_layout()
     if path_for_save:
         fig.savefig(f"{path_for_save}/{gene}_Old_vs_New.{save_fig_format}", format=save_fig_format, dpi=300)
-    plt.show()
-    plt.close()
+    if show_plot:
+        plt.show()
+        plt.close()
 
 #Beispielaufruf: plot_gene_total_vs_ntr(sars, "UHMK1")
 def plot_gene_total_vs_ntr(
@@ -1420,8 +1433,9 @@ def plot_gene_total_vs_ntr(
     show_ci: bool = False,
     aest: Optional[dict] = None,
     size: float = 50,
-    path_for_save: Optional[str] = None,
+    path_for_save: Optional[str] | Path = None,
     save_fig_format: str = "svg",
+    show_plot: bool = True,
 ):
     """
         Plot total RNA versus newly transcribed RNA ratio (NTR) for a single gene.
@@ -1578,8 +1592,9 @@ def plot_gene_total_vs_ntr(
     plt.tight_layout()
     if path_for_save:
         fig.savefig(f"{path_for_save}/{gene}_Total_vs_Ntr.{save_fig_format}", format=save_fig_format, dpi=300)
-    plt.show()
-    plt.close()
+    if show_plot:
+        plt.show()
+        plt.close()
 
 #Beispielaufruf: plot_gene_groups_points(sars, "UHMK1", group="Time")
 def plot_gene_groups_points(
@@ -1594,8 +1609,9 @@ def plot_gene_groups_points(
     size: float = 50,
     transform: Optional[callable] = None,
     dodge: bool = False,
-    path_for_save: Optional[str] = None,
+    path_for_save: Optional[str] | Path = None,
     save_fig_format: str = "svg",
+    show_plot: bool = True,
 ):
     """
         Plot RNA values of a single gene grouped by a specified metadata category.
@@ -1804,8 +1820,9 @@ def plot_gene_groups_points(
     plt.tight_layout()
     if path_for_save:
         fig.savefig(f"{path_for_save}/{gene}_Groups_Points.{save_fig_format}", format=save_fig_format, dpi=300)
-    plt.show()
-    plt.close()
+    if show_plot:
+        plt.show()
+        plt.close()
 
 #Beispielaufruf: plot_gene_groups_bars(sars, "UHMK1", xlabels="Condition + '.' + Replicate")
 def plot_gene_groups_bars(
@@ -1816,8 +1833,9 @@ def plot_gene_groups_bars(
     show_ci: bool = False,
     xlabels: Optional[Union[str, list]] = None,
     transform: Optional[callable] = None,
-    path_for_save: Optional[str] = None,
+    path_for_save: Optional[str] | Path = None,
     save_fig_format: str = "svg",
+    show_plot: bool = True,
 ):
     """
         Plot stacked bar plots of “new” vs. “old” RNA fractions for a single gene across groups.
@@ -1908,10 +1926,10 @@ def plot_gene_groups_bars(
             mat = _transform_no(mat)
             label = " "
         elif transform == "vst":
-            df_vst = _transform_vst(data, selected_columns, mode_slot=mode_slot, genes=genes)
+            df_vst = _transform_vst(data, selected_columns, mode_slot=slot, genes=gene)
 
-            if genes is not None:
-                df_vst = df_vst[genes]
+            if gene is not None:
+                df_vst = df_vst[gene]
             sample_names = df_vst.index.to_list()
             gene_names = df_vst.columns.to_list()
             mat = df_vst.to_numpy()
@@ -1921,7 +1939,7 @@ def plot_gene_groups_bars(
             if selected_columns is None or len(selected_columns) == 0:
                 raise ValueError("Need columns=... to compute logFC reference")
             ref_cols = list(range(len(selected_columns)))
-            mat = _transform_logfc(mat, ref_columns=ref_cols)
+            mat = _transform_logFC(mat, ref_columns=ref_cols)
             label = "log2 FC"
         else:
             raise ValueError(f"Unknown transform: {transform}")
@@ -1972,8 +1990,9 @@ def plot_gene_groups_bars(
     plt.tight_layout()
     if path_for_save:
         fig.savefig(f"{path_for_save}/{gene}_Groups_Bars.{save_fig_format}", format=save_fig_format, dpi=300)
-    plt.show()
-    plt.close()
+    if show_plot:
+        plt.show()
+        plt.close()
 
 # Beispielsaufruf: plot_gene_snapshot_timecourse(sars, "UHMK1")
 def plot_gene_snapshot_timecourse(
@@ -1989,8 +2008,9 @@ def plot_gene_snapshot_timecourse(
     aest: Optional[dict] = None,
     size: float = 50,
     dodge: bool = False,
-    path_for_save: Optional[str] = None,
+    path_for_save: Optional[str] | Path = None,
     save_fig_format: str = "svg",
+    show_plot: bool = True,
 ):
     """
         Plot timecourse snapshot of gene expression for specified mode and samples.
@@ -2230,8 +2250,9 @@ def plot_gene_snapshot_timecourse(
     plt.tight_layout()
     if path_for_save:
         fig.savefig(f"{path_for_save}/{gene}_Snapshot_Timecourse.{save_fig_format}", format=save_fig_format, dpi=300)
-    plt.show()
-    plt.close()
+    if show_plot:
+        plt.show()
+        plt.close()
 
 
 def plot_vulcano(
@@ -2240,8 +2261,9 @@ def plot_vulcano(
     p_cutoff: float = 0.05,
     lfc_cutoff: float = 1,
     annotate_numbers=False,
-    path_for_save: Optional[str] = None,
+    path_for_save: Optional[str] | Path = None,
     save_fig_format: str = "svg",
+    show_plot: bool = True,
 ):
 #TODO Docstring
     if analyses is None:
@@ -2290,8 +2312,9 @@ def plot_vulcano(
     plt.tight_layout()
     if path_for_save:
         fig.savefig(f"{path_for_save}/Vulcano.{save_fig_format}", format=save_fig_format, dpi=300)
-    plt.show()
-    plt.close()
+    if show_plot:
+        plt.show()
+        plt.close()
 
 
 # Beispielaufruf: plot_gene_progressive_timecourse(sars, "UHMK1")
@@ -2306,8 +2329,9 @@ def plot_gene_progressive_timecourse(
     show_ci: bool = False,
     rescale: bool = True,
     return_tables: bool = False,
-    path_for_save: Optional[str] = None,
+    path_for_save: Optional[str] | Path = None,
     save_fig_format: str = "svg",
+    show_plot: bool = True,
     **kwargs
 ):
     """
@@ -2620,8 +2644,9 @@ def plot_gene_progressive_timecourse(
             ax.tick_params(axis='x', rotation=0)
     if path_for_save:
         g.savefig(f"{path_for_save}/{gene}_Progressive_Timecourse.{save_fig_format}", format=save_fig_format, dpi=300)
-    plt.show()
-    plt.close()
+    if show_plot:
+        plt.show()
+        plt.close()
     if return_tables:
         print(df)
 
@@ -2632,8 +2657,9 @@ def plot_ma(
     p_cutoff: float = 0.05,
     lfc_cutoff: float = 1.0,
     annotate_numbers: bool = True,
-    path_for_save: Optional[str] = None,
+    path_for_save: Optional[str] | Path = None,
     save_fig_format: str = "svg",
+    show_plot: bool = True,
 ):
     """
     Create an MA plot from a GrandPy analysis result.
@@ -2721,8 +2747,9 @@ def plot_ma(
     plt.tight_layout()
     if path_for_save:
         fig.savefig(f"{path_for_save}/MAPlot.{save_fig_format}", format=save_fig_format, dpi=300)
-    plt.show()
-    plt.close()
+    if show_plot:
+        plt.show()
+        plt.close()
 
 
 def plot_expression_test(
@@ -2732,8 +2759,9 @@ def plot_expression_test(
     ylim: tuple = (-1, 1),
     hl_quantile: float = 0.8,
     size: float = 10,
-    path_for_save: Optional[str] = None,
+    path_for_save: Optional[str] | Path = None,
     save_fig_format: str = "svg",
+    show_plot: bool = True,
 ):
     """
         Generate a scatter plot comparing expression between 4sU-labeled and non-labeled samples.
@@ -2810,8 +2838,9 @@ def plot_expression_test(
     plt.tight_layout()
     if path_for_save:
         fig.savefig(f"{path_for_save}/Expression_Test.{save_fig_format}", format=save_fig_format, dpi=300)
-    plt.show()
-    plt.close()
+    if show_plot:
+        plt.show()
+        plt.close()
 
 
 def plot_type_distribution(
@@ -2819,8 +2848,9 @@ def plot_type_distribution(
     mode_slot: Optional[str] = None,
     relative: bool = False,
     palette: str = "Dark2",
-    path_for_save: Optional[str] = None,
+    path_for_save: Optional[str] | Path = None,
     save_fig_format: str = "svg",
+    show_plot: bool = True,
 ):
     """
     Plot the distribution of gene types across conditions.
@@ -2903,5 +2933,6 @@ def plot_type_distribution(
         plt.tight_layout()
     if path_for_save:
         fig.savefig(f"{path_for_save}/Type_Distribution.{save_fig_format}", format=save_fig_format, dpi=300)
-    plt.show()
-    plt.close()
+    if show_plot:
+        plt.show()
+        plt.close()
