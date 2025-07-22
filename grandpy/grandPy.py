@@ -2724,22 +2724,19 @@ class GrandPy:
 
         return _get_summary_matrix(self, no4sU, columns, average)
 
-    def get_contrasts(self, contrast: list = "Condition", columns: Union[Sequence[str], str] = None, group: Union[Sequence[str], str] = None, name_format: str = None) -> pd.DataFrame:
+    def get_contrasts(self, contrast: list = "Condition", columns: Union[Sequence[bool], bool] = None, group: Union[Sequence[str], str] = None, name_format: str = None, no4sU: bool = False) -> pd.DataFrame:
         """
         Generate contrast matrix for differential comparisons.
 
         Parameters
         ----------
-        coldata : pd.DataFrame
-            DataFrame containing sample metadata (e.g., conditions, groups).
-
-        contrast : list[str]
+        contrast : Union[Sequence[str], str], optional
             Defines the contrast logic:
             - [condition_column] → all pairwise contrasts
             - [condition_column, reference_level] → all vs. reference
             - [condition_column, level_A, level_B] → specific comparison A vs B
 
-        columns : list[str], optional
+        columns : Union[Sequence[str], str], optional
             Subset of sample IDs to consider in contrast computation. If None, all samples are used.
 
         group : str, optional
@@ -2761,7 +2758,7 @@ class GrandPy:
         """
         from .diffexp import _get_contrasts
 
-        return _get_contrasts(self, contrast = contrast, columns = columns, group = group, name_format = name_format)
+        return _get_contrasts(self, contrast = contrast, columns = columns, group = group, name_format = name_format, no4sU = no4sU)
 
 
 
