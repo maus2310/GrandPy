@@ -21,8 +21,9 @@ def mock_df():
     }
     return pd.DataFrame(data)
 
-# -----------------------------------------------------------------------------
-# Tests für Infer / Suffixes:
+
+
+# --- Tests for infer / suffixes ---
 
 def test_infer_suffixes_from_df(mock_df):
     result = infer_suffixes_from_df(mock_df)
@@ -65,8 +66,8 @@ def test_infer_suffixes_readcount_variants():
     assert result["count"] == " Readcount"
 
 
-# -----------------------------------------------------------------------------
-# Tests für Slot Parsing / Padding:
+
+# --- Tests for slot parsing / padding ---
 
 def test_parse_slots(mock_df):
     suffixes = {
@@ -122,8 +123,8 @@ def test_pad_slots_sparse():
     assert padded["count"].shape == (1, 3)
 
 
-# -----------------------------------------------------------------------------
-# Tests für Gene Info / Classification
+
+# --- Tests for gene info / classification ---
 
 def test_build_gene_info(mock_df):
     result = build_gene_info(mock_df, classify_genes)
@@ -141,8 +142,8 @@ def test_build_gene_info_classification():
     assert set(info["Type"]) == {"Cellular", "ERCC", "mito", "Unknown"}
 
 
-# -----------------------------------------------------------------------------
-# Test für Zeitparsing / Design-Metadaten:
+
+# ---Tests for time parsing / design-metadata---
 
 def test_parse_time_string_edge_cases():
     assert parse_time_string("90min") == 1.5
@@ -170,16 +171,15 @@ def test_apply_design_semantics_sets_semantics():
 
 
 
-# -----------------------------------------------------------------------------
-# Test für Dateipfade & Formaterkennung:
+# --- Tests fot filepath & format recognition ---
 
 def test_resolve_prefix_path_not_found():
     with pytest.raises(FileNotFoundError):
         resolve_prefix_path("nonexistent_path")
 
 
-# -----------------------------------------------------------------------------
-# Tests für Laden von GRAND-SLAM-Daten
+
+# --- Tests for loading GRAND-SLAM-Data ---
 
 def test_read_dense_real():
     obj = read_grand(DATA_DIR / "sars_R.tsv", classification_genes=None, classification_genes_label="Viral", design=("Condition", "Time", "Replicate"))
@@ -221,8 +221,9 @@ def test_read_sparse_rejects_invalid_prefix_combination():
     with pytest.raises(ValueError, match="does not match the existing targets/pseudobulk"):
         read_sparse(invalid_path, targets="SOMETHING", pseudobulk="WRONG")
 
-# -----------------------------------------------------------------------------
-# Versionstests
+
+
+# --- Version tests ---
 
 def test_dense_version_is_2():
     df = pd.DataFrame({
@@ -267,9 +268,7 @@ def test_sparse_version_fallback():
 
 
 
-
-# -----------------------------------------------------------------------------
-# Test für get_table_qc():
+# --- Tests for get_table_qc() ---
 
 def test_get_table_qc_returns_dataframe():
     obj = read_grand(DATA_DIR / "sars_R.tsv", design=("Condition", "Time", "Replicate"))
@@ -285,8 +284,8 @@ def test_get_table_qc_missing_slot_raises():
         get_table_qc(obj, slot="nonexistent")
 
 
-# -----------------------------------------------------------------------------
-# Test für uniqueness:
+
+# --- Test for uniqueness ---
 
 def test_make_unique_adds_suffix():
     from grandpy.utils import _make_unique
@@ -296,8 +295,9 @@ def test_make_unique_adds_suffix():
     assert unique[0] == "A"
     assert unique[2].startswith("A_")
 
-# ------------------------------------------------------------------------------
-# aus load.py:
+
+
+# --- Loading the data ---
 
 if __name__ == "__main__":
     grand_obj = read_grand("https://zenodo.org/record/5834034/files/sars.tsv.gz", design=("Condition", "Time", "Replicate"))

@@ -22,8 +22,9 @@ class GrandPy:
     Data is typically loaded using the `read_grand()` function, which parses preprocessed GrandR-compatible
     data formats into a GrandPy object.
 
+    Notes
+    -----
     The Object is designed to be immutable. Changes are made through `with_...` methods.
-
     Simple getters are implemented as properties, more complex ones through `get_...` methods.
 
     Examples
@@ -40,6 +41,11 @@ class GrandPy:
     Available analyses: None
     Available plots: None
     Default data slot: count
+
+    See Also
+    --------
+    read_grand
+        Create a GrandPy instance from a file.
 
     Parameters
     ----------
@@ -63,11 +69,6 @@ class GrandPy:
 
     plots: dict[str, dict[str, Plot]], optional
         Plot functions.
-
-    See Also
-    --------
-    read_grand
-        Read a file into a GrandPy object.
     """
 
     def __init__(
@@ -124,9 +125,9 @@ class GrandPy:
 
     def __ensure_condition_column(self):
         if 'Condition' not in self._anndata.var.columns:
-            warnings.warn("No 'Condition' entry in coldata, assuming all samples/cells as 'Control'! "
-                          "Consider changing it (see GrandPy.with_condition()) or "
-                          "renaming an existing column if it should already exist. (see GrandPy.with_coldata())")
+            warnings.warn("No 'Condition' column in coldata, assuming all samples/cells as 'Control'! "
+                          "Consider adding one (see GrandPy.with_condition()) or "
+                          "adjusting the DataFrame if it should already exist. (see GrandPy.replace())")
             self._anndata.var["Condition"] = "Control"
 
 
@@ -1682,6 +1683,20 @@ class GrandPy:
         """
         Get a DataFrame containing the data from data slots, optionally with the corresponding gene_info.
 
+        See Also
+        --------
+        GrandPy.get_data:
+            Similar to get_table, but slots are transposed, so coldata can be concatenated.
+
+        GrandPy.get_analysis_table:
+            Get a DataFrame containing analysis tables.
+
+        GrandPy.get_summary_matrix:
+            Get a summarization matrix for averaging or aggregation. Can be provided to get_table via `summarize`.
+
+        GrandPy.get_matrix:
+            Similar to get_table, but gives numpy array without row or column names.
+
         Parameters
         ----------
         mode_slots: str or ModeSlot or Sequence[str or ModeSlot], optional
@@ -1721,20 +1736,6 @@ class GrandPy:
         -------
         pd.DataFrame
             A DataFrame containing the specified data for the genes and columns.
-
-        See Also
-        --------
-        GrandPy.get_data:
-            Similar to get_table, but slots are transposed, so coldata can be concatenated.
-
-        GrandPy.get_analysis_table:
-            Get a DataFrame containing analysis tables.
-
-        GrandPy.get_summary_matrix:
-            Get a summarization matrix for averaging or aggregation. Can be provided to get_table via `summarize`.
-
-        GrandPy.get_matrix:
-            Similar to get_table, but gives numpy array without row or column names.
         """
         gene_info = self.gene_info
         coldata = self.coldata
@@ -1802,42 +1803,6 @@ class GrandPy:
         """
         Get a DataFrame containing analysis tables, optionally with the corresponding gene_info.
 
-        Parameters
-        ----------
-        analyses: str or int or Sequence[str or int or bool], optional
-            The analyses to be retrieved. Either by name, index, or a boolean mask.
-
-        genes: str or int or Sequence[str or int], optional
-            The genes for which to retrieve the analysis tables. Either by gene symbols, names(Ensembl ids), or indices.
-
-        columns: str, optional
-            A regular expression to match the names of the columns in the analysis tables.
-
-        regex: bool, default True
-            If True, `analyses` will be interpreted as a regular expression.
-
-        with_gene_info: bool, default True
-            If True, the gene_info DataFrame will be concatenated to the result.
-
-        name_genes_by: str, default "Symbol"
-            The name of the column in the gene_info DataFrame to be used as the name of the genes.
-            Usually either 'Symbol'(Symbols) or 'Gene'(Ensembl IDs).
-
-        prefix_by_analyses: bool, default True
-            If True, the columns in the result will be prefixed with the given prefix and the name of the condition.
-            Otherwise, they will only be named after the respective analysis.
-
-            This will automatically be False when `by_rows` is True
-
-        by_rows: bool, default False
-            If True, add rows if there are analyses for multiple conditions.
-            Otherwise, add columns.
-
-        Returns
-        -------
-        pd.DataFrame
-            A DataFrame containing the specified analyses for the genes and columns.
-
         Examples
         --------
         Perform any analysis on the instance.
@@ -1880,6 +1845,42 @@ class GrandPy:
 
         GrandPy.with_analysis
             Add a new analysis to the object. Usually not called directly.
+
+        Parameters
+        ----------
+        analyses: str or int or Sequence[str or int or bool], optional
+            The analyses to be retrieved. Either by name, index, or a boolean mask.
+
+        genes: str or int or Sequence[str or int], optional
+            The genes for which to retrieve the analysis tables. Either by gene symbols, names(Ensembl ids), or indices.
+
+        columns: str, optional
+            A regular expression to match the names of the columns in the analysis tables.
+
+        regex: bool, default True
+            If True, `analyses` will be interpreted as a regular expression.
+
+        with_gene_info: bool, default True
+            If True, the gene_info DataFrame will be concatenated to the result.
+
+        name_genes_by: str, default "Symbol"
+            The name of the column in the gene_info DataFrame to be used as the name of the genes.
+            Usually either 'Symbol'(Symbols) or 'Gene'(Ensembl IDs).
+
+        prefix_by_analyses: bool, default True
+            If True, the columns in the result will be prefixed with the given prefix and the name of the condition.
+            Otherwise, they will only be named after the respective analysis.
+
+            This will automatically be False when `by_rows` is True
+
+        by_rows: bool, default False
+            If True, add rows if there are analyses for multiple conditions.
+            Otherwise, add columns.
+
+        Returns
+        -------
+        pd.DataFrame
+            A DataFrame containing the specified analyses for the genes and columns.
         """
         if by_rows:
             prefix_by_analyses = False
@@ -1899,8 +1900,12 @@ class GrandPy:
             analysis_data = self._anndata.uns["analyses"][name]
 
             if columns is not None:
-                selected_columns = [col for col in analysis_data.columns if re.search(columns, col)]
-                analysis_data = analysis_data[selected_columns]
+                columns = _ensure_list(columns)
+
+                selected_columns = [
+                    col for col in analysis_data.columns
+                    if any(re.search(pattern, col) for pattern in regex_patterns)
+                ]
 
             analysis_data.index = pd.Index(self.gene_info[name_genes_by])
 
@@ -2277,6 +2282,7 @@ class GrandPy:
 
         # return _normalize_rpm(self, genes=genes, name=name, slot=slot, set_to_default=set_to_default, factor=factor)
 
+
     def compute_ntr_ci(self, ci_size: float = 0.95, name_lower: str = "lower", name_upper: str = "upper")-> "GrandPy":
         from .processing import _compute_ntr_ci
 
@@ -2338,7 +2344,7 @@ class GrandPy:
 
     def filter_genes(
         self,
-        mode_slot: Union[str, "ModeSlot"] = None,
+        mode_slot: Union[str, ModeSlot] = None,
         *,
         min_expression: int = 100,
         min_columns: int = None,
@@ -2349,6 +2355,38 @@ class GrandPy:
     ) -> Union["GrandPy", list[int]]:
         """
         Filter genes based on expression/value thresholds.
+
+        Examples
+        --------
+
+        Get the amount of genes in an unfiltered dataset.
+
+        >>> len(sars.genes)
+        19659
+
+        Keep genes with at least 100 counts in at least half the columns(samples).
+
+        >>> filtered = sars.filter_genes()
+        >>> len(filtered.genes)
+        9162
+
+        Keep genes with >1000 counts in both conditions.
+
+        >>> filtered = sars.filter_genes(min_expression=1000, min_condition=2)
+        >>> len(filtered.genes)
+        5611
+
+        Apply the same filter, but force keeping a gene.
+
+        >>> filtered = sars.filter_genes(min_expression=1000, min_condition=2, keep=["ATF3"])
+        >>> len(filtered.genes)
+        5612
+
+        Retrieve the viral genes.
+
+        >>> filtered = sars.filter_genes(use = sars.get_classified_genes("Unknown"))
+        >>> len(filtered.genes)
+        11
 
         Parameters
         ----------
@@ -2364,7 +2402,9 @@ class GrandPy:
             Will be ignored if `min_condition` is provided
 
         min_condition : int, optional
-            Overrides `min_columns` if set.
+            If set, values will not be compared by columns, but by conditions.
+            Meaning all columns belonging to the same condition will be summed up before filtering.
+            `min_columns` will be ignored.
 
         keep : str or int or Sequence[str or int], optional
             Genes to force-keep, regardless of threshold filtering.
@@ -2412,6 +2452,24 @@ class GrandPy:
 
         The `"nlls"` and `"chase"` methods require normalized input.
         The `"ntr"` method is independent of normalization but assumes steady-state kinetics.
+
+        Notes
+        -----
+        This function decides dynamically how many processes to use for `nlls` and `chase`.
+        By default, up to: available CPUs - 1. For more control see the `max_processes` and `exact_processes` parameters.
+
+        See Also
+        --------
+        GrandPy.get_analysis_table
+            Retrieves stored analyses.
+        GrandPy.normalize
+            Normalizes the expression data.
+        plot_gene_progressive_timecourse
+            Plots the kinetic model of a gene.
+        GrandPy.calibrate_effective_labeling_time_kinetic_fit
+            Calibrates the effective labeling time using kinetic models.
+        GrandPy.calibrate_effective_labeling_time_match_halflives
+            Calibrates the effective labeling time using known halflives from genes.
 
         Parameters
         ----------
@@ -2477,24 +2535,6 @@ class GrandPy:
                 - max_iter: Maximum number of optimization iterations, by default 250.
                 - max_processes: The maximum number of processes this function will use. If None or not provided, it will start up to available cores - 1 processes (e.g. 8 cores -> 7 processes)
                 - exact_processes: If True, exactly `max_processes` will be used.
-
-        Notes
-        -----
-        This function decides dynamically how many processes to use for `nlls` and `chase`.
-        By default, up to: available CPUs - 1. For more control see the `max_processes` and `exact_processes` parameters.
-
-        See Also
-        --------
-        :meth:`GrandPy.get_analysis_table`
-            Retrieves stored analyses.
-        :meth:`GrandPy.normalize`
-            Normalizes the expression data.
-        :func:`plot_gene_progressive_timecourse`
-            Plots the kinetic model of a gene.
-        :meth:`GrandPy.calibrate_effective_labeling_time_kinetic_fit`
-            Calibrates the effective labeling time using kinetic models.
-        :meth:`GrandPy.calibrate_effective_labeling_time_match_halflives`
-            Calibrates the effective labeling time using known halflives from genes.
 
         Returns
         -------
@@ -2684,7 +2724,7 @@ class GrandPy:
 
         return _get_summary_matrix(self, no4sU, columns, average)
 
-    def get_contrasts(self, contrast: list = ["Condition"], columns: Union[Sequence[str], str] = None, group: Union[Sequence[str], str] = None, name_format: str = None) -> pd.DataFrame:
+    def get_contrasts(self, contrast: list = "Condition", columns: Union[Sequence[str], str] = None, group: Union[Sequence[str], str] = None, name_format: str = None) -> pd.DataFrame:
         """
         Generate contrast matrix for differential comparisons.
 

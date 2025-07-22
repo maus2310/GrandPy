@@ -909,14 +909,13 @@ def read_grand(prefix, pseudobulk=None, targets=None, **kwargs):
             return read_dense(str(file_path), **kwargs)
 
     except ValueError as e:
-        print(f"ValueError: {e}")
+        raise e
 
     except FileNotFoundError as e:
-        print(f"FileNotFoundError: {e}")
+        raise e
 
     except Exception as e:
-        print(f"Unexpected error: {e}")
-        raise
+        raise e
 
 
 def find_existing_file(path: Path, base_name: str, extensions=(".gz", "", ".tsv", ".tsv.gz")) -> Path:
