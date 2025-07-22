@@ -497,7 +497,7 @@ def pairwise_DESeq2(
             coldata = pd.DataFrame({"comparison": cond_labels})
             counts_df = pd.DataFrame(counts).T
 
-            dds = DeseqDataSet(counts=counts_df, metadata=coldata, design_factors="comparison", ref_level=None)
+            dds = DeseqDataSet(counts=counts_df, metadata=coldata, design_factors="comparison", ref_level=None, quiet=True)
             dds.size_factors = size_factors
             dds.deseq2(fit_type="parametric")
             stats = DeseqStats(dds)
@@ -569,7 +569,7 @@ def pairwise_DESeq2(
     coldata = pd.DataFrame({"comparison": pd.Categorical(condition_vector[valid_samples], categories=[str(i + 1) for i in range(len(groups))])})
     counts_df = pd.DataFrame(counts).T
 
-    dds = DeseqDataSet(counts=counts_df, metadata=coldata, design_factors="comparison", ref_level=None)
+    dds = DeseqDataSet(counts=counts_df, metadata=coldata, design_factors="comparison", ref_level=None, quiet=True)
     dds.size_factors = size_factors
     dds.deseq2(fit_type="parametric")
 

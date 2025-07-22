@@ -3,6 +3,8 @@ import tempfile
 from pathlib import Path
 from grandpy import *
 
+#TODO Es fehlt noch ma und vulcano
+
 TOLERANCE_KB = 10
 FAILED_PLOTS = []
 OUT_OF_RANGE = []

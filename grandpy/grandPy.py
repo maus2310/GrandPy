@@ -1902,9 +1902,9 @@ class GrandPy:
             if columns is not None:
                 columns = _ensure_list(columns)
 
-                selected_columns = [
+                columns = [
                     col for col in analysis_data.columns
-                    if any(re.search(pattern, col) for pattern in regex_patterns)
+                    if any(re.search(pattern, col) for pattern in columns)
                 ]
 
             analysis_data.index = pd.Index(self.gene_info[name_genes_by])

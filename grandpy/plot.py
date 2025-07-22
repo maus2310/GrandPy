@@ -75,7 +75,7 @@ def _apply_outlier_filter(x_vals: np.ndarray, y_vals: np.ndarray, remove_outlier
         Array of x-values.
     y_vals : np.ndarray
         Array of y-values.
-    remove : bool
+    remove_outlier : bool
         Whether to apply outlier filtering. If False, all data points are kept.
 
     Returns
@@ -2257,61 +2257,155 @@ def plot_gene_snapshot_timecourse(
 
 def plot_vulcano(
     data: GrandPy,
-    analyses = None,
+    analyses=None,
     p_cutoff: float = 0.05,
     lfc_cutoff: float = 1,
-    annotate_numbers=False,
-    path_for_save: Optional[str] | Path = None,
+    annotate_numbers: bool = True,
+    x_lim: Optional[tuple[float, float]] = None,
+    y_lim: Optional[tuple[float, float]] = None,
+    remove_outliers: float = 0.0,
+    color_palette: str = "viridis",
+    path_for_save: Union[str, Path, None] = None,
     save_fig_format: str = "svg",
     show_plot: bool = True,
 ):
-#TODO Docstring
+    """
+        Plot a volcano plot of differential expression results from a GrandPy object.
+
+        This function displays log₂ fold changes (LFC) versus –log₁₀ FDR (Q) for one analysis,
+        optionally colors points by 2D density, draws significance cutoffs, and annotates the
+        counts of points in each region (left/middle/right × above/below the FDR threshold).
+
+        Parameters
+        ----------
+        data : GrandPy
+            GrandPy object containing expression data and analysis results.
+        analyses : str or int, optional
+            Name or index of the analysis to plot. Defaults to the first analysis.
+        p_cutoff : float, default=0.05
+            FDR (Q) cutoff for significance. Horizontal line drawn at –log₁₀(p_cutoff).
+        lfc_cutoff : float, default=1
+            Fold‑change cutoff (in log₂ units). Vertical lines at ±lfc_cutoff (or at 0 if zero).
+        annotate_numbers : bool, default=True
+            If True, calculate and draw six labels “n=…” on the plot, one for each region:
+            (left/middle/right) × (above/below) the p_cutoff line.
+        x_lim : tuple[float, float], optional
+            Tuple of (xmin, xmax) to set x‑axis limits.
+        y_lim : tuple[float, float], optional
+            Tuple of (ymin, ymax) to set y‑axis limits.
+        color_palette : str, default="viridis"
+            Density color palette for 2D density.
+        path_for_save : str or Path, optional
+            Directory path where to save the plot. If provided, saves as
+            “Vulcano.{save_fig_format}” in that folder.
+        remove_outliers : float, default=0.0
+            Outlier filter parameter (IQR multiplier). Pass to the internal
+            `_apply_outlier_filter`. A value of 0.0 disables outlier removal.
+        save_fig_format : str, default="svg"
+            File format for saving the figure (e.g., "png", "svg").
+        show_plot : bool, default=True
+            If True, display the figure with `plt.show()`. Otherwise, keep it open.
+
+        See Also
+        --------
+        GrandPy.plots
+         Get the names of all stored plot functions.
+
+        GrandPy.with_plot
+         Add a plot function.
+
+        GrandPy.with_dropped_plots
+         Remove plots matching a regex.
+
+        GrandPy.plot_global
+         Executes a stored global plot function.
+        """
     if analyses is None:
         analyses = data.analyses[0]
-    df = data.get_analysis_table(analyses=analyses, regex=False, columns=["LFC", "Q"], with_gene_info=False)
-    df.columns = [col.split('.')[-1] for col in df.columns]
+
+    df = data.get_analysis_table(
+        analyses=analyses,
+        regex=False,
+        columns=["_LFC", "_Q"],
+        with_gene_info=False
+    )
+    df.columns = [col.split('_')[-1] for col in df.columns]
     df['neg_log10_Q'] = -np.log10(df['Q'])
 
-    x_vals_all = df['LFC'].to_numpy()
-    y_vals_all = df['neg_log10_Q'].to_numpy()
+    x_all = df['LFC'].to_numpy()
+    y_all = df['neg_log10_Q'].to_numpy()
 
-    if np.all(np.isnan(x_vals_all)):
-        raise ValueError(f"Alle LFC Werte sind NaN. Plot nicht möglich.")
-    if np.all(np.isnan(y_vals_all)):
-        raise ValueError(f"Alle Q Werte sind NaN. Plot nicht möglich.")
+    mask_keep, _, _ = _apply_outlier_filter(x_all, y_all, remove_outlier=remove_outliers)
+    x = x_all[mask_keep]
+    y = y_all[mask_keep]
 
-    mask_keep, _, _ = _apply_outlier_filter(x_vals_all, y_vals_all, remove=True)
-    x_vals = x_vals_all[mask_keep]
-    y_vals = y_vals_all[mask_keep]
-
+    fig, ax = plt.subplots(figsize=(10, 6))
     try:
-        density = _density2d(x_vals, y_vals, n=100, margin='n')
+        density = _density2d(x, y, n=100, margin='n')
     except NameError:
         density = None
 
-    fig, ax = plt.subplots(figsize=(10, 6))
-
     if density is not None:
         idx = density.argsort()
-        x_vals, y_vals, density = x_vals[idx], y_vals[idx], density[idx]
-        scatter = ax.scatter(x_vals, y_vals, c=density, s=10, cmap="viridis", alpha=0.7)
-        fig.colorbar(scatter, ax=ax, label="Density")
+        x, y, density = x[idx], y[idx], density[idx]
+        sc = ax.scatter(x, y, c=density, s=10, cmap=color_palette, alpha=1)
+        fig.colorbar(sc, ax=ax, label="Density")
     else:
-        scatter = ax.scatter(x_vals, y_vals, c='blue', s=10, alpha=0.7)
+        ax.scatter(x, y, c='purple', s=10, alpha=0.7)
 
-    ax.axhline(-np.log10(p_cutoff), linestyle='--', color='grey')
+    y_thr = -np.log10(p_cutoff)
+    ax.axhline(y_thr, linestyle='--', color='grey')
     if lfc_cutoff != 0:
-        ax.axvline(lfc_cutoff, linestyle='--', color='grey')
         ax.axvline(-lfc_cutoff, linestyle='--', color='grey')
+        ax.axvline( lfc_cutoff, linestyle='--', color='grey')
     else:
         ax.axvline(0, linestyle='--', color='grey')
 
     ax.set_xlabel(r'$\log_2$ Fold Change (LFC)')
     ax.set_ylabel(r'$-\log_{10}$ FDR (Q)')
     ax.set_title(analyses)
+
+    if x_lim is not None: ax.set_xlim(x_lim)
+    if y_lim is not None: ax.set_ylim(y_lim)
+
+    if annotate_numbers:
+        bins = [-np.inf, -lfc_cutoff, lfc_cutoff, np.inf]
+        grp = np.digitize(x, bins) - 1
+        sig = y > y_thr
+
+        offset = 0.02
+        counts = []
+        for is_sig in (True, False):
+            for g in (0, 1, 2):
+                counts.append(int(np.sum((grp == g) & (sig == is_sig))))
+
+        x_min, x_max = ax.get_xlim()
+        y_min, y_max = ax.get_ylim()
+
+        dx = (x_max - x_min) * offset
+        dy = (y_max - y_min) * offset
+
+        x_centers = [x_min + dx,
+                     (x_min + x_max) / 2,
+                     x_max - dx]
+        x_pos = x_centers + x_centers
+        y_pos = [y_max - dy] * 3 + [y_min + dy] * 3
+
+        ha = ['left', 'center', 'right'] * 2
+        va = ['bottom'] * 3 + ['top'] * 3
+
+        for x0, y0, c, h, v in zip(x_pos, y_pos, counts, ha, va):
+            ax.text(
+                x0, y0, f"n={c}",
+                ha=h, va=v,
+                bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="black", lw=0.5)
+            )
+
     plt.tight_layout()
+
     if path_for_save:
-        fig.savefig(f"{path_for_save}/Vulcano.{save_fig_format}", format=save_fig_format, dpi=300)
+        fig.savefig(f"{path_for_save}/Vulcano.{save_fig_format}",
+                    format=save_fig_format, dpi=300)
     if show_plot:
         plt.show()
         plt.close()
@@ -2650,7 +2744,7 @@ def plot_gene_progressive_timecourse(
     if return_tables:
         print(df)
 
-
+# TODO cheken
 def plot_ma(
     data: GrandPy,
     analysis: Optional[str] = None,
@@ -2712,6 +2806,7 @@ def plot_ma(
         columns=["M", "LFC", "Q"],
         with_gene_info=False
     )
+    df.columns = [col.split('_')[-1] for col in df.columns]
 
     if "Q" not in df.columns:
         df["Q"] = 1.0
@@ -2738,8 +2833,8 @@ def plot_ma(
         ax.axhline(y=0, linestyle="--", color="gray")
 
     if annotate_numbers:
-        up = np.sum((y_vals > lfc_cutoff) & (q_vals < p_cutoff))
-        down = np.sum((y_vals < -lfc_cutoff) & (q_vals < p_cutoff))
+        up = np.sum((x_vals > lfc_cutoff) & (q_vals < p_cutoff))
+        down = np.sum((x_vals < -lfc_cutoff) & (q_vals < p_cutoff))
         ax.annotate(f"n={up}", xy=(x_vals.max(), y_vals.max()), xycoords="data",
                     ha="right", va="top")
         ax.annotate(f"n={down}", xy=(x_vals.max(), y_vals.min()), xycoords="data",
