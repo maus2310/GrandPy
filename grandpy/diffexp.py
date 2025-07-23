@@ -133,7 +133,7 @@ def _compute_lfc(data: "GrandPy",
     # optional: subset genes
     gene_list = data.genes if genes is None else genes
 
-    result = {}
+    new_data = data
 
     for contrast in contrasts.columns:
         if verbose:
@@ -178,11 +178,11 @@ def _compute_lfc(data: "GrandPy",
             if verbose:
                 print(f"M-value for '{contrast}': {M_vals.mean():.2f}")
 
-        # append analysis to result
+        # append analysis to object
         name = f"{name_prefix}_{contrast}"
-        data = data.with_analysis(name, table)
+        new_data = new_data.with_analysis(name, table)
 
-    return data
+    return new_data
 
 
 # TODO: fit_type ...
@@ -263,8 +263,6 @@ def _pairwise_DESeq2(
 
     if separate:
 
-        result = {}
-
         for contrast_name in contrasts.columns:
             if verbose:
                 print(f"Running DESeq2 for contrast '{contrast_name}' (separate=True).")
@@ -317,9 +315,9 @@ def _pairwise_DESeq2(
             analysis_name = f"{mode_slot.mode}_{contrast_readable}" if name_prefix is None else f"{name_prefix}_{contrast_readable}"
             result_df.columns = format_column_names(analysis_name, result_df.columns)
 
-            result.update({analysis_name: result_df})
+            data = data.with_analysis(analysis_name, result_df)
 
-        return result
+        return data
 
     # combined estimation
     group_assignments = {}
@@ -451,7 +449,7 @@ def _pairwise(data: "GrandPy",
     if name_prefix is None:
         name_prefix = mode_slot.mode
 
-    result = _compute_lfc(data,
+    new_gp = _compute_lfc(data,
                        contrasts=valid_contrasts,
                        name_prefix=name_prefix,
                        LFC_fun=LFC_fun,
@@ -461,7 +459,7 @@ def _pairwise(data: "GrandPy",
                        genes=genes,
                        verbose=verbose)
 
-    result = _pairwise_DESeq2(result,
+    new_gp = _pairwise_DESeq2(new_gp,
                            contrasts=valid_contrasts,
                            name_prefix=name_prefix,
                            mode_slot=mode_slot,
@@ -469,7 +467,7 @@ def _pairwise(data: "GrandPy",
                            genes=genes,
                            verbose=verbose)
 
-    return result
+    return new_gp
 
 
 def _get_contrasts(
