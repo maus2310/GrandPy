@@ -3,7 +3,7 @@
 <span style="color:palevioletred"> # Logo - Work in progress</span>
 
 
-Nucleotide conversion sequencing experiments have been developed to add a temporal dimension to RNA-seq and single-cell RNA seq. Such experiments require specialized tools for primary processing such as GRAND-SLAM, and specialized tools for downstream analyses. grandPy provides a comprehensive toolbox for quality control, kinetic modeling, differential gene expression analysis and visualization of such data. It mimics the core functionality of the original package `grandR`[[1]](https://grandr.erhard-lab.de/).
+Nucleotide conversion sequencing experiments have been developed to add a temporal dimension to RNA-seq and single-cell RNA seq. Such experiments require specialized tools for primary processing such as GRAND-SLAM, and specialized tools for downstream analyses. grandPy provides a comprehensive toolbox for quality control, kinetic modeling, differential gene expression analysis and visualization of such data. It mimics the core functionality of the original package `grandR` [[1]](https://grandr.erhard-lab.de/).
 
 ## Installation
 grandPy is <span style="color:red">available</span> from [[PyPi]](...). Install grandPy using the following commands on the Python console:
