@@ -3,15 +3,16 @@ import re
 import warnings
 from collections.abc import Sequence, Mapping
 from typing import Any, Union, Literal, Callable
+from os import PathLike
 import numpy as np
 import pandas as pd
 import anndata as ad
 import scipy.sparse as sp
 
+from .lfc import psi_lfc
 from .slot_tool import SlotTool, ModeSlot
 from .plot_tool import PlotTool, Plot
 from .analysis_tool import AnalysisTool
-from .processing import _filter_genes
 from .utils import _ensure_list, _make_unique, _reindex_by_index_name, _subset_dense_or_sparse
 
 
@@ -154,7 +155,8 @@ class GrandPy:
         return self._dev_replace(anndata = new_adata)
 
 
-    # ----- Replace functions -----
+
+    # ----- basic "mutation" functions -----
     def replace(
             self,
             *,
@@ -199,6 +201,9 @@ class GrandPy:
             Use with caution. GrandPy uses anndata internally. This will replace the whole anndata instance.
             Anndata can be retrieved from the instance via GrandPy.to_anndata().
 
+            If both `anndata` and any of the other parameters are specified, `anndata` will be replaced first,
+            followed by the rest, now in the new instance.
+
         See Also
         --------
         GrandPy.to_anndata: Retrieves the internal anndata instance.
@@ -210,6 +215,8 @@ class GrandPy:
         """
         if anndata is None:
             anndata = self._anndata.copy()
+        else:
+            anndata = anndata.copy()
 
         return self.__class__(
             prefix = prefix if prefix is not None else anndata.uns.get('prefix'),
@@ -234,7 +241,7 @@ class GrandPy:
             anndata: ad.AnnData = None
     ) -> "GrandPy":
         """
-        This function is replace() for internal use.
+        This function is 'replace' for internal use.
 
         This function does not copy provided parameters. Parts can become mutable if not handled correctly!
 
@@ -281,6 +288,45 @@ class GrandPy:
             analyses = analyses if analyses is not None else anndata.uns.get("analyses"),
             plots = plots if plots is not None else anndata.uns.get("plots")
         )
+
+    def copy(self) -> "GrandPy":
+        """
+        Copy the instance.
+
+        Returns
+        -------
+        GrandPy
+            An identical copy of the current instance.
+        """
+        return self.replace()
+
+
+    def write_h5ad(self, path: Union[PathLike[str], str], compression: Literal["gzip", "lzf"] = None) -> None:
+        """
+        Save the instance as a h5ad file.
+
+        Notes
+        -----
+        Stored plot functions can currently not be saved to a file.
+
+        See Also
+        --------
+        read_h5ad: Load a GrandPy instance from a h5ad file.
+
+        Parameters
+        ----------
+        path: PathLike[str] or str
+            The path where the file will be saved.
+
+        compression: Literal["gzip" or "lzf"], optional
+            For ['lzf', 'gzip'], see the h5py :ref:`dataset_compression`.
+        """
+        anndata = self._anndata.copy()
+
+        anndata.uns["plots"] = {}
+
+        anndata.write(path, convert_strings_to_categoricals=False, compression=compression)
+
 
 
     # ----- Basic properties and methods -----
@@ -343,6 +389,7 @@ class GrandPy:
         return self._dev_replace(metadata=new_metadata)
 
 
+
     # ----- All slot methods ------
     @property
     def __slot_tool(self) -> SlotTool:
@@ -367,13 +414,13 @@ class GrandPy:
         """
         return self.__slot_tool.slot_data()
 
-    def __check_slot(self, slot: str, *, allow_ntr: bool = True) -> bool:
+    def __check_slot(self, slot: Union[str, ModeSlot], *, allow_ntr: bool = True) -> bool:
         """
         Checks if a given slot exists in the data slots.
 
         Parameters
         ----------
-        slot: str
+        slot: str or ModeSlot
             The slot to be checked.
 
         allow_ntr: bool, default True
@@ -462,7 +509,7 @@ class GrandPy:
     def with_ntr_slot(self, as_ntr: str, save_ntr_as: str = None) -> "GrandPy":
         """
         Set a different slot as the new 'ntr' slot. If save_ntr_as is not set, the former ntr slot will be removed.
-        The slot 'ntr' will be used for mode_slots and other functions relating to ntr.
+        The slot 'ntr' will be used for `mode_slots` and other functions relating to ntr.
 
         Examples
         --------
@@ -501,6 +548,7 @@ class GrandPy:
         new_slots = self.__slot_tool.with_ntr_slot(as_ntr, save_ntr_as=save_ntr_as)
 
         return self._dev_replace(slots=new_slots)
+
 
 
     # ----- All analysis methods -----
@@ -632,6 +680,7 @@ class GrandPy:
         new_analyses = self.__analysis_tool.drop_analyses(pattern)
 
         return self._dev_replace(analyses=new_analyses)
+
 
 
     # ----- All plot methods -----
@@ -1554,7 +1603,7 @@ class GrandPy:
 
     def get_data(
             self,
-            mode_slots: Union[str, ModeSlot, Sequence[Union[str, ModeSlot]]] = None,
+            mode_slot: Union[str, ModeSlot, Sequence[Union[str, ModeSlot]]] = None,
             genes: Union[str, int, Sequence[Union[str, int]]] = None,
             columns: Union[str, int, Sequence[Union[str, int]]] = None,
             *,
@@ -1568,8 +1617,8 @@ class GrandPy:
 
         Parameters
         ----------
-        mode_slots: str or ModeSlot or Sequence[str or ModeSlot], optional
-            The name of the data slots. If None, uses the default slot.
+        mode_slot: str or ModeSlot or Sequence[str or ModeSlot], optional
+            The name of the data slots to be retrieved. If None, uses the default slot.
 
             A mode("new"|"old"|"total") can be specified in the following formats: ModeSlot('<mode>', '<slot>') or '<mode>_<slot>'
 
@@ -1587,7 +1636,7 @@ class GrandPy:
             Usually either 'Symbol'(Symbols) or 'Gene'(Ensembl IDs).
 
         by_rows: bool, default False
-            If True, add rows if there are multiple genes or mode_slots.
+            If True, add rows if there are multiple `genes` / `mode_slots`.
             Otherwise, add columns.
 
         ntr_nan: bool, default False
@@ -1613,10 +1662,10 @@ class GrandPy:
         coldata = self.coldata
         gene_info = self.gene_info
 
-        if mode_slots is None:
-            mode_slots = self.default_slot
+        if mode_slot is None:
+            mode_slot = self.default_slot
 
-        mode_slots = _ensure_list(mode_slots)
+        mode_slot = _ensure_list(mode_slot)
 
         row_indices = [coldata.index.get_loc(column) for column in self.get_columns(columns)]
         column_indices = self.get_index(genes)
@@ -1627,11 +1676,11 @@ class GrandPy:
         result_df = pd.DataFrame()
 
         if not by_rows:
-            for slot_name in mode_slots:
+            for slot_name in mode_slot:
                 all_data = self.__resolve_mode_slot(slot_name, ntr_nan=ntr_nan).T
                 data_subset = _subset_dense_or_sparse(all_data, row_indices, column_indices)
 
-                if len(mode_slots) > 1:
+                if len(mode_slot) > 1:
                     local_column_names = [f"{name}_{slot_name}" for name in column_names]
                 else:
                     local_column_names = column_names
@@ -1645,7 +1694,7 @@ class GrandPy:
             return result_df
 
         else:
-            for slot_name in mode_slots:
+            for slot_name in mode_slot:
                 all_data = self.__resolve_mode_slot(slot_name, ntr_nan=ntr_nan).T
                 data_subset = _subset_dense_or_sparse(all_data, row_indices, column_indices)
 
@@ -1669,7 +1718,7 @@ class GrandPy:
 
     def get_table(
             self,
-            mode_slots: Union[str, ModeSlot, Sequence[Union[str, ModeSlot]]] = None,
+            mode_slot: Union[str, ModeSlot, Sequence[Union[str, ModeSlot]]] = None,
             genes: Union[str, int, Sequence[Union[str, int]]] = None,
             columns: Union[str, int, Sequence[Union[str, int]]] = None,
             *,
@@ -1699,7 +1748,7 @@ class GrandPy:
 
         Parameters
         ----------
-        mode_slots: str or ModeSlot or Sequence[str or ModeSlot], optional
+        mode_slot: str or ModeSlot or Sequence[str or ModeSlot], optional
             The name of the data slots to be retrieved. If None, uses the default slot.
 
             A mode("new"|"old"|"total") can be specified in the following formats: ModeSlot('<mode>', '<slot>') or '<mode>_<slot>'
@@ -1740,9 +1789,10 @@ class GrandPy:
         gene_info = self.gene_info
         coldata = self.coldata
 
-        if mode_slots is None:
-            mode_slots = self.default_slot
-        mode_slots = _ensure_list(mode_slots)
+        if mode_slot is None:
+            mode_slot = self.default_slot
+
+        mode_slot = _ensure_list(mode_slot)
 
         gene_indices = self.get_index(genes)
         gene_names = gene_info.iloc[gene_indices][name_genes_by].tolist()
@@ -1758,7 +1808,7 @@ class GrandPy:
 
         result_df = pd.DataFrame()
 
-        for slot_name in mode_slots:
+        for slot_name in mode_slot:
             all_data = self.__resolve_mode_slot(slot_name, ntr_nan=ntr_nan)
 
             if summarize is not None:
@@ -1769,7 +1819,7 @@ class GrandPy:
             data_subset = _subset_dense_or_sparse(matrix, row_indices=gene_indices, column_indices=column_indices)
 
             # Column names (add suffix if multiple slots)
-            if len(mode_slots) > 1:
+            if len(mode_slot) > 1:
                 local_colnames = [f"{col}_{slot_name}" for col in column_names]
             else:
                 local_colnames = column_names
@@ -1792,7 +1842,7 @@ class GrandPy:
             self,
             analyses: Union[str, int, Sequence[Union[str, int, bool]]] = None,
             genes: Union[str, int, Sequence[Union[str, int]]] = None,
-            columns: str = None,
+            columns: Union[str, Sequence[str]] = None,
             *,
             regex: bool = True,
             with_gene_info: bool = True,
@@ -1854,8 +1904,8 @@ class GrandPy:
         genes: str or int or Sequence[str or int], optional
             The genes for which to retrieve the analysis tables. Either by gene symbols, names(Ensembl ids), or indices.
 
-        columns: str, optional
-            A regular expression to match the names of the columns in the analysis tables.
+        columns: str or Sequence[str], optional
+            A regular expression or a list of regexes to match the names of the columns in the analysis tables.
 
         regex: bool, default True
             If True, `analyses` will be interpreted as a regular expression.
@@ -2074,6 +2124,7 @@ class GrandPy:
             raise TypeError("`reference` must be a string or a callable.")
 
         return format_ref_output(df["__group__"], group_to_refs, as_dict)
+
 
 
     # ----- Functions on the whole object -----
@@ -2344,7 +2395,7 @@ class GrandPy:
 
     def filter_genes(
         self,
-        mode_slot: Union[str, ModeSlot] = None,
+        mode_slot: Union[str, ModeSlot] = "count",
         *,
         min_expression: int = 100,
         min_columns: int = None,
@@ -2358,15 +2409,14 @@ class GrandPy:
 
         Examples
         --------
-
         Get the amount of genes in an unfiltered dataset.
 
         >>> len(sars.genes)
         19659
 
-        Keep genes with at least 100 counts in at least half the columns(samples).
+        Keep genes with at least 100 counts for at least half the columns(samples) in 'count'. This is the default behavior.
 
-        >>> filtered = sars.filter_genes()
+        >>> filtered = sars.filter_genes(min_expression = 100, min_columns=6, mode_slot = "count")
         >>> len(filtered.genes)
         9162
 
@@ -2390,8 +2440,10 @@ class GrandPy:
 
         Parameters
         ----------
-        mode_slot : str or ModeSlot, optional
-            Which data slot to use.
+        mode_slot: str or ModeSlot, default "count"
+            The name of the data slot used for filtering.
+
+            A mode('new'|'old'|'total') can be specified in the following formats: ModeSlot('<mode>', '<slot>') or '<mode>_<slot>'.
 
         min_expression : Number, default 100
             Minimum value threshold to consider a gene expressed.
@@ -2420,14 +2472,11 @@ class GrandPy:
         -------
         list[str] or GrandPy
         """
-        if mode_slot is None:
-            mode_slot = self.default_slot
-
-        if not self.__check_slot(mode_slot):
-            raise ValueError(f"Slot '{mode_slot}' unknown!")
+        from .processing import _filter_genes
 
         return _filter_genes(self, mode_slot, min_expression=min_expression, min_columns=min_columns,
                              min_condition=min_condition, use=use, keep=keep, return_genes=return_genes)
+
 
 
     # ----- modeling functions -----
@@ -2553,6 +2602,7 @@ class GrandPy:
 
         return new_gp
 
+
     def calibrate_effective_labeling_time_kinetic_fit(
             self,
             slot: str = None,
@@ -2625,68 +2675,7 @@ class GrandPy:
 
         return self.with_coldata(value = new_columns)
 
-    # TODO: Funktion überarbeiten (testen + doc string anpassen)
-    def calibrate_effective_labeling_time_match_halflives(
-            self,
-            reference_halflives: Mapping[str, float] = None,
-            reference_columns=None,
-            slot: str = None,
-            time_labeling = "duration.4sU",
-            time_experiment: str = None,
-            name: str = "calibrated_time",
-            n_top_genes: int = 1000
-    ) -> "GrandPy":
-        """
-        Calibrate effective labeling durations by matching observed RNA half-lives to a reference.
 
-        The NTRs of each sample might be systematically too small or large. This function identifies such systematic
-        deviations and computes labeling durations without systematic deviations.
-
-        Parameters
-        ----------
-        reference_halflives : Mapping[str, float], optional
-            Dictionary of reference half-lives (in hours), keyed by gene names.
-
-        reference_columns : list, array-like, or boolean array
-            The columns (samples) used as steady-state references for expression levels.
-
-        slot : str, optional
-            Name of the data slot (e.g. 'total') from which expression values are taken.
-            If None, uses DefaultSlot(data).
-
-        time_labeling : str or float
-            If a string, it's interpreted as the name of a column in the coldata
-            containing the labeling duration for each sample. If a float, a global labeling duration
-            used for all samples.
-
-        time_experiment : str or None, optional
-            Column name in the coldata indicating experimental time points. Used to compute
-            the time offset (`t0`) between measurement and steady-state reference.
-
-        name : str, default="calibrated_time"
-            Name of the column in coldata where the calibrated labeling durations will be stored.
-
-        n_top_genes : int, default=1000
-            Number of top expressed genes used to calibrate the labeling duration.
-
-        Returns
-        -------
-        data : GrandPy
-            A GrandPy object with a column added in coldata, cotaining the calibrated time.
-
-        Raises
-        ------
-        ValueError
-            If `reference_columns` do not correspond to a unique steady-state condition.
-        """
-        from .modeling import _calibrate_effective_labeling_time_match_halflives
-
-        calibrated_time = _calibrate_effective_labeling_time_match_halflives(
-            self, reference_halflives=reference_halflives, reference_columns=reference_columns, slot=slot,
-            time_labeling=time_labeling, time_experiment=time_experiment, n_top_genes=n_top_genes
-        )
-
-        return self.with_coldata(name= name, value = calibrated_time)
 
     # ----- Differential Expression functions -----
     def get_summary_matrix(
@@ -2724,19 +2713,23 @@ class GrandPy:
 
         return _get_summary_matrix(self, no4sU, columns, average)
 
-    def get_contrasts(self, contrast: list = "Condition", columns: Union[Sequence[bool], bool] = None, group: Union[Sequence[str], str] = None, name_format: str = None, no4sU: bool = False) -> pd.DataFrame:
+
+    def get_contrasts(self, contrast: list = "Condition", columns: Union[Sequence[str], str] = None, group: Union[Sequence[str], str] = None, name_format: str = None) -> pd.DataFrame:
         """
         Generate contrast matrix for differential comparisons.
 
         Parameters
         ----------
-        contrast : Union[Sequence[str], str], optional
+        coldata : pd.DataFrame
+            DataFrame containing sample metadata (e.g., conditions, groups).
+
+        contrast : list[str]
             Defines the contrast logic:
             - [condition_column] → all pairwise contrasts
             - [condition_column, reference_level] → all vs. reference
             - [condition_column, level_A, level_B] → specific comparison A vs B
 
-        columns : Union[Sequence[str], str], optional
+        columns : list[str], optional
             Subset of sample IDs to consider in contrast computation. If None, all samples are used.
 
         group : str, optional
@@ -2758,22 +2751,208 @@ class GrandPy:
         """
         from .diffexp import _get_contrasts
 
-        return _get_contrasts(self, contrast = contrast, columns = columns, group = group, name_format = name_format, no4sU = no4sU)
+        return _get_contrasts(self, contrast = contrast, columns = columns, group = group, name_format = name_format)
+
+
+    def compute_lfc(
+            self,
+            name_prefix: str = None,
+            contrasts: pd.DataFrame = None,
+            mode_slot: Union[str, ModeSlot] = "count",
+            lfc_function: Callable = psi_lfc,
+            normalization: Union[str, Sequence[float]] = None,
+            compute_m: bool = True,
+            genes: Union[str, int, Sequence[Union[str, int, bool]]] = None,
+            verbose: bool = False,
+            **kwargs
+    ) -> "GrandPy":
+        """
+        Estimate log2 fold changes and optional M values for each contrast.
+
+        See Also
+        --------
+        GrandPy.get_analysis_table: Retrieves stored analyses.
+        GrandPy.pairwise: Combined log2 fold change and Wald test differential expression analysis.
+        GrandPy.pairwise_deseq2: Run DESeq2 for each contrast defined in the contrast matrix.
+
+        Parameters
+        ----------
+        name_prefix : str, optional
+            The prefix for the new analysis name; e.g. 'total' or 'new'.
+
+        contrasts : pd.DataFrame, optional
+            Contrast matrix defining comparisons (samples x contrasts; values 1, -1).
+
+        mode_slot: str or ModeSlot, default "count"
+            The name of the data slot to take data from. Usually 'count', optionally with a mode.
+            A mode("new"|"old"|"total") can be specified in the following formats: ModeSlot('<mode>', '<slot>') or '<mode>_<slot>'.
+
+        lfc_function : Callable, default psi_lfc
+            Function to compute the log2 fold changes.
+
+        normalization : str or Sequence[str], optional
+            - If str: name of normalization slot (e.g. "total")
+            - If sequence: size factors per sample.
+
+        compute_m : bool, default True
+            If True, include the "M" column (base mean) for each contrast.
+
+        genes : str or int or Sequence[str or int or bool], optional
+            Restrict computation to this subset of genes. Either by their index, their symbol, their ensemble ID, or a boolean mask.
+
+        verbose : bool, default False
+            If True, status updates will be printed.
+
+        **kwargs
+            Passed to LFC_fun.
+
+        Returns
+        -------
+        GrandPy
+            A GrandPy instance with one analysis per contrast. Each analysis
+            adds two columns named "{prefix}_{contrast}_LFC" and
+            "{prefix}_{contrast}_M".
+        """
+        from .diffexp import _compute_lfc
+
+        new_gp = _compute_lfc(data=self, name_prefix=name_prefix, contrasts=contrasts, mode_slot=mode_slot, lfc_fun=lfc_function,
+                              normalization=normalization, compute_M=compute_m, genes=genes, verbose=verbose, **kwargs)
+
+        return new_gp
+
+    def pairwise_deseq2(
+        self,
+        contrasts: pd.DataFrame,
+        name_prefix: str = None,
+        separate: bool = False,
+        mode_slot: Union[str, ModeSlot] = "count",
+        normalization: Union[str, Sequence[float]] = None,
+        genes: Union[str, int, Sequence[Union[str, int, bool]]] = None,
+        verbose: bool = False
+    ) -> "GrandPy":
+        """
+        Run DESeq2 (via pydeseq2) for each contrast defined in the contrast matrix.
+
+        Notes
+        -----
+        Uses fit_type="mean" for compatibility with pydeseq2.
+        pydeseq2 does not currently support fit_type="local".
+
+        See Also
+        --------
+        GrandPy.get_analysis_table: Retrieves stored analyses.
+        GrandPy.pairwise: Combined log2 fold change and Wald test differential expression analysis.
+        GrandPy.compute_lfc: Estimate log2 fold changes and optional M values for each contrast.
+
+        Parameters
+        ----------
+        contrasts : pd.DataFrame
+            Matrix defining pairwise comparisons (samples x contrasts; 1/-1 values).
+
+        name_prefix : str, optional
+            Prefix for naming the output columns.
+
+        separate : bool, default False
+            If True, run DESeq2 separately for each contrast (two-group comparisons).
+
+        mode_slot: str or ModeSlot, default "count"
+            The name of the data slot to take data from. Usually 'count', optionally with a mode.
+            A mode("new"|"old"|"total") can be specified in the following formats: ModeSlot('<mode>', '<slot>') or '<mode>_<slot>'.
+
+        normalization : str or sequence, optional
+            Either slot name or size factors for normalization.
+
+        genes : str or int or Sequence[str or int or bool], optional
+            Restrict computation to this subset of genes. Either by their index, their symbol, their ensemble ID, or a boolean mask.
+
+        verbose : bool, default False
+            Print progress information.
+
+        Returns
+        -------
+        GrandPy
+            A GrandPy instance containing analysis results.
+        """
+        from .diffexp import _pairwise_DESeq2
+
+        new_gp = _pairwise_DESeq2(data=self, contrasts=contrasts, name_prefix=name_prefix, separate=separate,
+                                       mode_slot=mode_slot, normalization=normalization, genes=genes, verbose=verbose)
+
+        return new_gp
+
+    def pairwise(
+        self,
+        contrasts: pd.DataFrame,
+        name_prefix: str = None,
+        lfc_function: Callable = psi_lfc,
+        mode_slot: Union[str, ModeSlot] = "count",
+        normalization: Union[str, Sequence[float]] = None,
+        genes: Union[str, int, Sequence[Union[str, int, bool]]] = None,
+        verbose: bool = False
+        ) -> "GrandPy":
+        """
+        Combined log2 fold change and Wald test differential expression analysis.
+        This function performs both the LFC computation (via compute_lfc) and DESeq2 testing
+        (via pairwise_DESeq2). Only valid contrasts with both -1 and 1 are used.
+
+        See Also
+        --------
+        GrandPy.get_analysis_table: Retrieves stored analyses.
+        GrandPy.compute_lfc: Estimate log2 fold changes and optional M values for each contrast.
+        GrandPy.pairwise_deseq2: Run DESeq2 for each contrast defined in the contrast matrix.
+
+        Parameters
+        ----------
+        data : GrandPy
+            The grandPy object containing expression data and metadata.
+
+        contrasts : pd.DataFrame
+            Contrast matrix defining comparisons (samples x contrasts; values 1, -1).
+
+        name_prefix : str, optional
+            Prefix for naming the output analysis tables.
+
+        lfc_function : Callable, default psi_lfc
+            Function to compute the log2 fold changes. Implemented: psi_lfc, norm_lfc
+
+        mode_slot: str or ModeSlot, default "count"
+            The name of the data slot to take data from. Usually 'count', optionally with a mode.
+            A mode("new"|"old"|"total") can be specified in the following formats: ModeSlot('<mode>', '<slot>') or '<mode>_<slot>'.
+
+        normalization : str or sequence, optional
+            Normalization strategy; name of slot or numeric vector.
+
+        genes : str or int or Sequence[str or int or bool], optional
+            Restrict computation to this subset of genes. Either by their index, their symbol, their ensemble ID, or a boolean mask.
+
+        verbose : bool, default False
+            Whether to print progress messages.
+
+        Returns
+        -------
+        GrandPy
+            A GrandPy instance with analysis results.
+        """
+        from .diffexp import _pairwise
+
+        new_gp = _pairwise(data=self, contrasts=contrasts, name_prefix=name_prefix, LFC_fun=lfc_function,
+                           mode_slot=mode_slot, normalization=normalization, genes=genes, verbose=verbose)
+
+        return new_gp
 
 
 
 
-
-def anndata_to_grandpy(anndata: ad.AnnData, transpose: bool = True) -> "GrandPy":
+def anndata_to_grandpy(anndata: ad.AnnData, transpose: bool = True) -> GrandPy:
         """
         Create a GrandPy instance from an AnnData instance.
 
         Parameters
         ----------
-        anndata:
+        anndata: ad.AnnData
             The AnnData to convert.
 
-        transpose:
+        transpose: bool, default True
             If True, all Matrizes in the AnnData are transposed. (see Notes)
             Otherwise, they remain in their original form.
 
@@ -2810,3 +2989,36 @@ def anndata_to_grandpy(anndata: ad.AnnData, transpose: bool = True) -> "GrandPy"
             analyses=adata.uns.get("analyses", None),
             plots=adata.uns.get("plots", None),
         )
+
+def read_h5ad(path: Union[PathLike[str], str]) -> GrandPy:
+    """
+    Construct a GrandPy instance from a file.
+
+    Notes
+    -----
+    Stored plot function can currently not be saved to a file.
+
+    See Also
+    --------
+    GrandPy.write_h5ad: Write a GrandPy instance to a file.
+
+    Parameters
+    ----------
+    path: PathLike[str] or str
+        The path to the file.
+
+    Returns
+    -------
+    GrandPy
+        A GrandPy instance loaded from the file.
+    """
+    anndata = ad.read_h5ad(path)
+
+    anndata.uns["plots"] = {}
+
+    return anndata_to_grandpy(anndata, transpose = False)
+
+
+
+
+

@@ -9,7 +9,7 @@ from typing import Union, Iterable, Callable, Literal, TYPE_CHECKING
 if TYPE_CHECKING:
     from grandpy import GrandPy
 
-# Public utility functions
+# --- Public utility functions ---
 def concat(
         objects: Sequence["GrandPy"],
         *,
@@ -66,7 +66,8 @@ def concat(
     return objects[0]._dev_replace(anndata=new_adata)
 
 
-# Private utility functions
+
+# --- Private utility functions ---
 def _to_sparse(matrix: Union[pd.DataFrame, np.ndarray, sp.csr_matrix]) -> sp.csr_matrix:
     """
     Convert the given matrix to a csr_matrix.

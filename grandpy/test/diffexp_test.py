@@ -1,11 +1,13 @@
 import pytest
+import numpy as np
+import pandas as pd
 
 from mpmath import polygamma
-from grandpy.diffexp import *
-from grandpy import read_grand
+from grandpy.lfc import psi_lfc, norm_lfc, empirical_bayes_prior, center_median
+import grandpy as gp
 
 def test_filter_genes():
-    sars = read_grand("../data/sars.tsv", design=("Condition", "dur.4sU", "Replicate"))
+    sars = gp.read_grand("../data/sars.tsv", design=("Condition", "dur.4sU", "Replicate"))
 
     # --- Default behaviour ---
     filtered_default = sars.filter_genes()
@@ -85,7 +87,7 @@ def test_psi_lfc_with_ci_output():
     """Psi_LFC mit credible intervals liefert Tuple (lfc_array, ci_matrix) ohne Fehler und konsistentes CI-Layout."""
     A6 = np.random.normal(loc=50, scale=5, size=200)
     B6 = np.random.normal(loc=50, scale=5, size=200)
-    lfc, ci = Psi_LFC(A6, B6, cre=True)
+    lfc, ci = psi_lfc(A6, B6, cre=True)
     assert isinstance(lfc, np.ndarray)
     assert isinstance(ci, np.ndarray)
     assert lfc.shape == A6.shape
@@ -125,7 +127,7 @@ def test_psi_lfc_no_ci_output():
     """Psi_LFC ohne credible intervals liefert numpy-Array der richtigen Länge und Median nahe 0."""
     A5 = np.random.normal(loc=50, scale=5, size=100)
     B5 = np.random.normal(loc=50, scale=5, size=100)
-    lfc = Psi_LFC(A5, B5, cre=False)
+    lfc = psi_lfc(A5, B5, cre=False)
     assert isinstance(lfc, np.ndarray)
     assert lfc.shape == A5.shape
     assert np.isclose(np.median(lfc), 0.0, atol=1e-6)
@@ -134,7 +136,7 @@ def test_psi_lfc_zero_input():
     """Bei identischen Bedingungen ist LFC-Vektor praktisch Null."""
     A7 = np.full(10, 100.0)
     B7 = np.full(10, 100.0)
-    lfc = Psi_LFC(A7, B7, cre=False)
+    lfc = psi_lfc(A7, B7, cre=False)
     assert np.allclose(lfc, np.zeros(10), atol=1e-6)
     assert np.allclose(lfc, 0.0, atol=1e-6)
     assert np.allclose(lfc, 0.0, atol=1e-6)
@@ -156,11 +158,11 @@ if __name__ == "__main__":
     print(lfc_values)
 
     # PsiLFC(rnorm(1000, 200), rnorm(1000, 100))
-    lfc_centered = Psi_LFC(A, B, cre=False, verbose=True)
+    lfc_centered = psi_lfc(A, B, cre=False, verbose=True)
     print("Shrunk, median-centered LFC:")
     print(lfc_centered[:10])  # ersten 10 Werte
     # with CI
-    lfc_ci, qlfc = Psi_LFC(A, B, cre=True, verbose=False)
+    lfc_ci, qlfc = psi_lfc(A, B, cre=True, verbose=False)
     print("LFC with 95% credible intervals (first 10 genes):")
     for i in range(10):
         print(f"Gene{i + 1}: LFC={lfc_ci[i]:.3f}, CI=({qlfc[i, 0]:.3f}, {qlfc[i, 1]:.3f})")
@@ -178,7 +180,7 @@ if __name__ == "__main__":
     pd.set_option('display.max_columns', None)
     pd.set_option('display.width', 0)
 
-    sars = read_grand("data/sars_R.tsv", design=("Condition", "dur.4sU", "Replicate"))
+    sars = gp.read_grand("data/sars_R.tsv", design=("Condition", "dur.4sU", "Replicate"))
 
     # subset:
     mask = sars.coldata["duration.4sU"] == 2
@@ -186,8 +188,8 @@ if __name__ == "__main__":
 
     contrasts = sars.get_contrasts(contrast=["Condition", "Mock"])
 
-    sars = compute_lfc(data=sars, mode="total", contrasts=contrasts)
-    sars = compute_lfc(data=sars, mode="new", normalization="total", contrasts=contrasts,
+    sars = sars.compute_lfc(mode_slot="count", contrasts=contrasts)
+    sars = sars.compute_lfc(mode_slot="new_count", normalization="total", contrasts=contrasts,
                        LFC_fun=norm_lfc)
 
     result = sars.get_analysis_table(with_gene_info=True)
@@ -201,7 +203,7 @@ if __name__ == "__main__":
     # ' sars<-PairwiseDESeq2(sars,mode="new",normalization="total", contrasts=GetContrasts(sars,contrast=c("Condition","Mock")))
     # ' head(GetAnalysisTable(sars,column="Q"))
 
-    sars = read_grand("data/sars_R.tsv", design=("Condition", "dur.4sU", "Replicate"))
+    sars = gp.read_grand("data/sars_R.tsv", design=("Condition", "dur.4sU", "Replicate"))
 
     mask = sars.coldata["duration.4sU"] == 2
     sars = sars[:, mask]
@@ -209,8 +211,8 @@ if __name__ == "__main__":
 
     contrasts = sars.get_contrasts(contrast=("Condition", "Mock"))
 
-    sars = pairwise_DESeq2(sars, mode="total", contrasts=contrasts, name_prefix="total")
-    sars = pairwise_DESeq2(sars, mode="new", normalization="total", contrasts=contrasts, name_prefix="new")
+    sars = sars.pairwise_DESeq2(mode_slot="count", contrasts=contrasts, name_prefix="total")
+    sars = sars.pairwise_DESeq2(mode_slot="new_count", normalization="total", contrasts=contrasts, name_prefix="new")
 
     df = sars.get_analysis_table(columns="Q", with_gene_info=True)
     print(df)

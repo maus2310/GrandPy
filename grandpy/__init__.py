@@ -1,4 +1,5 @@
 from .grandPy import GrandPy
+from .grandPy import anndata_to_grandpy, read_h5ad
 from .load import read_grand
 from .plot import (
     plot_scatter,
@@ -22,6 +23,8 @@ from .plot_tool import Plot
 
 __all__ = [
     "GrandPy",
+    "anndata_to_grandpy",
+    "read_h5ad",
     "read_grand",
     "plot_scatter",
     "plot_heatmap",

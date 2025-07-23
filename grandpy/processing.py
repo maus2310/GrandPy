@@ -207,7 +207,7 @@ def _compute_steady_state_half_lives(
     if isinstance(time, str):
         time = data.coldata[time]
 
-    ntrs = data.get_table(mode_slots="ntr", name_genes_by="Symbol")
+    ntrs = data.get_table(mode_slot="ntr", name_genes_by="Symbol")
 
     if np.isscalar(time):
         time = pd.Series([time] * ntrs.shape[1], index=ntrs.columns)
@@ -237,8 +237,8 @@ def _compute_steady_state_half_lives(
         if needs_lower or needs_upper:
             data = data.compute_ntr_ci(ci_size=ci_size)
 
-        lower = data.get_table(mode_slots="lower", name_genes_by="Symbol")
-        upper = data.get_table(mode_slots="upper", name_genes_by="Symbol")
+        lower = data.get_table(mode_slot="lower", name_genes_by="Symbol")
+        upper = data.get_table(mode_slot="upper", name_genes_by="Symbol")
 
         frames = []
         for col in selected_columns:
@@ -269,7 +269,7 @@ def _compute_steady_state_half_lives(
 
 def _filter_genes(
     data: "GrandPy",
-    mode_slot: Union[str, "ModeSlot"] = None,
+    mode_slot: Union[str, "ModeSlot"] = "count",
     min_expression: int = 100,
     min_columns: int = None,
     min_condition: int = None,
@@ -287,7 +287,7 @@ def _filter_genes(
             aggregation_matrix = data.get_summary_matrix(no4sU=True, average=False)
             min_columns = min_condition
 
-        matrix = data.get_table(mode_slots=mode_slot, summarize=aggregation_matrix)
+        matrix = data.get_table(mode_slot=mode_slot, summarize=aggregation_matrix)
 
         if min_columns is None:
             min_columns = min_condition if min_condition is not None else matrix.shape[1] / 2

@@ -9,12 +9,30 @@ from typing import Literal, Union, Any
 
 class ModeSlot:
     """
-    Used to store a mode slot.
+    Represents a mode slot.
 
     Modes can either be 'new', 'old' or 'total'.
 
     For new the data slot value is multiplied by ntr.
     For old the data slot value is multiplied by 1-ntr.
+
+    Examples
+    --------
+    Create a ModeSlot object containing counts.
+
+    >>> t_count = ModeSlot("total", "count")
+    >>> t_count
+    "total_count"
+
+    Now with new counts, meaning the counts are multiplied by ntr.
+
+    >>> n_count = ModeSlot("new", "count")
+    >>> n_count
+    "new_count"
+
+    These objects can be used in all methods requiring a `mode_slot`.
+
+    >>> gp.plot_scatter(data = ..., mode_slot = n_count)
 
     Parameters
     ----------
@@ -41,7 +59,6 @@ class ModeSlot:
             self.mode = "total"
         else:
             raise ValueError(f"Invalid mode: {mode}. Can either be 'new', 'old' or 'total'.")
-
 
 def _parse_as_mode_slot(mode_slot: Union[str, ModeSlot]) -> ModeSlot:
     """

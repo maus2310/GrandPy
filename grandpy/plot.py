@@ -778,7 +778,7 @@ def plot_scatter(
     if _is_sparse_matrix(raw_matrix) or analysis:
         df = data.get_analysis_table(genes=genes, with_gene_info=False)
     else:
-        df = data.get_table(mode_slots=mode_slot, genes=genes)
+        df = data.get_table(mode_slot=mode_slot, genes=genes)
 
     if filter is not None:
         if isinstance(filter, (tuple, slice)):
@@ -1057,7 +1057,7 @@ def plot_heatmap(
         if len(mode_slots) > 1 and x_labels is not None:
             raise ValueError("Cannot use 'xlabels' with multiple slots")
 
-        table = data.get_table(mode_slots=mode_slot, genes=genes, columns=selected_columns, summarize=summarize)
+        table = data.get_table(mode_slot=mode_slot, genes=genes, columns=selected_columns, summarize=summarize)
     else:
         table = data.get_analysis_table(genes=genes)
         table = table[selected_columns]
@@ -1214,7 +1214,7 @@ def plot_pca(
     else:
         selected_columns = data.get_columns(columns)
 
-    mat = data.get_table(mode_slots=mode_slot, columns=selected_columns)
+    mat = data.get_table(mode_slot=mode_slot, columns=selected_columns)
     coldata = data.coldata.loc[selected_columns]
 
     mat = mat.loc[:, mat.notna().any(axis=0)]
@@ -1332,7 +1332,7 @@ def plot_gene_old_vs_new(
     else:
         selected_columns = data.get_columns(columns)
 
-    plot_df = data.get_data(mode_slots=[ModeSlot("old", slot), ModeSlot("new", slot)], genes=gene, columns=selected_columns, with_coldata=True)
+    plot_df = data.get_data(mode_slot=[ModeSlot("old", slot), ModeSlot("new", slot)], genes=gene, columns=selected_columns, with_coldata=True)
 
     new_names = {plot_df.columns[-2]: "old", plot_df.columns[-1]: "new"}
     plot_df = plot_df.rename(columns=new_names)
@@ -1361,9 +1361,9 @@ def plot_gene_old_vs_new(
         if "lower" not in data.slots or "upper" not in data.slots:
             raise ValueError("CI slots ('lower' and 'upper') are missing. Run compute_ntr_ci() first.")
 
-        ci_lower = data.get_data(mode_slots="lower", genes=gene, columns=selected_columns, with_coldata=False)
-        ci_upper = data.get_data(mode_slots="upper", genes=gene, columns=selected_columns, with_coldata=False)
-        total = data.get_data(mode_slots=slot, genes=gene, columns=selected_columns, with_coldata=False)
+        ci_lower = data.get_data(mode_slot="lower", genes=gene, columns=selected_columns, with_coldata=False)
+        ci_upper = data.get_data(mode_slot="upper", genes=gene, columns=selected_columns, with_coldata=False)
+        total = data.get_data(mode_slot=slot, genes=gene, columns=selected_columns, with_coldata=False)
 
         plot_df["ci_lower"] = ci_lower
         plot_df["ci_upper"] = ci_upper
@@ -1517,7 +1517,7 @@ def plot_gene_total_vs_ntr(
 
     coldata = data.coldata.loc[selected_columns]
 
-    plot_df = data.get_data(mode_slots=[slot, "ntr"], genes=gene, columns=selected_columns, with_coldata=True)
+    plot_df = data.get_data(mode_slot=[slot, "ntr"], genes=gene, columns=selected_columns, with_coldata=True)
 
     new_names = {plot_df.columns[-2]: "total", plot_df.columns[-1]: "ntr"}
     plot_df = plot_df.rename(columns=new_names)
@@ -1554,8 +1554,8 @@ def plot_gene_total_vs_ntr(
         if "lower" not in data.slots or "upper" not in data.slots:
             raise ValueError("CI slots ('lower' and 'upper') are missing. Run compute_ntr_ci() first.")
 
-        ci_lower = data.get_data(mode_slots="lower", genes=gene, columns=selected_columns, with_coldata=False)
-        ci_upper = data.get_data(mode_slots="upper", genes=gene, columns=selected_columns, with_coldata=False)
+        ci_lower = data.get_data(mode_slot="lower", genes=gene, columns=selected_columns, with_coldata=False)
+        ci_upper = data.get_data(mode_slot="upper", genes=gene, columns=selected_columns, with_coldata=False)
 
         plot_ci = plot_df.assign(ci_lower=ci_lower, ci_upper=ci_upper)
 
@@ -1710,12 +1710,12 @@ def plot_gene_groups_points(
         selected_columns = data.get_columns(columns)
 
     if slot == "ntr":
-        plot_df = data.get_data(mode_slots="ntr", genes=gene, columns=selected_columns, with_coldata=True)
+        plot_df = data.get_data(mode_slot="ntr", genes=gene, columns=selected_columns, with_coldata=True)
         plot_df["ntr"] = plot_df[gene]
         plot_df["value"] = plot_df[gene]
         log = False
     else:
-        plot_df = data.get_data(mode_slots=[slot, "ntr"], genes=gene, columns=selected_columns, with_coldata=True)
+        plot_df = data.get_data(mode_slot=[slot, "ntr"], genes=gene, columns=selected_columns, with_coldata=True)
         new_names = {plot_df.columns[-2]: "slot_val", plot_df.columns[-1]: "ntr"}
         plot_df = plot_df.rename(columns=new_names)
 
@@ -1778,8 +1778,8 @@ def plot_gene_groups_points(
         if "lower" not in data.slots or "upper" not in data.slots:
             raise ValueError("CI slots ('lower' and 'upper') are missing. Run compute_ntr_ci() first.")
 
-        ci_lower = data.get_data(mode_slots="lower", genes=gene, columns=selected_columns, with_coldata=False)
-        ci_upper = data.get_data(mode_slots="upper", genes=gene, columns=selected_columns, with_coldata=False)
+        ci_lower = data.get_data(mode_slot="lower", genes=gene, columns=selected_columns, with_coldata=False)
+        ci_upper = data.get_data(mode_slot="upper", genes=gene, columns=selected_columns, with_coldata=False)
 
         plot_df = plot_df.assign(lower=ci_lower, upper=ci_upper)
 
@@ -1932,7 +1932,7 @@ def plot_gene_groups_bars(
     else:
         xlabels = coldata["Name"].tolist()
 
-    plot_df = data.get_data(mode_slots=[mode_slot_old, mode_slot_new], genes=gene, columns=selected_columns)
+    plot_df = data.get_data(mode_slot=[mode_slot_old, mode_slot_new], genes=gene, columns=selected_columns)
 
     new_names = {plot_df.columns[-2]: "old", plot_df.columns[-1]: "new"}
     plot_df = plot_df.rename(columns=new_names)
@@ -2087,7 +2087,7 @@ def plot_gene_snapshot_timecourse(
     else:
         selected_columns = data.get_columns(columns)
 
-    df = data.get_data(mode_slots=mode_slot, genes=gene, columns=selected_columns, with_coldata=True, ntr_nan=False)
+    df = data.get_data(mode_slot=mode_slot, genes=gene, columns=selected_columns, with_coldata=True, ntr_nan=False)
 
     if time not in df.columns:
         raise ValueError(f"Column '{time}' not found in coldata!")

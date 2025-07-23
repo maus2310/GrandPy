@@ -1,20 +1,13 @@
-import warnings
-from itertools import combinations
-
 import numpy as np
 import pandas as pd
 
-from typing import Union, TYPE_CHECKING, Optional, Callable, Sequence, List
-
+from typing import Union, TYPE_CHECKING,Callable, Sequence
+from itertools import combinations
 from pydeseq2.preprocessing import deseq2_norm
 
-from grandpy.utils import _ensure_list
-from grandpy.grandPy import GrandPy
-from grandpy.slot_tool import ModeSlot
-
-from scipy.special import digamma, polygamma
-from scipy.stats import norm, beta, gmean
-from scipy.optimize import minimize, root_scalar
+from .lfc import psi_lfc, center_median
+from .utils import _ensure_list
+from .slot_tool import ModeSlot, _parse_as_mode_slot
 
 try:
     from pydeseq2.ds import DeseqDataSet, DeseqStats
@@ -22,7 +15,7 @@ except ImportError:
     DeseqDataSet = DeseqStats = None
 
 if TYPE_CHECKING:
-    from grandpy.grandPy import GrandPy
+    from .grandPy import GrandPy
 
 def _get_summary_matrix(
         data: "GrandPy",
@@ -72,207 +65,17 @@ def _get_summary_matrix(
     return matrix
 
 
-def empirical_bayes_prior(A: np.ndarray, B: np.ndarray, min_sd: float = 0.0) -> tuple[float, float]:
-    """
-    Estimates Empirical Bayes prior parameters (a, b) for LFC shrinkage.
 
-    Parameters
-    ----------
-    A : np.ndarray
-        Vector A of counts from condition A.
-
-    B : np.ndarray
-        Vector B of counts from condition B.
-
-    min_sd : float
-        Minimal standard deviation of the prior (see also Psi_LFC-function below).
-
-    Returns
-    -------
-    a, b : float
-        Estimated prior pseudocounts for A and B, respectively.
-    """
-
-    mask = (A > 0) | (B > 0)
-    A0, B0 = A[mask], B[mask]
-
-    diff = np.log(A0) - np.log(B0)
-    x = np.median(diff)
-    q_up = np.quantile(diff, norm.cdf(1))
-    q_low = np.quantile(diff, norm.cdf(-1))
-    y = max((q_up - x)**2, (-q_low + x)**2)
-
-    if np.isinf(x) or np.isinf(y):
-        A1, B1 = A + 1, B + 1
-        diff1 = np.log(A1) - np.log(B1)
-        x = np.mean(diff1)
-        y = np.var(diff1)
-
-    def obj(v):
-        return (digamma(v[0]) - digamma(v[1]) - x)**2 + (polygamma(1, v[0]) + polygamma(1, v[1]) - y)**2
-
-    result = minimize(obj, x0=[1.0, 1.0], method="Nelder-Mead")
-    a, b = result.x
-
-    sd = np.sqrt((polygamma(1, a) + polygamma(1, b)) / (np.log(2)**2))
-    if sd < min_sd:
-
-        def f_fun(f):
-            return np.sqrt((polygamma(1, f*a) + polygamma(1, f*b)) / (np.log(2)**2)) - min_sd
-
-        interval = 1.0 / (a + b)
-        root = root_scalar(f_fun, bracket=[interval, 1.0])
-
-        if not root.converged:
-            raise RuntimeError("Could not inflate prior SD to min_sd.")
-
-        else:
-            f = root.root
-            warnings.warn(f"Inflated prior by a factor of {1 / f:.2f}", RuntimeWarning)
-
-        a *= f
-        b *= f
-
-    return a, b
-
-
-def center_median(l: np.ndarray) -> np.ndarray:
-    """
-    Subtracts the median of the given vector (for normalizing log2 fold changes).
-
-    Parameters
-    ----------
-    l : np.ndarray
-        Vector of effect sizes (see also Psi_LFC-function below).
-
-    Returns
-    -------
-    np.ndarray
-        Normalized vector of the same shape as the input, where each element is shifted
-        by substracting the median of l.
-    """
-
-    return l - np.nanmedian(l)
-
-
-def norm_lfc(A: np.ndarray,
-            B: np.ndarray,
-            pseudo: tuple[float, float] = (1.0, 1.0),
-            normalize_fun: Callable[[np.ndarray], np.ndarray] = center_median
-             ) -> np.ndarray:
-
-    """
-    Computes the standard, normalized log2 fold change with given pseudocounts.
-
-    Parameters
-    ----------
-    A : np.ndarray
-        Vector A of counts from condition A.
-    B : np.ndarray
-        Vector B of counts from condition B.
-    pseudo : tuple[float, float]
-        Vector of length 2 of the pseudo counts.
-    normalize_fun : Callable[[np.ndarray], np.ndarray]
-        Function to normalize the obtained effect sizes.
-
-    Returns
-    -------
-        Normalized LFCs.
-
-    """
-
-    lfc = np.log2(A + pseudo[0]) - np.log2(B + pseudo[1])
-
-    return normalize_fun(lfc)
-
-
-def Psi_LFC(A: np.ndarray,
-            B: np.ndarray,
-            prior: Optional[tuple[float, float] | None] = None,
-            normalize_fun: Callable[[np.ndarray], np.ndarray] = center_median,
-            cre: Union[bool, list[float]] = False,
-            verbose: bool = False) -> Union[np.ndarray, tuple[np.ndarray, np.ndarray]]:
-
-    """
-    Computes the optimal effect size estimate and credible intervals if needed.
-
-    Parameters
-    ----------
-    A : np.ndarray
-        Vector A of counts from condition A.
-
-    B : np.ndarray
-        Vector B of counts from condition B.
-
-    prior : tuple[float, float] | None
-        Prior pseudocounts (a, b). If None, estimated via empirical_bayes_prior(A, B).
-
-    normalize_fun : callable, optional
-        Function to normalize raw LFCs (default: median centering).
-
-    cre : bool
-        Compute credible intervals.
-
-    verbose : bool
-        If True status updates will be provided.
-
-    Returns
-    -------
-    lfc_centered : np.ndarray
-        Shrunk, median‑centered log2 fold‑changes (length = #genes).
-
-    qlfc : np.ndarray, optional
-        Credible interval matrix (genes x len(cre)); only if cre is not False.
-    """
-
-    if prior is None:
-        a, b = empirical_bayes_prior(A, B)
-    else:
-        a, b = prior
-
-    if verbose:
-        print(f"Using prior pseudocounts: a={a:.2f}, b={b:.2f}")
-
-    lfc = (digamma(A + a) - digamma(B + b)) / np.log(2)
-
-    lfc_centered = normalize_fun(lfc)
-
-    if verbose:
-        med_before = np.nanmedian(lfc)
-        med_after = np.nanmedian(lfc_centered)
-        print(f"Median before/after normalizing: {med_before:.4f} -> {med_after:.4f}")
-
-
-    if cre is True:
-        cre = [0.05, 0.95]
-
-    if cre is not False:
-        qs = cre if isinstance(cre, list) else [cre]
-        a_posterior = A + a
-        b_posterior = B + b
-
-        proportion_q = np.vstack([beta.ppf(q, a_posterior, b_posterior) for q in qs]).T
-
-        raw_qlfc = np.log2(proportion_q / (1.0 - proportion_q))
-
-        ci_centered = normalize_fun(raw_qlfc)
-
-        return lfc_centered, ci_centered
-
-    return lfc_centered
-
-
-def compute_lfc(data: GrandPy,
-                name_prefix: Optional[str] = None,
-                contrasts: Optional[pd.DataFrame] = None,
-                slot: str = "count",
-                LFC_fun: Callable = Psi_LFC,
-                mode: str = "total",
-                normalization: Optional[Union[str, Sequence[float]]] = None,
-                compute_M: bool = True,
-                genes: Optional[list[str]] = None,
-                verbose: bool = False,
-                **kwargs) -> GrandPy:
+def _compute_lfc(data: "GrandPy",
+                 name_prefix: str = None,
+                 contrasts: pd.DataFrame = None,
+                 mode_slot: Union[str, ModeSlot] = "count",
+                 LFC_fun: Callable = psi_lfc,
+                 normalization: Union[str, Sequence[float]] = None,
+                 compute_M: bool = True,
+                 genes: Union[str, int, Sequence[Union[str, int, bool]]] = None,
+                 verbose: bool = False,
+                 **kwargs) -> "GrandPy":
     """
     Estimate log2 fold changes and optional M values for each contrast and store analyses.
 
@@ -280,39 +83,38 @@ def compute_lfc(data: GrandPy,
     ----------
     data : GrandPy
         The grandPy object. Must contain a 'Condition' column in its coldata.
-    name_prefix : str
+    name_prefix : str, optional
         The prefix for the new analysis name; e.g. 'total' or 'new'.
     contrasts : pd.DataFrame, optional
         Contrast matrix defining comparisons (samples x contrasts; values 1, -1).
-    slot : str
-        The slot of the grandPy object to take the data from (e.g. "count").
-    LFC_fun : function
-        Function to compute the log2 fold changes (default Psi_LFC).
-    mode : str
-        Computes LFCs for "total", "new", or "old" RNA.
+    mode_slot: str or ModeSlot, default "count"
+        The name of the data slot to take data from. Usually 'count', optionally with a mode.
+        A mode("new"|"old"|"total") can be specified in the following formats: ModeSlot('<mode>', '<slot>') or '<mode>_<slot>'.
+    LFC_fun : Callable, default psi_lfc
+        Function to compute the log2 fold changes.
     normalization : str or sequence, optional
         If str: name of normalization slot (e.g. "total");
         if sequence: size factors per sample.
     compute_M : bool, default True
         If True, include the "M" column (base mean) for each contrast.
-    genes : list of str, optional
-        Restrict analysis to these genes; None means all genes.
-    verbose : bool
-        If True, status updates will be printed.
+    genes : str or int or Sequence[str or int or bool], optional
+        Restrict computation to this subset of genes. Either by their index, their symbol, their ensemble ID, or a boolean mask.
+    verbose : bool, default False
+        If True, status updates are printed.
     **kwargs
         Passed to LFC_fun.
 
     Returns
     -------
     GrandPy
-        New GrandPy object with one analysis per contrast. Each analysis
-        adds two columns named "{prefix}_{contrast}_LFC" and
+        A GrandPy instance containg an analysis for each contrast. Each analysis
+        has two columns named "{prefix}_{contrast}_LFC" and
         "{prefix}_{contrast}_M".
-
     """
+    mode_slot_obj = _parse_as_mode_slot(mode_slot)
 
     if name_prefix is None:
-        name_prefix = mode
+        name_prefix = mode_slot_obj.mode
 
     # prepare contrasts
     if contrasts is None:
@@ -326,16 +128,12 @@ def compute_lfc(data: GrandPy,
         raise ValueError("Contrasts do not define any comparison!")
 
     # retrieve raw expression matrix
-    mode_slot_obj = ModeSlot(mode, slot)
-    try:
-        raw_mat = data.get_matrix(mode_slot=str(mode_slot_obj))
-    except Exception:
-        raise ValueError(f"Invalid mode slot: '{mode_slot_obj}'")
+    raw_mat = data.get_matrix(mode_slot=mode_slot_obj)
 
     # optional: subset genes
     gene_list = data.genes if genes is None else genes
 
-    new_data = data
+    result = {}
 
     for contrast in contrasts.columns:
         if verbose:
@@ -355,7 +153,7 @@ def compute_lfc(data: GrandPy,
             shift = np.log2(sf[A].sum() / sf[B].sum())
             normalize_fun = lambda x: x - shift
         elif isinstance(normalization, str):
-            norm_mat = data.get_matrix(mode_slot=f"{normalization}_{slot}")
+            norm_mat = data.get_matrix(mode_slot=f"{normalization}_{mode_slot_obj.slot}")
             A_norm = np.sum(norm_mat[:, A], axis=1)
             B_norm = np.sum(norm_mat[:, B], axis=1)
             res = LFC_fun(A_norm, B_norm, normalize_fun=lambda i: i, **kwargs)
@@ -380,11 +178,11 @@ def compute_lfc(data: GrandPy,
             if verbose:
                 print(f"M-value for '{contrast}': {M_vals.mean():.2f}")
 
-        # append analysis to object
+        # append analysis to result
         name = f"{name_prefix}_{contrast}"
-        new_data = new_data.with_analysis(name=name, table=table)
+        data = data.with_analysis(name, table)
 
-    return new_data
+    return data
 
 
 # TODO: fit_type ...
@@ -394,17 +192,15 @@ def compute_lfc(data: GrandPy,
 #    specify fitType='local' or 'mean' to avoid this message next time.
 # but pydeseq2 only has the fitTypes "parametric" and "mean"
 
-def pairwise_DESeq2(
-    data: GrandPy,
+def _pairwise_DESeq2(
+    data: "GrandPy",
     contrasts: pd.DataFrame,
-    name_prefix: Optional[str] = None,
+    name_prefix: str = None,
     separate: bool = False,
-    mode: str = "total",
-    slot: str = "count",
-    normalization: Optional[Union[str, Sequence[float]]] = None,
-    genes: Optional[List[str]] = None,
-    verbose: bool = False) -> GrandPy:
-
+    mode_slot: Union[str, ModeSlot] = "count",
+    normalization: Union[str, Sequence[float]] = None,
+    genes: Union[str, int, Sequence[Union[str, int, bool]]] = None,
+    verbose: bool = False) -> "GrandPy":
     """
     Run DESeq2 (via pydeseq2) for each contrast defined in the contrast matrix.
 
@@ -419,55 +215,56 @@ def pairwise_DESeq2(
     name_prefix : str, optional
         Prefix for naming the output columns.
 
-    separate : bool
+    separate : bool, default False
         If True, run DESeq2 separately for each contrast (two-group comparisons).
 
-    mode : str
-        Expression mode to use, e.g., "total" or "new".
-
-    slot : str
-        Name of the slot to use for count data.
+    mode_slot: str or ModeSlot, default "count"
+        The name of the data slot to take data from. Usually 'count', optionally with a mode.
+        A mode("new"|"old"|"total") can be specified in the following formats: ModeSlot('<mode>', '<slot>') or '<mode>_<slot>'.
 
     normalization : str or sequence, optional
         Either slot name or size factors for normalization.
 
-    genes : list of str, optional
-        Restrict to this subset of genes.
+    genes : str or int or Sequence[str or int or bool], optional
+        Restrict computation to this subset of genes. Either by their index, their symbol, their ensemble ID, or a boolean mask.
 
-    verbose : bool
+    verbose : bool, default False
         Print progress information.
 
     Returns
     -------
     GrandPy
-        GrandPy object with DESeq2 results added to analysis table.
+        A GrandPy instance containing pydeseq2 analysis results.
 
     Notes
     -----
     Uses fit_type="mean" for compatibility with pydeseq2.
     pydeseq2 does not currently support fit_type="local".
     """
-
     try:
         import pydeseq2
     except ImportError:
         raise ImportError("pydeseq2 is required but not installed!")
 
+    mode_slot = _parse_as_mode_slot(mode_slot)
+
     if not np.all(contrasts.apply(lambda v: set([-1, 1]).issubset(set(v)), axis=0)):
         raise ValueError("Contrasts do not define any comparison!")
 
-    mode_slot = ModeSlot(mode, slot)
     normalization_slot = mode_slot.slot if normalization is None else (
-        ModeSlot(normalization, slot).slot if isinstance(normalization, str) else normalization)
+        ModeSlot(normalization, mode_slot.slot).slot if isinstance(normalization, str) else normalization)
 
     if verbose:
-        print(f"Running pairwise_DESeq2 with mode='{mode}', slot='{slot}', normalization='{normalization_slot}'")
+        print(f"Running pairwise_DESeq2 with '{mode_slot}', normalization='{normalization_slot}'")
         print("Available slots:", list(data.slots.keys()))
 
     def format_column_names(base: str, columns):
         return [f"{base}_{col}" for col in columns]
 
     if separate:
+
+        result = {}
+
         for contrast_name in contrasts.columns:
             if verbose:
                 print(f"Running DESeq2 for contrast '{contrast_name}' (separate=True).")
@@ -517,12 +314,12 @@ def pairwise_DESeq2(
             else:
                 contrast_readable = contrast_name
 
-            analysis_name = f"{mode}_{contrast_readable}" if name_prefix is None else f"{name_prefix}_{contrast_readable}"
+            analysis_name = f"{mode_slot.mode}_{contrast_readable}" if name_prefix is None else f"{name_prefix}_{contrast_readable}"
             result_df.columns = format_column_names(analysis_name, result_df.columns)
 
-            data = data.with_analysis(analysis_name, result_df)
+            result.update({analysis_name: result_df})
 
-        return data
+        return result
 
     # combined estimation
     group_assignments = {}
@@ -591,7 +388,7 @@ def pairwise_DESeq2(
         else:
             contrast_readable = contrast_name
 
-        analysis_name = f"{mode}_{contrast_readable}" if name_prefix is None else f"{name_prefix}_{contrast_readable}"
+        analysis_name = f"{mode_slot.mode}_{contrast_readable}" if name_prefix is None else f"{name_prefix}_{contrast_readable}"
         result_df.columns = format_column_names(analysis_name, result_df.columns)
 
         data = data.with_analysis(analysis_name, result_df)
@@ -599,16 +396,15 @@ def pairwise_DESeq2(
     return data
 
 
-def pairwise(data: GrandPy,
-             contrasts: pd.DataFrame,
-             name_prefix: Optional[str] = None,
-             LFC_fun=Psi_LFC,
-             slot: str = "count",
-             mode: str = "total",
-             normalization: Optional[Union[str, Sequence[float]]] = None,
-             genes: Optional[List[str]] = None,
-             verbose: bool = False
-             ) -> GrandPy:
+def _pairwise(data: "GrandPy",
+              contrasts: pd.DataFrame,
+              name_prefix: str = None,
+              LFC_fun=psi_lfc,
+              mode_slot: Union[str, ModeSlot] = "count",
+              normalization: Union[str, Sequence[float]] = None,
+              genes: Union[str, int, Sequence[Union[str, int, bool]]] = None,
+              verbose: bool = False
+              ) -> "GrandPy":
     """
     Combined log2 fold change and Wald test differential expression analysis.
     This function performs both the LFC computation (via compute_lfc) and DESeq2 testing
@@ -625,59 +421,55 @@ def pairwise(data: GrandPy,
     name_prefix : str, optional
         Prefix for naming the output analysis tables.
 
-    LFC_fun : function, optional
+    LFC_fun : Callable, optional
         Function to compute the log2 fold changes (default Psi_LFC).
 
-    slot : str
-        Slot name to extract counts (default: "count").
-
-    mode : str
-        Expression mode to analyze (e.g. "total", "new", "old").
+    mode_slot: str or ModeSlot, default "count"
+        The name of the data slot to take data from. Usually 'count', optionally with a mode.
+        A mode("new"|"old"|"total") can be specified in the following formats: ModeSlot('<mode>', '<slot>') or '<mode>_<slot>'.
 
     normalization : str or sequence, optional
         Normalization strategy; name of slot or numeric vector.
 
-    genes : list, optional
-        Subset of genes to analyze.
+    genes : str or int or Sequence[str or int or bool], optional
+        Restrict computation to this subset of genes. Either by their index, their symbol, their ensemble ID, or a boolean mask.
 
-    verbose : bool
+    verbose : bool, default False
         Whether to print progress messages.
-
 
     Returns
     -------
-    GrandPy
-        The updated GrandPy object with new analysis results.
+    dict[str, pd.DataFrame]
+        A dictionary with analysis results.
     """
+    mode_slot = _parse_as_mode_slot(mode_slot)
 
     valid_contrasts = contrasts.loc[:, contrasts.apply(lambda v: set([-1, 1]).issubset(set(v)), axis=0)]
     if valid_contrasts.shape[1] == 0:
         raise ValueError("Contrasts do not define any comparison!")
 
     if name_prefix is None:
-        name_prefix = mode
+        name_prefix = mode_slot.mode
 
-    data = compute_lfc(data,
+    result = _compute_lfc(data,
                        contrasts=valid_contrasts,
                        name_prefix=name_prefix,
                        LFC_fun=LFC_fun,
-                       slot=slot,
-                       mode=mode,
+                       mode_slot=mode_slot,
                        normalization=normalization,
                        compute_M=False,
                        genes=genes,
                        verbose=verbose)
 
-    data = pairwise_DESeq2(data,
+    result = _pairwise_DESeq2(result,
                            contrasts=valid_contrasts,
                            name_prefix=name_prefix,
-                           slot=slot,
-                           mode=mode,
+                           mode_slot=mode_slot,
                            normalization=normalization,
                            genes=genes,
                            verbose=verbose)
 
-    return data
+    return result
 
 
 def _get_contrasts(
