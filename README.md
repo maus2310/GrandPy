@@ -19,11 +19,11 @@ grandPy should be compatible with Windows operating systems <span style="color:r
 
 Installing it via `pip` will make sure that the following (standard) packages are available:
 
-<span style="color:red">List of used packages</span>
+<pre><span style="color:red">List of used packages</span> </pre>
 
 Additional packages are optional and important for particular functions:
 
-<bash>pydeseq2</bash>
+<pre>pydeseq2</pre>
 
 With all dependencies available, installation of grandPy typically takes <span style="color:red">less than a minute</span>.
 
