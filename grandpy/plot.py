@@ -9,11 +9,10 @@ import matplotlib.colors as mcolors
 
 from pathlib import Path
 from matplotlib import cm
-from typing import Optional, Union, Callable
+from typing import Optional, Union, Callable, Any, Literal
 from scipy.stats import gaussian_kde, pearsonr, spearmanr, kendalltau
 from sklearn.decomposition import PCA
 from pydeseq2.dds import DeseqDataSet
-from IPython.core.pylabtools import figsize
 from scipy.sparse import issparse
 
 
@@ -65,7 +64,7 @@ def _parse_time_to_float(t: str)-> float:
     else:
         return 0.0
 
-def _apply_outlier_filter(x_vals: np.ndarray, y_vals: np.ndarray, remove_outlier: bool)-> tuple[np.ndarray, tuple | None, tuple | None]:
+def _apply_outlier_filter(x_vals: np.ndarray, y_vals: np.ndarray, remove_outlier: float)-> tuple[np.ndarray, tuple | None, tuple | None]:
     """
     Apply IQR-based outlier filtering to x and y values.
 
@@ -75,8 +74,8 @@ def _apply_outlier_filter(x_vals: np.ndarray, y_vals: np.ndarray, remove_outlier
         Array of x-values.
     y_vals : np.ndarray
         Array of y-values.
-    remove_outlier : bool
-        Whether to apply outlier filtering. If False, all data points are kept.
+    remove_outlier : float
+        Apply outlier filter if not 0.
 
     Returns
     -------
@@ -134,7 +133,8 @@ def _plot_diagonal(ax, diag, x_range):
         for offset in diag:
             ax.plot(x_range, x_range + offset, linestyle="--", color="gray", label=f"y = x + {offset}")
 
-def _highlight_points(ax, data, x_vals, y_vals, highlight, size, highlight_size):
+def _highlight_points(ax: Any, data: GrandPy, x_vals: np.ndarray, y_vals: np.ndarray,
+                      highlight: list[str] | dict[str, list[str]] | None, size: float, highlight_size: float):
     """
         Highlight specific points on a scatter plot.
 
@@ -160,7 +160,9 @@ def _highlight_points(ax, data, x_vals, y_vals, highlight, size, highlight_size)
         if idxs:
             ax.scatter(x_vals[idxs], y_vals[idxs], color="red", s=size * highlight_size)
 
-def _label_points(ax, data, x_vals, y_vals, label, size, highlight_size, y_label_offset):
+def _label_points(ax: Any, data: GrandPy, x_vals: np.ndarray,
+                  y_vals: np.ndarray, label: list[str] | dict[str, list[str]] | None,
+                  size: float, highlight_size: float, y_label_offset: Any):
     """
         Label specific points on a scatter plot.
 
@@ -176,14 +178,16 @@ def _label_points(ax, data, x_vals, y_vals, label, size, highlight_size, y_label
     def get_indices(genes):
         return data.get_index(genes, regex=False)
 
-    idxs = get_indices(label)
+    indices = get_indices(label)
     if isinstance(label, list) and all(isinstance(g, str) for g in label):
         gene_names = label
     else:
-        gene_names = [data.genes[i] for i in idxs]
+        gene_names = [data.genes[i] for i in indices]
     y_offset = (np.max(y_vals) - np.min(y_vals)) * y_label_offset
-    for x_, y_, name in zip(x_vals[idxs], y_vals[idxs], gene_names):
-        ax.text(x_, y_ + y_offset, name, fontsize=size * highlight_size/1.8, ha='center', va='bottom', bbox=dict(boxstyle="round,pad=0.3", edgecolor='black', facecolor='white', linewidth=0.5))
+    for x_, y_, name in zip(x_vals[indices], y_vals[indices], gene_names):
+        ax.text(x_, y_ + y_offset, name, fontsize=size * highlight_size/1.8,
+                ha='center', va='bottom', bbox=dict(boxstyle="round,pad=0.3",
+                edgecolor='black', facecolor='white', linewidth=0.5))
 
 def _setup_default_aes(data: GrandPy, aest: dict | None = None) -> dict:
     """
@@ -375,7 +379,7 @@ def _transform_z(matrix: np.ndarray, center: bool = True, scale: bool = True) ->
     from scipy.stats import zscore
     return zscore(matrix, axis=1, ddof=1, nan_policy='omit' if (center or scale) else 'propagate')
 
-def _transform_vst(data: GrandPy, selected_columns: list, mode_slot: str, genes: str) -> pd.DataFrame:
+def _transform_vst(data: GrandPy, selected_columns: list, mode_slot: str | list[ModeSlot], genes: str | list[str]) -> pd.DataFrame:
     """
         Perform variance stabilizing transformation (VST) on selected gene expression data.
 
@@ -388,10 +392,9 @@ def _transform_vst(data: GrandPy, selected_columns: list, mode_slot: str, genes:
         Returns:
             pd.DataFrame: VST-transformed data frame (samples x genes).
         """
-    mat = data.get_table(mode_slots=mode_slot, columns=selected_columns, genes=genes)
+    mat = data.get_table(mode_slot=mode_slot, columns=selected_columns, genes=genes)
     mat = mat.loc[:, mat.notna().any(axis=0)]
 
-    selected_columns_valid = mat.columns.tolist()
 
     coldata = data.coldata
     coldata["condition"] = coldata["Condition"]
@@ -439,7 +442,7 @@ def _transform_logfc(m: np.ndarray, reference_columns: Optional[list[int]] = Non
     result = np.apply_along_axis(lambda v: lfc_fun(v, ref), axis=0, arr=m)
     return result
 
-def _f_old_nonequi(t: float, f0: float, s: float, d: float)-> (float | np.ndarray):
+def _f_old_nonequi(t: np.ndarray, f0: float, s: float, d: float)-> (float | np.ndarray):
     """
         Calculate concentration decay over time from an initial amount without synthesis.
 
@@ -452,9 +455,9 @@ def _f_old_nonequi(t: float, f0: float, s: float, d: float)-> (float | np.ndarra
             Time point(s) at which to evaluate the function.
         f0 : float
             Initial concentration at time zero.
-        ks : float
+        s : float
             Synthesis rate (not used in this function).
-        kd : float
+        d : float
             Degradation rate constant.
 
         Returns
@@ -464,13 +467,13 @@ def _f_old_nonequi(t: float, f0: float, s: float, d: float)-> (float | np.ndarra
         """
     return f0 * np.exp(-t * d)
 
-def _f_old_equi(t: float, s: float, d: float) -> float:
+def _f_old_equi(t: np.ndarray, s: float, d: float) -> float| np.ndarray:
     """
     Computes the expected amount of old RNA under steady-state assumptions.
     """
     return s / d * np.exp(-t * d)
 
-def _f_new(t: float, s: float, d: float)-> float | np.ndarray:
+def _f_new(t: np.ndarray, s: float, d: float)-> float | np.ndarray:
     """
         Calculate concentration over time with synthesis and degradation reaching equilibrium.
 
@@ -481,9 +484,9 @@ def _f_new(t: float, s: float, d: float)-> float | np.ndarray:
         ----------
         t : float or np.ndarray
             Time point(s) at which to evaluate the function.
-        ks : float
+        s : float
             Synthesis rate.
-        kd : float
+        d : float
             Degradation rate constant.
 
         Returns
@@ -573,7 +576,7 @@ def format_correlation(method: str = "pearson", n_format: str | None = None,
 
     return formatted_correlation
 
-#Beispielaufruf: plot_scatter(sars, mode_slot="count", remove_outlier=True, show_outlier=True, highlight="UHMK1")
+
 def plot_scatter(
     data: GrandPy,
     x: Optional[str] = None,
@@ -1060,7 +1063,7 @@ def plot_heatmap(
         if len(mode_slots) > 1 and x_labels is not None:
             raise ValueError("Cannot use 'xlabels' with multiple slots")
 
-        table = data.get_table(mode_slot=mode_slot, genes=genes, columns=selected_columns, summarize=summarize)
+        table = data.get_table(mode_slot=mode_slots, genes=genes, columns=selected_columns, summarize=summarize)
     else:
         table = data.get_analysis_table(genes=genes)
         table = table[selected_columns]
@@ -1068,6 +1071,7 @@ def plot_heatmap(
     gene_names = table.index.to_list()
     sample_names = table.columns.to_list()
 
+    label = ""
     if isinstance(transform, str):
         transform = transform.lower()
         if transform == "z":
@@ -1077,7 +1081,7 @@ def plot_heatmap(
             mat = _transform_no(mat)
             label = " "
         elif transform == "vst":
-            df_vst = _transform_vst(data, selected_columns, mode_slot=mode_slot, genes=genes)
+            df_vst = _transform_vst(data, selected_columns, mode_slot=mode_slots, genes=genes)
 
             if genes is not None:
                 df_vst = df_vst[genes]
@@ -1144,11 +1148,10 @@ def plot_heatmap(
         plt.close()
 
 
-#Beispielaufruf: plot_pca(sars)
 def plot_pca(
     data: GrandPy,
     mode_slot: str | ModeSlot = None,
-    ntop: int = 500,
+    n_top: int = 500,
     aest: Optional[dict] = None,
     x: int = 1,
     y: int = 2,
@@ -1175,7 +1178,7 @@ def plot_pca(
             The name of the data slot. If None, uses the default slot.
 
             A mode("new"|"old"|"total") can be specified in the following formats: ModeSlot('<mode>', '<slot>') or '<mode>_<slot>'
-        ntop : int, default=500
+        n_top : int, default=500
             Number of top most variable genes/features to include in the PCA.
         aest : dict, optional
             A dictionary defining aesthetic mappings for plotting, e.g., color or shape.
@@ -1195,6 +1198,8 @@ def plot_pca(
             If given, saves the PCA plot as a PNG in the specified directory.
         save_fig_format: str, default="svg"
             The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
+        show_plot: bool, default=True
+            Whether to show the plot.
         See Also
         --------
         GrandPy.plots
@@ -1234,10 +1239,10 @@ def plot_pca(
         vst_array = dds.vst_transform()
 
         vst_df = pd.DataFrame(vst_array, index=slotmat.index, columns=slotmat.columns)
-        top_genes = vst_df.var().nlargest(min(ntop, vst_df.shape[1])).index
+        top_genes = vst_df.var().nlargest(min(n_top, vst_df.shape[1])).index
         mat_for_pca = vst_df[top_genes]
     else:
-        top_genes = slotmat.var().nlargest(min(ntop, slotmat.shape[1])).index
+        top_genes = slotmat.var().nlargest(min(n_top, slotmat.shape[1])).index
         mat_for_pca = slotmat[top_genes]
 
     # PCA
@@ -1265,7 +1270,7 @@ def plot_pca(
         plt.show()
         plt.close()
 
-#Beispielaufruf: plot_gene_old_vs_new(sars, "UHMK1", show_ci=True)
+
 def plot_gene_old_vs_new(
     data: GrandPy,
     gene: str,
@@ -1350,6 +1355,13 @@ def plot_gene_old_vs_new(
     if style not in plot_df.columns:
         style = None
 
+    if hue and hue in plot_df.columns:
+        unique_groups = sorted(plot_df[hue].dropna().unique())
+        palette = sns.color_palette("Set2", n_colors=len(unique_groups))
+        color_map = dict(zip(unique_groups, palette))
+    else:
+        color_map = None
+
     fig, ax = plt.subplots(figsize=(10, 6))
 
     if log:
@@ -1395,33 +1407,26 @@ def plot_gene_old_vs_new(
         xmax = (1 - df_ci["ci_lower"]) * df_ci["total"]
         xerr = [df_ci["old"] - xmin, xmax - df_ci["old"]]
 
-        if hue and hue in df_ci.columns:
-            unique_groups = df_ci[hue].dropna().unique()
-            try:
-                unique_groups = sorted(unique_groups)
-            except TypeError:
-                unique_groups = list(unique_groups)
-            palette = sns.color_palette(n_colors=len(unique_groups))
-            color_map = {grp: col for grp, col in zip(unique_groups, palette)}
-
+        if hue:
             for grp in unique_groups:
                 grp_mask = df_ci[hue] == grp
-                ax.errorbar(
-                    df_ci.loc[grp_mask, "old"],
-                    df_ci.loc[grp_mask, "new"],
-                    xerr=[
-                        df_ci.loc[grp_mask, "old"] - xmin[grp_mask],
-                        xmax[grp_mask] - df_ci.loc[grp_mask, "old"]
-                    ],
-                    yerr=[
-                        df_ci.loc[grp_mask, "new"] - ymin[grp_mask],
-                        ymax[grp_mask] - df_ci.loc[grp_mask, "new"]
-                    ],
-                    fmt='none',
-                    ecolor=color_map[grp],
-                    capsize=3,
-                    linewidth=1,
-                )
+                if grp_mask.any():
+                    ax.errorbar(
+                        df_ci.loc[grp_mask, "old"],
+                        df_ci.loc[grp_mask, "new"],
+                        xerr=[
+                            df_ci.loc[grp_mask, "old"] - xmin[grp_mask],
+                            xmax[grp_mask] - df_ci.loc[grp_mask, "old"]
+                        ],
+                        yerr=[
+                            df_ci.loc[grp_mask, "new"] - ymin[grp_mask],
+                            ymax[grp_mask] - df_ci.loc[grp_mask, "new"]
+                        ],
+                        fmt='none',
+                        ecolor=color_map.get(grp, "grey"),
+                        capsize=3,
+                        linewidth=1,
+                    )
         else:
             ax.errorbar(
                 df_ci["old"],
@@ -1440,6 +1445,7 @@ def plot_gene_old_vs_new(
         y="new",
         hue=hue,
         style=style,
+        palette=color_map if hue else None,
         s=size,
         ax=ax
     )
@@ -1450,7 +1456,7 @@ def plot_gene_old_vs_new(
         plt.show()
         plt.close()
 
-#Beispielaufruf: plot_gene_total_vs_ntr(sars, "UHMK1")
+
 def plot_gene_total_vs_ntr(
     data: GrandPy,
     gene: str,
@@ -1537,12 +1543,11 @@ def plot_gene_total_vs_ntr(
         style = None
 
     if hue and hue in plot_df.columns:
-        unique_groups = plot_df[hue].dropna().unique()
+        unique_groups = sorted(plot_df[hue].dropna().unique())
         palette = sns.color_palette("Set2", n_colors=len(unique_groups))
-        color_map = {grp: col for grp, col in zip(unique_groups, palette)}
+        color_map = dict(zip(unique_groups, palette))
     else:
-        palette = None
-        color_map = {}
+        color_map = None
 
     fig, ax = plt.subplots(figsize=(10, 6))
 
@@ -1582,9 +1587,6 @@ def plot_gene_total_vs_ntr(
 
         plot_ci = plot_ci[valid_mask]
 
-        unique_groups = plot_ci[hue].dropna().unique()
-        palette = sns.color_palette(n_colors=len(unique_groups))
-        color_map = {grp: col for grp, col in zip(sorted(unique_groups), palette)}
         if hue and hue in plot_ci.columns:
             for grp in plot_ci[hue].dropna().unique():
                 grp_df = plot_ci[plot_ci[hue] == grp]
@@ -1615,6 +1617,7 @@ def plot_gene_total_vs_ntr(
         y="ntr",
         hue=hue,
         style=style,
+        palette=color_map,
         s=size,
         ax=ax
     )
@@ -1624,6 +1627,7 @@ def plot_gene_total_vs_ntr(
     if show_plot:
         plt.show()
         plt.close()
+
 
 def plot_gene_groups_points(
     data: GrandPy,
@@ -1636,7 +1640,7 @@ def plot_gene_groups_points(
     aest: Optional[dict] = None,
     size: float = 50,
     transform: Optional[callable] = None,
-    dodge: bool = False,
+    dodge: Union[bool, str] = False,
     path_for_save: Optional[str] | Path = None,
     save_fig_format: str = "svg",
     show_plot: bool = True,
@@ -1674,8 +1678,8 @@ def plot_gene_groups_points(
         transform : callable, optional
             A function to transform the `plot_df` DataFrame before plotting
             (e.g., for normalization or filtering).
-        dodge : bool, default=False
-            Whether to dodge replicates along the x-axis to reduce overlap.
+        dodge : Union[bool, str], default=False
+            Whether to dodge replicates along the x-axis to reduce overlap. Can be the name of the aest dictionary. (e.g., "duration.4sU")
         path_for_save : str or None, optional
             If provided, saves the plot as a PNG file in the specified path.
         save_fig_format: str, default="svg"
@@ -1745,17 +1749,54 @@ def plot_gene_groups_points(
     hue = aest.get("color")
     style = aest.get("shape")
 
+    if hue not in plot_df.columns:
+        hue = None
+    if style not in plot_df.columns:
+        style = None
+
+    if hue and hue in plot_df.columns:
+        unique_groups = sorted(plot_df[hue].dropna().unique())
+        palette = sns.color_palette("Set2", n_colors=len(unique_groups))
+        color_map = dict(zip(unique_groups, palette))
+    else:
+        color_map = None
+
     fig, ax = plt.subplots(figsize=(10, 6))
     group_order = plot_df[group].unique()
     group_to_num = {g: i for i, g in enumerate(group_order)}
     plot_df["_xbase"] = plot_df[group].map(group_to_num)
 
-    if dodge and "Replicate" in plot_df.columns:
-        replicates = sorted(plot_df["Replicate"].unique())
-        rep_to_offset = {r: (i - (len(replicates) - 1) / 2) * 0.15 for i, r in enumerate(replicates)}
-        plot_df["_xpos"] = plot_df["_xbase"] + plot_df["Replicate"].map(rep_to_offset)
+    if dodge:
+        dodge_col = None
+        if isinstance(dodge, str):
+            found = False
+            for aes_key in ['color', 'shape']:
+                if aest.get(aes_key) == dodge:
+                    dodge_col = aest[aes_key]
+                    print("1")
+                    found = True
+                    break
+            if not found:
+                warnings.warn(f"dodge='{dodge}' is not used in aest (color or shape). Skipping dodge.")
+        elif dodge:
+            dodge_col = aest.get("color")
+            print("2")
+
+        if dodge_col and dodge_col in plot_df.columns:
+            unique_dodge_vals = sorted(plot_df[dodge_col].unique())
+            offset_factor = 0.15
+            val_to_offset = {
+                val: (i - (len(unique_dodge_vals) - 1) / 2) * offset_factor
+                for i, val in enumerate(unique_dodge_vals)
+            }
+            print("3")
+            plot_df["_xpos"] = plot_df["_xbase"] + plot_df[dodge_col].map(val_to_offset)
+        else:
+            plot_df["_xpos"] = plot_df["_xbase"]
+            print("4")
     else:
         plot_df["_xpos"] = plot_df["_xbase"]
+        print("5")
 
 
     sns.scatterplot(
@@ -1764,6 +1805,7 @@ def plot_gene_groups_points(
         y="value",
         hue=hue,
         style=style,
+        palette=color_map,
         s=size,
         ax=ax
     )
@@ -1814,9 +1856,7 @@ def plot_gene_groups_points(
             ]
 
             if hue and hue in plot_df.columns:
-                unique_groups = df_ci[hue].unique()
-                palette = sns.color_palette(n_colors=len(unique_groups))
-                color_map = {grp: col for grp, col in zip(sorted(unique_groups), palette)}
+
 
                 for grp in unique_groups:
                     grp_mask = df_ci[hue] == grp
@@ -1852,13 +1892,14 @@ def plot_gene_groups_points(
         plt.show()
         plt.close()
 
+
 def plot_gene_groups_bars(
     data: GrandPy,
     gene: str,
     slot: Optional[str] = None,
     columns: Optional[Union[str, list]] = None,
     show_ci: bool = False,
-    xlabels: Optional[Union[str, list]] = None,
+    x_labels: Optional[Union[str, list]] = None,
     transform: Optional[callable] = None,
     path_for_save: Optional[str] | Path = None,
     save_fig_format: str = "svg",
@@ -1884,7 +1925,7 @@ def plot_gene_groups_bars(
             or None to use all samples.
         show_ci : bool, default=False
             If True, shows confidence intervals based on slots `lower` and `upper`.
-        xlabels : str, list, or None, optional
+        x_labels : str, list, or None, optional
             Custom x-axis labels. If a string, it will be evaluated as a Python expression
             within the sample metadata. If a list, directly used as labels.
         transform : callable or str, optional
@@ -1927,23 +1968,23 @@ def plot_gene_groups_bars(
 
     coldata = data.coldata.loc[selected_columns]
 
-    if isinstance(xlabels, list):
-        xlabels = xlabels
-    elif isinstance(xlabels, str):
+    if isinstance(x_labels, list):
+        x_labels = x_labels
+    elif isinstance(x_labels, str):
         local_vars = {col: coldata[col].astype(str) for col in coldata.columns}
         try:
-            xlabels = eval(xlabels, {}, local_vars).tolist()
+            x_labels = eval(x_labels, {}, local_vars).tolist()
         except Exception as e:
             raise ValueError(f"xlab expression could not be evaluated: {e}")
     else:
-        xlabels = coldata["Name"].tolist()
+        x_labels = coldata["Name"].tolist()
 
     plot_df = data.get_data(mode_slot=[mode_slot_old, mode_slot_new], genes=gene, columns=selected_columns)
 
     new_names = {plot_df.columns[-2]: "old", plot_df.columns[-1]: "new"}
     plot_df = plot_df.rename(columns=new_names)
 
-    plot_df["xlab"] = xlabels
+    plot_df["xlab"] = x_labels
 
     if callable(transform):
         mat = transform(plot_df[["old", "new"]].to_numpy())
@@ -1988,10 +2029,6 @@ def plot_gene_groups_bars(
                 (lower <= upper)
         )
         if np.any(mask):
-            x_valid = np.arange(len(total))[mask]
-            total_valid = total[mask]
-            err_valid = [err_low[mask], err_high[mask]]
-
             for i, (xi, y0, y1, valid) in enumerate(zip(x, ymin, ymax, mask)):
                 if valid:
                     ax.plot([xi, xi], [y0, y1], color="black", linewidth=1)
@@ -2004,7 +2041,7 @@ def plot_gene_groups_bars(
         plt.show()
         plt.close()
 
-# Beispielsaufruf: plot_gene_snapshot_timecourse(sars, "UHMK1")
+
 def plot_gene_snapshot_timecourse(
     data: GrandPy,
     gene: str,
@@ -2065,6 +2102,8 @@ def plot_gene_snapshot_timecourse(
             Directory path to save the plot image. If None, does not save.
         save_fig_format: str, default="svg"
             The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
+        show_plot: bool, default=True
+            Whether to show the plot.
         See Also
         --------
         GrandPy.plots
@@ -2104,6 +2143,7 @@ def plot_gene_snapshot_timecourse(
     else:
         x_vals_numeric = df[time].apply(_parse_time_to_float)
 
+    x_breaks_numeric = None
     if not exact_tics:
         x_breaks = sorted(df[time].unique())
     else:
@@ -2140,7 +2180,7 @@ def plot_gene_snapshot_timecourse(
 
     x = "Time_float"
     y = gene
-    ylabel = "NTR" if slot == "ntr" else f"{mode.capitalize()} RNA ({slot})"
+    y_label = "NTR" if slot == "ntr" else f"{mode.capitalize()} RNA ({slot})"
     fig, ax = plt.subplots(figsize=(10, 6))
 
     if show_ci:
@@ -2236,7 +2276,7 @@ def plot_gene_snapshot_timecourse(
     ax.set_xticks(x_breaks if not exact_tics else x_breaks_numeric)
     ax.set_xticklabels(x_breaks)
     ax.set_xlabel("Time")
-    ax.set_ylabel(ylabel)
+    ax.set_ylabel(y_label)
     ax.set_title(gene)
 
     if average_lines:
@@ -2427,7 +2467,7 @@ def plot_gene_progressive_timecourse(
     gene: str,
     slot: Optional[str] = None,
     time: str = "duration.4sU",
-    fit_type: str = "nlls",
+    fit_type: Literal["nlls", "ntr", "chase"] = "nlls",
     size: float = 25,
     exact_tics: bool = True,
     show_ci: bool = False,
@@ -2515,6 +2555,7 @@ def plot_gene_progressive_timecourse(
     if slot is None:
         slot = data.default_slot
 
+    time_original = None
     if f"{time}.original" in data.coldata.columns:
         time_original = data.coldata[f"{time}.original"]
         time_original = np.array(time_original, dtype=str)
@@ -2710,8 +2751,6 @@ def plot_gene_progressive_timecourse(
                 ymin = cond_df[f"lower_{typ}"]
                 ymax = cond_df[f"upper_{typ}"]
 
-                yerr = np.array([y - ymin, ymax - y])
-
                 mask = np.isfinite(y) & np.isfinite(ymin) & np.isfinite(ymax)
                 err_low = y - ymin
                 err_high = ymax - y
@@ -2781,6 +2820,7 @@ def plot_gene_progressive_timecourse(
         plt.close()
     if return_tables:
         print(df)
+
 
 def plot_ma(
     data: GrandPy,
@@ -2890,7 +2930,7 @@ def plot_expression_test(
     data: GrandPy,
     w4su: str,
     no4su: Union[str, int],
-    ylim: tuple = (-1, 1),
+    y_lim: float | tuple[float, float] | None = (-1, 1),
     hl_quantile: float = 0.8,
     size: float = 10,
     path_for_save: Optional[str] | Path = None,
@@ -2915,7 +2955,7 @@ def plot_expression_test(
             Column name(s) or a constant value representing non-4sU samples.
             If an int/float, treated as a constant expression value.
 
-        ylim : tuple of float, default=(-1, 1)
+        y_lim : tuple of float, default=(-1, 1)
             Y-axis limits for log2 fold change values.
 
         hl_quantile : float, default=0.8
@@ -2968,7 +3008,7 @@ def plot_expression_test(
     ax.axhline(y=0, color="gray", linestyle="--")
     ax.set_xlabel("Mean expression (log10)")
     ax.set_ylabel("log2 FC (4sU / no4sU)")
-    ax.set_ylim(ylim)
+    ax.set_ylim(y_lim)
     fig.colorbar(sc, ax=ax, label="Density")
     ax.set_title("Expression Test: 4sU vs no4sU")
     plt.tight_layout()
