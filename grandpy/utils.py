@@ -16,9 +16,11 @@ def concat(
         axis: Literal["gene_info", 0, "coldata", 1] = 0,
         join: Literal["inner", "outer"] = "inner",
         merge: Union[Literal["same", "unique", "first", "only"], Callable] = "unique",
+        analysis_prefixes: Sequence[str] = None
 ) -> "GrandPy":
     """
-    Concatenates all given objects along a given axis. Uses `first` for metadata, plots, and analyses.
+    Concatenates all given objects along a given axis. Uses 'first'` for metadata and plot functions.
+    Analyses are all kept with an added prefix to avoid collisions.
 
     Parameters
     ----------
@@ -41,22 +43,62 @@ def concat(
         * `"first"`: The first element seen at each from each position.
         * `"only"`: Elements that show up in only one of the objects.
 
+    analysis_prefixes: Sequence[str], optional
+        The prefixes added to the analyses of each instance.
+        The list has to have the same length as the number of objects.
+        By default 'dataset<n>', where n is the index of the object in `objects`.
+
+        To disable this behavior, set to [""] * len(objects).
+        Then analyses of the object coming first will be kept in case of a name collision.
+
     Returns
     -------
     GrandPy
         A new concatenated GrandPy object.
     """
+    def add_prefix_to_analyses(grandpy_objects, prefixes):
+        """
+        Helper function, for adding prefixes to all analyses.
+        """
+        modified_objects = []
+
+        if len(grandpy_objects) != len(prefixes):
+            raise ValueError(f"The length of prefixes must match the number of objects to concatenate."
+                             f"Length objects: {len(grandpy_objects)}, Length prefixes: {len(prefixes)}.")
+
+        for obj, prefix in zip(reversed(grandpy_objects), reversed(prefixes)):
+            if obj._anndata.uns.get("analyses", {}) == {}:
+                modified_objects.append(obj)
+
+            else:
+                new_analyses = obj._anndata.uns['analyses'].copy()
+
+                prefix = f"{prefix}_" if prefix != "" else ""
+
+                new_analyses = {
+                    f"{prefix}{key}": value for key, value in new_analyses.items()
+                }
+
+                new_obj = obj._dev_replace(analyses=new_analyses)
+                modified_objects.append(new_obj)
+
+        return modified_objects[::-1]
+
+    if axis == 0 or axis == "gene_info":
+        axis = "var"
+    elif axis == 1 or axis == "coldata":
+        axis = "obs"
+    else:
+        raise ValueError(f"Axis must be either 0, 'gene_info' or 1, 'coldata' not {axis}.")
+
+    if analysis_prefixes is None:
+        analysis_prefixes = [f"dataset{n}" for n in range(len(objects))]
+
+    objects = add_prefix_to_analyses(objects, analysis_prefixes)
+
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", message="(Observation|Variable) names are not unique.*",
                                 category=UserWarning, module="anndata")
-
-        if axis == 0 or axis == "gene_info":
-            axis = "var"
-        elif axis == 1 or axis == "coldata":
-            axis = "obs"
-        else:
-            raise ValueError(f"Axis must be either 0, 'gene_info' or 1, 'coldata' not {axis}.")
-
         adatas = [obj._anndata for obj in objects]
         new_adata = ad.concat(adatas, axis=axis, join=join, merge=merge, uns_merge="first")
 
@@ -120,7 +162,7 @@ def _make_unique(series: pd.Series, warn = True) -> pd.Series:
     else:
         if warn:
             duplicates_list = series[series.duplicated()].unique()
-            warnings.warn(f"{len(duplicates_list)} Duplicate gene symbols found: {', '.join(duplicates_list[:5])} (first 5); they have been renamed to ensure uniqueness (e.g., MATR3 → MATR3_1).")
+            warnings.warn(f"{len(duplicates_list)} Duplicates found: {', '.join(duplicates_list[:5])} (first 5); they have been renamed to ensure uniqueness (e.g., MATR3 → MATR3_1).")
 
         for val in series:
             if val not in counts:

@@ -143,6 +143,15 @@ class GrandPy:
             f"Default data slot: {self.default_slot}\n"
         )
 
+    def __repr__(self):
+        return f"<GrandPy object with {self._anndata.n_obs} genes and {self._anndata.n_vars} samples>"
+
+    def __len__(self):
+        return self._anndata.n_obs
+
+    def __contains__(self, key):
+        return key in self._anndata.layers
+
     def __getitem__(self, items):
         new_adata = self._anndata.copy()
         new_adata = new_adata[items]
@@ -296,7 +305,7 @@ class GrandPy:
         Returns
         -------
         GrandPy
-            An identical copy of the current instance.
+            A copy of the current instance.
         """
         return self.replace()
 
@@ -833,8 +842,7 @@ class GrandPy:
         try:
             return self._anndata.uns["plots"]["global"][name](self)
         except KeyError:
-            raise KeyError(
-                f"No plot named '{name}' was found. These are all available global plots: {self.plots.get('global', None)}")
+            raise KeyError(f"No plot named '{name}' was found. These are all available global plots: {self.plots.get('global', None)}")
 
     def with_dropped_plots(self, pattern: str = None) -> "GrandPy":
         """
@@ -1861,7 +1869,7 @@ class GrandPy:
         >>> sars.analyses
         ['kinetics_Mock', 'kinetics_SARS']
 
-        Retrieve the results.
+        Retrieve all analyses.
 
         >>> sars.get_analysis_table(with_gene_info=False)
                 Mock_Synthesis  Mock_Half-life  SARS_Synthesis  SARS_Half-life
@@ -1914,14 +1922,16 @@ class GrandPy:
             If True, the gene_info DataFrame will be concatenated to the result.
 
         name_genes_by: str, default "Symbol"
-            The name of the column in the gene_info DataFrame to be used as the name of the genes.
+            The name of the column in the gene_info DataFrame to be used as the index.
             Usually either 'Symbol'(Symbols) or 'Gene'(Ensembl IDs).
+
+            This will be ignored if `by_rows` is True.
 
         prefix_by_analyses: bool, default True
             If True, the columns in the result will be prefixed with the given prefix and the name of the condition.
             Otherwise, they will only be named after the respective analysis.
 
-            This will automatically be False when `by_rows` is True
+            This will be set to False if `by_rows` is True
 
         by_rows: bool, default False
             If True, add rows if there are analyses for multiple conditions.
@@ -1957,15 +1967,12 @@ class GrandPy:
                     if any(re.search(pattern, col) for pattern in columns)
                 ]
 
-            analysis_data.index = pd.Index(self.gene_info[name_genes_by])
-
             if genes is not None:
-                analysis_data = analysis_data.iloc[row_indices]
+                analysis_data = analysis_data.loc[gene_info.index]
 
             if columns is not None:
                 if regex:
-                    matching_cols = [col for col in analysis_data.columns if
-                                     any(re.search(pat, col) for pat in columns)]
+                    matching_cols = [col for col in analysis_data.columns if any(re.search(pat, col) for pat in columns)]
                 else:
                     matching_cols = [col for col in columns if col in analysis_data.columns]
             else:
@@ -1996,6 +2003,7 @@ class GrandPy:
             if with_gene_info:
                 result_df = pd.concat([gene_info, result_df], axis=1)
             result_df.columns = _make_unique(pd.Series(result_df.columns), warn=False)
+            result_df.index = pd.Index(gene_info[name_genes_by])
 
         return result_df
 
@@ -2135,10 +2143,11 @@ class GrandPy:
             axis: Literal["gene_info", 0, "coldata", 1] = 0,
             join: Literal["inner", "outer"] = "inner",
             merge: Union[Literal["same", "unique", "first", "only"], Callable] = "unique",
+            analysis_prefixes: Sequence[str] = None
     ) -> "GrandPy":
         """
-        Merge the 'other' instance with the current instance along a given axis.
-        Uses `first` for metadata, plots, and analyses.
+        Merge the 'other' instance with the current instance along a given axis. Uses 'first' for metadata and plots.
+        Analyses are all kept with an added prefix to avoid collisions
 
         Parameters
         ----------
@@ -2161,6 +2170,13 @@ class GrandPy:
             * `"first"`: The first element seen at each from each position.
             * `"only"`: Elements that show up in only one of the objects.
 
+        analysis_prefixes: tuple(str, str), optional
+            The prefixes added to the analyses of each instance. Has to have length of 2.
+            By default 'dataset0', 'dataset1'.
+
+            To disable this behavior, set to ("", "").
+            Then analyses of the object coming first will be kept in case of a name collision.
+
         Returns
         -------
         GrandPy
@@ -2170,7 +2186,7 @@ class GrandPy:
 
         objects = [self, other]
 
-        return concat(objects, axis=axis, join=join, merge=merge)
+        return concat(objects, axis=axis, join=join, merge=merge, analysis_prefixes=analysis_prefixes)
 
     def split(self, by: str = "Condition") -> list:
         """
@@ -3017,8 +3033,6 @@ def read_h5ad(path: Union[PathLike[str], str]) -> GrandPy:
     anndata.uns["plots"] = {}
 
     return anndata_to_grandpy(anndata, transpose = False)
-
-
 
 
 

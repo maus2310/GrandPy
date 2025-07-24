@@ -79,9 +79,9 @@ SARS.3h.A,SARS,A,False
 SARS.4h.A,SARS,A,False
 """ * 2
 
-    # Drop is due to the *2 of the data leading to the column names appearing as a row in the resulting DataFrame.
+    # Drop is due to the *2 of the 'data' leading to the column names appearing as a row in the resulting DataFrame.
     reference = pd.read_csv(StringIO(data)).drop(12, axis=0)
-    merged = gp1.merge(gp2, axis=0, merge="first").coldata[["Name","Condition","Replicate","no4sU"]]
+    merged = gp1.merge(gp2, axis=0).coldata[["Name","Condition","Replicate","no4sU"]]
 
     reference.index = _make_unique(reference["Name"].str.strip())
     merged.index = merged.index.str.strip()
