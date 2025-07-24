@@ -66,16 +66,18 @@ def _get_summary_matrix(
 
 
 
-def _compute_lfc(data: "GrandPy",
-                 name_prefix: str = None,
-                 contrasts: pd.DataFrame = None,
-                 mode_slot: Union[str, ModeSlot] = "count",
-                 LFC_fun: Callable = psi_lfc,
-                 normalization: Union[str, Sequence[float]] = None,
-                 compute_M: bool = True,
-                 genes: Union[str, int, Sequence[Union[str, int, bool]]] = None,
-                 verbose: bool = False,
-                 **kwargs) -> "GrandPy":
+def _compute_lfc(
+    data: "GrandPy",
+    name_prefix: str = None,
+    contrasts: pd.DataFrame = None,
+    mode_slot: Union[str, ModeSlot] = "count",
+    lfc_function: Callable = psi_lfc,
+    normalization: Union[str, Sequence[float]] = None,
+    compute_m: bool = True,
+    genes: Union[str, int, Sequence[Union[str, int, bool]]] = None,
+    verbose: bool = False,
+    **kwargs
+) -> "GrandPy":
     """
     Estimate log2 fold changes and optional M values for each contrast and store analyses.
 
@@ -90,19 +92,19 @@ def _compute_lfc(data: "GrandPy",
     mode_slot: str or ModeSlot, default "count"
         The name of the data slot to take data from. Usually 'count', optionally with a mode.
         A mode("new"|"old"|"total") can be specified in the following formats: ModeSlot('<mode>', '<slot>') or '<mode>_<slot>'.
-    LFC_fun : Callable, default psi_lfc
+    lfc_function : Callable, default psi_lfc
         Function to compute the log2 fold changes.
     normalization : str or sequence, optional
         If str: name of normalization slot (e.g. "total");
         if sequence: size factors per sample.
-    compute_M : bool, default True
+    compute_m: bool, default True
         If True, include the "M" column (base mean) for each contrast.
     genes : str or int or Sequence[str or int or bool], optional
         Restrict computation to this subset of genes. Either by their index, their symbol, their ensemble ID, or a boolean mask.
     verbose : bool, default False
         If True, status updates are printed.
     **kwargs
-        Passed to LFC_fun.
+        Passed to `lfc_function`.
 
     Returns
     -------
@@ -156,7 +158,7 @@ def _compute_lfc(data: "GrandPy",
             norm_mat = data.get_matrix(mode_slot=f"{normalization}_{mode_slot_obj.slot}")
             A_norm = np.sum(norm_mat[:, A], axis=1)
             B_norm = np.sum(norm_mat[:, B], axis=1)
-            res = LFC_fun(A_norm, B_norm, normalize_fun=lambda i: i, **kwargs)
+            res = lfc_function(A_norm, B_norm, normalize_fun=lambda i: i, **kwargs)
             raw_norm = res[0] if isinstance(res, tuple) else res
             med = np.median(raw_norm)
             normalize_fun = lambda x: x - med
@@ -164,13 +166,13 @@ def _compute_lfc(data: "GrandPy",
             normalize_fun = center_median
 
         # compute LFC (and optional M)
-        result = LFC_fun(A_counts, B_counts, normalize_fun=normalize_fun, **kwargs)
+        result = lfc_function(A_counts, B_counts, normalize_fun=normalize_fun, **kwargs)
         lfc_vals = result[0] if isinstance(result, tuple) else result
 
         # create named columns
         lfc_col = f"{name_prefix}_{contrast}_LFC"
         table = pd.DataFrame({lfc_col: lfc_vals}, index=gene_list)
-        if compute_M:
+        if compute_m:
             M_vals = 10 ** (0.5 * (np.log10(A_counts + 0.5) + np.log10(B_counts + 0.5)))
             m_col = f"{name_prefix}_{contrast}_M"
             table[m_col] = M_vals
@@ -200,7 +202,8 @@ def _pairwise_DESeq2(
     mode_slot: Union[str, ModeSlot] = "count",
     normalization: Union[str, Sequence[float]] = None,
     genes: Union[str, int, Sequence[Union[str, int, bool]]] = None,
-    verbose: bool = False) -> "GrandPy":
+    verbose: bool = False
+) -> "GrandPy":
     """
     Run DESeq2 (via pydeseq2) for each contrast defined in the contrast matrix.
 
@@ -394,15 +397,17 @@ def _pairwise_DESeq2(
     return data
 
 
-def _pairwise(data: "GrandPy",
-              contrasts: pd.DataFrame,
-              name_prefix: str = None,
-              LFC_fun=psi_lfc,
-              mode_slot: Union[str, ModeSlot] = "count",
-              normalization: Union[str, Sequence[float]] = None,
-              genes: Union[str, int, Sequence[Union[str, int, bool]]] = None,
-              verbose: bool = False
-              ) -> "GrandPy":
+def _pairwise(
+    data: "GrandPy",
+    contrasts: pd.DataFrame,
+    name_prefix: str = None,
+    lfc_function=psi_lfc,
+    mode_slot: Union[str, ModeSlot] = "count",
+    normalization: Union[str, Sequence[float]] = None,
+    genes: Union[str, int, Sequence[Union[str, int, bool]]] = None,
+    verbose: bool = False,
+    **kwargs
+    ) -> "GrandPy":
     """
     Combined log2 fold change and Wald test differential expression analysis.
     This function performs both the LFC computation (via compute_lfc) and DESeq2 testing
@@ -419,7 +424,7 @@ def _pairwise(data: "GrandPy",
     name_prefix : str, optional
         Prefix for naming the output analysis tables.
 
-    LFC_fun : Callable, optional
+    lfc_function : Callable, optional
         Function to compute the log2 fold changes (default Psi_LFC).
 
     mode_slot: str or ModeSlot, default "count"
@@ -434,6 +439,9 @@ def _pairwise(data: "GrandPy",
 
     verbose : bool, default False
         Whether to print progress messages.
+
+    **kwargs
+        Passed to `lfc_function`.
 
     Returns
     -------
@@ -450,14 +458,15 @@ def _pairwise(data: "GrandPy",
         name_prefix = mode_slot.mode
 
     new_gp = _compute_lfc(data,
-                       contrasts=valid_contrasts,
-                       name_prefix=name_prefix,
-                       LFC_fun=LFC_fun,
-                       mode_slot=mode_slot,
-                       normalization=normalization,
-                       compute_M=False,
-                       genes=genes,
-                       verbose=verbose)
+                          contrasts=valid_contrasts,
+                          name_prefix=name_prefix,
+                          lfc_function=lfc_function,
+                          mode_slot=mode_slot,
+                          normalization=normalization,
+                          compute_m=False,
+                          genes=genes,
+                          verbose=verbose,
+                          **kwargs)
 
     new_gp = _pairwise_DESeq2(new_gp,
                            contrasts=valid_contrasts,

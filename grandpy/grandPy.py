@@ -2831,8 +2831,8 @@ class GrandPy:
         """
         from .diffexp import _compute_lfc
 
-        new_gp = _compute_lfc(data=self, name_prefix=name_prefix, contrasts=contrasts, mode_slot=mode_slot, lfc_fun=lfc_function,
-                              normalization=normalization, compute_M=compute_m, genes=genes, verbose=verbose, **kwargs)
+        new_gp = _compute_lfc(data=self, name_prefix=name_prefix, contrasts=contrasts, mode_slot=mode_slot, lfc_function=lfc_function,
+                              normalization=normalization, compute_m=compute_m, genes=genes, verbose=verbose, **kwargs)
 
         return new_gp
 
@@ -2892,7 +2892,7 @@ class GrandPy:
         from .diffexp import _pairwise_DESeq2
 
         new_gp = _pairwise_DESeq2(data=self, contrasts=contrasts, name_prefix=name_prefix, separate=separate,
-                                       mode_slot=mode_slot, normalization=normalization, genes=genes, verbose=verbose)
+                                  mode_slot=mode_slot, normalization=normalization, genes=genes, verbose=verbose)
 
         return new_gp
 
@@ -2904,8 +2904,9 @@ class GrandPy:
         mode_slot: Union[str, ModeSlot] = "count",
         normalization: Union[str, Sequence[float]] = None,
         genes: Union[str, int, Sequence[Union[str, int, bool]]] = None,
-        verbose: bool = False
-        ) -> "GrandPy":
+        verbose: bool = False,
+        **kwargs
+    ) -> "GrandPy":
         """
         Combined log2 fold change and Wald test differential expression analysis.
         This function performs both the LFC computation (via compute_lfc) and DESeq2 testing
@@ -2919,9 +2920,6 @@ class GrandPy:
 
         Parameters
         ----------
-        data : GrandPy
-            The grandPy object containing expression data and metadata.
-
         contrasts : pd.DataFrame
             Contrast matrix defining comparisons (samples x contrasts; values 1, -1).
 
@@ -2929,7 +2927,7 @@ class GrandPy:
             Prefix for naming the output analysis tables.
 
         lfc_function : Callable, default psi_lfc
-            Function to compute the log2 fold changes. Implemented: psi_lfc, norm_lfc
+            Function to compute the log2 fold changes. Implemented: psi_lfc, norm_lfc.
 
         mode_slot: str or ModeSlot, default "count"
             The name of the data slot to take data from. Usually 'count', optionally with a mode.
@@ -2944,6 +2942,9 @@ class GrandPy:
         verbose : bool, default False
             Whether to print progress messages.
 
+        **kwargs
+            Passed to `lfc_function`.
+
         Returns
         -------
         GrandPy
@@ -2951,8 +2952,8 @@ class GrandPy:
         """
         from .diffexp import _pairwise
 
-        new_gp = _pairwise(data=self, contrasts=contrasts, name_prefix=name_prefix, LFC_fun=lfc_function,
-                           mode_slot=mode_slot, normalization=normalization, genes=genes, verbose=verbose)
+        new_gp = _pairwise(data=self, contrasts=contrasts, name_prefix=name_prefix, lfc_function=lfc_function,
+                           mode_slot=mode_slot, normalization=normalization, genes=genes, verbose=verbose, **kwargs)
 
         return new_gp
 
