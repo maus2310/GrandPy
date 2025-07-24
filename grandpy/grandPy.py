@@ -2714,7 +2714,7 @@ class GrandPy:
         return _get_summary_matrix(self, no4sU, columns, average)
 
 
-    def get_contrasts(self, contrast: list = "Condition", columns: Union[Sequence[str], str] = None, group: Union[Sequence[str], str] = None, name_format: str = None) -> pd.DataFrame:
+    def get_contrasts(self, contrast: list = "Condition", columns: Union[Sequence[bool], bool] = None, group: Union[Sequence[str], str] = None, name_format: str = None, no4su: bool = True) -> pd.DataFrame:
         """
         Generate contrast matrix for differential comparisons.
 
@@ -2751,7 +2751,7 @@ class GrandPy:
         """
         from .diffexp import _get_contrasts
 
-        return _get_contrasts(self, contrast = contrast, columns = columns, group = group, name_format = name_format)
+        return _get_contrasts(self, contrast = contrast, columns = columns, group = group, name_format = name_format, no4sU = no4su)
 
 
     def compute_lfc(

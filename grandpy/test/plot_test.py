@@ -3,8 +3,7 @@ import tempfile
 from pathlib import Path
 import contextlib
 import io
-from grandpy import *
-from grandpy.diffexp import pairwise_DESeq2
+import grandpy as gp
 
 #TODO Es fehlt noch ma
 
@@ -25,18 +24,19 @@ EXPECTED_FILE_SIZES = {
     "SRSF6_Total_vs_Ntr.svg": 47,
     "Type_Distribution.svg": 49,
     "Vulcano.svg": 210,
+    "MAPlot.svg": 230
 }
 
 @pytest.fixture(scope="module")
 def sars_dataset():
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-        sars = read_grand("../data/sars_R.tsv",
+        sars = gp.read_grand("../data/sars_R.tsv",
                           design=("Condition", "duration.4sU", "Replicate"),
                           classification_genes=['UHMK1', 'ATF3', 'PABPC4', 'ROR1', 'ZC3H11A', 'ZBED6', 'PRDX6', 'PRRC2C'],
                           classification_genes_label="Moin")
         sars = sars.normalize().compute_ntr_ci()
         contrasts = sars.get_contrasts()
-        sars = pairwise_DESeq2(sars, contrasts)
+        sars = sars.pairwise_deseq2(contrasts)
     return sars
 
 @pytest.fixture(scope="module")
@@ -62,7 +62,7 @@ def check_file_size(path, filename):
 def test_plot_scatter(sars_dataset, temp_output_dir):
     try:
         highlight = sars_dataset.get_classified_genes("Moin")
-        plot_scatter(sars_dataset, x="SARS.1h.A", highlight=highlight, label=highlight, log=True,
+        gp.plot_scatter(sars_dataset, x="SARS.1h.A", highlight=highlight, label=highlight, log=True,
                      y_label_offset=0.01, remove_outlier=True, diagonal=True, path_for_save=temp_output_dir, show_plot=False)
         check_file_size(temp_output_dir, "SARS.1h.A_Mock.1h.A_norm.svg")
     except Exception as e:
@@ -70,7 +70,7 @@ def test_plot_scatter(sars_dataset, temp_output_dir):
 
 def test_plot_pca(sars_dataset, temp_output_dir):
     try:
-        plot_pca(sars_dataset, path_for_save=temp_output_dir, show_plot=False)
+        gp.plot_pca(sars_dataset, path_for_save=temp_output_dir, show_plot=False)
         check_file_size(temp_output_dir, "PCA_norm.svg")
     except Exception as e:
         FAILED_PLOTS.append(f"PCA_norm.svg: {e}")
@@ -78,7 +78,7 @@ def test_plot_pca(sars_dataset, temp_output_dir):
 def test_plot_heatmap(sars_dataset, temp_output_dir):
     try:
         highlight = sars_dataset.get_classified_genes("Moin")
-        plot_heatmap(sars_dataset, transform="vst", cluster_genes=False, title="Heatmap",
+        gp.plot_heatmap(sars_dataset, transform="vst", cluster_genes=False, title="Heatmap",
                      genes=highlight, path_for_save=temp_output_dir, show_plot=False)
         check_file_size(temp_output_dir, "Heatmap_norm.svg")
     except Exception as e:
@@ -86,28 +86,28 @@ def test_plot_heatmap(sars_dataset, temp_output_dir):
 
 def test_plot_gene_old_vs_new(sars_dataset, temp_output_dir):
     try:
-        plot_gene_old_vs_new(sars_dataset, "SRSF6", show_ci=True, path_for_save=temp_output_dir, show_plot=False)
+        gp.plot_gene_old_vs_new(sars_dataset, "SRSF6", show_ci=True, path_for_save=temp_output_dir, show_plot=False)
         check_file_size(temp_output_dir, "SRSF6_Old_vs_New.svg")
     except Exception as e:
         FAILED_PLOTS.append(f"SRSF6_Old_vs_New.svg: {e}")
 
 def test_plot_gene_total_vs_ntr(sars_dataset, temp_output_dir):
     try:
-        plot_gene_total_vs_ntr(sars_dataset, "SRSF6", slot="total_count", show_ci=True, path_for_save=temp_output_dir, show_plot=False)
+        gp.plot_gene_total_vs_ntr(sars_dataset, "SRSF6", slot="total_count", show_ci=True, path_for_save=temp_output_dir, show_plot=False)
         check_file_size(temp_output_dir, "SRSF6_Total_vs_Ntr.svg")
     except Exception as e:
         FAILED_PLOTS.append(f"SRSF6_Total_vs_Ntr.svg: {e}")
 
 def test_plot_gene_groups_points(sars_dataset, temp_output_dir):
     try:
-        plot_gene_groups_points(sars_dataset, "SRSF6", show_ci=True, path_for_save=temp_output_dir, dodge=True, show_plot=False)
+        gp.plot_gene_groups_points(sars_dataset, "SRSF6", show_ci=True, path_for_save=temp_output_dir, dodge=True, show_plot=False)
         check_file_size(temp_output_dir, "SRSF6_Groups_Points.svg")
     except Exception as e:
         FAILED_PLOTS.append(f"SRSF6_Groups_Points.svg: {e}")
 
 def test_plot_gene_groups_bars(sars_dataset, temp_output_dir):
     try:
-        plot_gene_groups_bars(sars_dataset, "SRSF6", xlabels="Condition + '.' + Replicate", show_ci=True,
+        gp.plot_gene_groups_bars(sars_dataset, "SRSF6", xlabels="Condition + '.' + Replicate", show_ci=True,
                               path_for_save=temp_output_dir, show_plot=False)
         check_file_size(temp_output_dir, "SRSF6_Groups_Bars.svg")
     except Exception as e:
@@ -115,36 +115,42 @@ def test_plot_gene_groups_bars(sars_dataset, temp_output_dir):
 
 def test_plot_snapshot(sars_dataset, temp_output_dir):
     try:
-        plot_gene_snapshot_timecourse(sars_dataset, "SRSF6", show_ci=True, mode_slot="ntr", path_for_save=temp_output_dir, dodge=True, show_plot=False)
+        gp.plot_gene_snapshot_timecourse(sars_dataset, "SRSF6", show_ci=True, mode_slot="ntr", path_for_save=temp_output_dir, dodge=True, show_plot=False)
         check_file_size(temp_output_dir, "SRSF6_Snapshot_Timecourse.svg")
     except Exception as e:
         FAILED_PLOTS.append(f"SRSF6_Snapshot_Timecourse.svg: {e}")
 
 def test_plot_progressive(sars_dataset, temp_output_dir):
     try:
-        plot_gene_progressive_timecourse(sars_dataset, "SRSF6", path_for_save=temp_output_dir, show_plot=False)
+        gp.plot_gene_progressive_timecourse(sars_dataset, "SRSF6", path_for_save=temp_output_dir, show_plot=False)
         check_file_size(temp_output_dir, "SRSF6_Progressive_Timecourse.svg")
     except Exception as e:
         FAILED_PLOTS.append(f"SRSF6_Progressive_Timecourse.svg: {e}")
 
 def test_plot_expression_test(sars_dataset, temp_output_dir):
     try:
-        plot_expression_test(sars_dataset, "SARS.1h.A", "SARS.no4sU.A", path_for_save=temp_output_dir, show_plot=False)
+        gp.plot_expression_test(sars_dataset, "SARS.1h.A", "SARS.no4sU.A", path_for_save=temp_output_dir, show_plot=False)
         check_file_size(temp_output_dir, "Expression_Test.svg")
     except Exception as e:
         FAILED_PLOTS.append(f"Expression_Test.svg: {e}")
 
 def test_plot_type_distribution(sars_dataset, temp_output_dir):
     try:
-        plot_type_distribution(sars_dataset, relative=True, path_for_save=temp_output_dir, show_plot=False)
+        gp.plot_type_distribution(sars_dataset, relative=True, path_for_save=temp_output_dir, show_plot=False)
         check_file_size(temp_output_dir, "Type_Distribution.svg")
     except Exception as e:
         FAILED_PLOTS.append(f"Type_Distribution.svg: {e}")
 
 def test_vulcano(sars_dataset, temp_output_dir):
     try:
-        with contextlib.redirect_stdout(io.StringIO()):
-            plot_vulcano(sars_dataset, x_lim=(-2, 2), y_lim=(-9, 50), lfc_cutoff=0.5, path_for_save=temp_output_dir, show_plot=False)
+        gp.plot_vulcano(sars_dataset, x_lim=(-2, 2), y_lim=(-9, 50), lfc_cutoff=0.5, path_for_save=temp_output_dir, show_plot=False)
         check_file_size(temp_output_dir, "Vulcano.svg")
     except Exception as e:
         FAILED_PLOTS.append(f"Vulcano.svg: {e}")
+
+def test_ma(sars_dataset, temp_output_dir):
+    try:
+        gp.plot_ma(sars_dataset, analysis=sars_dataset.analyses[0], lfc_cutoff= 0.5, annotate_numbers=True, path_for_save=temp_output_dir, show_plot=False)
+        check_file_size(temp_output_dir, "MAPlot.svg")
+    except Exception as e:
+        FAILED_PLOTS.append(f"MAPlot.svg: {e}")

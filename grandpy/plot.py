@@ -10,7 +10,7 @@ import matplotlib.colors as mcolors
 from pathlib import Path
 from matplotlib import cm
 from typing import Optional, Union, Callable
-from scipy.stats import gaussian_kde, iqr, pearsonr, spearmanr, kendalltau
+from scipy.stats import gaussian_kde, pearsonr, spearmanr, kendalltau
 from sklearn.decomposition import PCA
 from pydeseq2.dds import DeseqDataSet
 from IPython.core.pylabtools import figsize
@@ -661,8 +661,10 @@ def plot_scatter(
         axis_y : bool, default=False
             If True, remove y-axis only.
 
-        mode_slot : str or ModeSlot, optional
-            The data slot to use, e.g., "count", "norm", or a ModeSlot instance.
+        mode_slot: str or ModeSlot
+            The name of the data slot. If None, uses the default slot.
+
+            A mode("new"|"old"|"total") can be specified in the following formats: ModeSlot('<mode>', '<slot>') or '<mode>_<slot>'
 
         remove_outlier : float, default=1.5
             Whether to detect and remove outliers using IQR-based filtering.
@@ -966,9 +968,10 @@ def plot_heatmap(
         data : GrandPy
             The GrandPy object containing the data to visualize.
 
-        mode_slot : str or list of str, optional
-            Either one or more mode.slot specifications (e.g., "count", "new_count"),
-            or names matching analysis results. If None, uses the default slot.
+        mode_slot: str or ModeSlot
+            The name of the data slot. If None, uses the default slot.
+
+            A mode("new"|"old"|"total") can be specified in the following formats: ModeSlot('<mode>', '<slot>') or '<mode>_<slot>'
 
         columns : str or list, optional
             The columns (samples/cells) to include. Can be a logical expression
@@ -1168,8 +1171,10 @@ def plot_pca(
         ----------
         data : GrandPy
             A GrandPy object containing the data matrix and metadata.
-        mode_slot : str or ModeSlot, optional
-            The slot or mode to use for data retrieval.
+        mode_slot: str or ModeSlot
+            The name of the data slot. If None, uses the default slot.
+
+            A mode("new"|"old"|"total") can be specified in the following formats: ModeSlot('<mode>', '<slot>') or '<mode>_<slot>'
         ntop : int, default=500
             Number of top most variable genes/features to include in the PCA.
         aest : dict, optional
@@ -1652,9 +1657,10 @@ def plot_gene_groups_points(
             The gene to plot.
         group : str, default="Condition"
             The column name in `coldata` used for grouping samples along the x-axis.
-        mode_slot : str or ModeSlot, optional
-            Defines which slot and which mode (total/new/old/ntr) to plot. If None, uses
-            `data.default_slot`.
+        mode_slot: str or ModeSlot
+            The name of the data slot. If None, uses the default slot.
+
+            A mode("new"|"old"|"total") can be specified in the following formats: ModeSlot('<mode>', '<slot>') or '<mode>_<slot>'
         columns : str, list, or None, optional
             Column selection: a pandas query string, a list of sample names, or None to use all samples.
         log : bool, default=True
@@ -2031,9 +2037,10 @@ def plot_gene_snapshot_timecourse(
             Gene symbol/name to plot.
         time : str, default='Time.original'
             Column name in sample metadata used as the time variable.
-        mode_slot : str, ModeSlot or None, optional
-            Specifies the mode and slot of data to plot (e.g., "new", "old", or total RNA).
-            If None, uses the default slot from `data`.
+        mode_slot: str or ModeSlot
+            The name of the data slot. If None, uses the default slot.
+
+            A mode("new"|"old"|"total") can be specified in the following formats: ModeSlot('<mode>', '<slot>') or '<mode>_<slot>'
         columns : str, list or None, optional
             Which samples to include. Can be:
             - None: all samples
@@ -2415,7 +2422,6 @@ def plot_vulcano(
         plt.close()
 
 
-# Beispielaufruf: plot_gene_progressive_timecourse(sars, "UHMK1")
 def plot_gene_progressive_timecourse(
     data: GrandPy,
     gene: str,
@@ -2433,51 +2439,79 @@ def plot_gene_progressive_timecourse(
     **kwargs
 ):
     """
-        Plot progressive time course of gene expression including fits for synthesis and degradation.
+    Plot progressive time course of gene expression including fits for synthesis and degradation.
 
-        Visualizes the total, new, and old RNA expression of a gene over time with fitted kinetic curves
-        based on synthesis and degradation parameters. Supports multiple conditions if available.
+    Visualizes the total, new, and old RNA expression of a gene over time with fitted kinetic curves
+    based on synthesis and degradation parameters. Supports multiple conditions if available.
 
-        Parameters
-        ----------
-        data : GrandPy
-            The GrandPy object containing the expression and metadata.
-        gene : str
-            Gene name to plot.
-        slot : str, optional
-            Data slot to use for expression values. Defaults to the data's default slot.
-        time : str, default="Time.original"
-            Column name in coldata containing time points.
-        fit_type : str, default="nlls"
-            Type of fit to perform. Passed to the kinetics fitting function.
-        size : float, default=50
-            Marker size for scatter points.
-        exact_tics : bool, default=True
-            Whether to use exact original time labels on the x-axis ticks.
-        path_for_save : str, optional
-            Directory path to save the plot PNG. If None, plot is not saved.
-        save_fig_format: str, default="svg"
-            The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
-        **kwargs
-            Additional keyword arguments passed to the kinetics fitting function.
+    The plot includes measured expression levels and optionally fitted kinetic models.
+    Optionally includes confidence intervals and rescaling based on model fits.
 
-        See Also
-        --------
-        :func:`GrandPy.fit_kinetics`
-            Function used to fit synthesis and degradation kinetics to the data.
+    Parameters
+    ----------
+    data : GrandPy
+        The GrandPy object containing the expression and metadata.
 
-        GrandPy.plots
-            Get the names of all stored plot functions.
+    gene : str
+        Gene name to plot.
 
-        GrandPy.with_plot
-            Add a plot function.
+    slot : str, optional
+        Data slot to use for expression values. Defaults to the data's default slot.
 
-        GrandPy.with_dropped_plots
-            Remove plots matching a regex.
+    time : str, default="duration.4sU"
+        Column name in coldata containing time points for labeling duration.
 
-        GrandPy.plot_global
-            Executes a stored global plot function.
-        """
+    fit_type : str, default="nlls"
+        Type of fit to perform. Passed to the kinetics fitting function.
+        Typical options are "nlls", "ntr", or "chase".
+
+    size : float, default=25
+        Marker size for scatter points.
+
+    exact_tics : bool, default=True
+        Whether to use exact original time labels on the x-axis ticks.
+        If True and available, uses original labels from `time.original`.
+
+    show_ci : bool, default=False
+        Whether to include confidence intervals in the plot.
+        Requires pre-computed 'lower' and 'upper' slots (e.g., via ComputeNtrCI).
+
+    rescale : bool, default=True
+        Whether to rescale expression values based on the kinetic fit.
+        Useful for normalizing progressive time courses to fitted models.
+
+    return_tables : bool, default=False
+        If True, prints the underlying DataFrame used for plotting.
+
+    path_for_save : str or Path, optional
+        Directory path to save the plot file. If None, the plot is not saved.
+
+    save_fig_format : str, default="svg"
+        File format for saving the figure. Supported by matplotlib (e.g., "png", "svg").
+
+    show_plot : bool, default=True
+        Whether to display the plot in the current session.
+
+    **kwargs
+        Additional keyword arguments passed to the kinetics fitting function.
+
+    See Also
+    --------
+    GrandPy.fit_kinetics
+        Function used to fit synthesis and degradation kinetics to the data.
+
+    GrandPy.plots
+        Get the names of all stored plot functions.
+
+    GrandPy.with_plot
+        Add a plot function.
+
+    GrandPy.with_dropped_plots
+        Remove plots matching a regex.
+
+    GrandPy.plot_global
+        Executes a stored global plot function.
+    """
     if slot is None:
         slot = data.default_slot
 
@@ -2748,7 +2782,6 @@ def plot_gene_progressive_timecourse(
     if return_tables:
         print(df)
 
-# TODO cheken
 def plot_ma(
     data: GrandPy,
     analysis: Optional[str] = None,
@@ -2787,6 +2820,8 @@ def plot_ma(
         If specified, saves the plot as a PNG file to this directory.
     save_fig_format: str, default="svg"
             The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
+    show_plot: bool, default=True
+        Whether to show the plot.
     See Also
         --------
         GrandPy.plots
@@ -2810,6 +2845,7 @@ def plot_ma(
         columns=["M", "LFC", "Q"],
         with_gene_info=False
     )
+
     df.columns = [col.split('_')[-1] for col in df.columns]
 
     if "Q" not in df.columns:
@@ -2819,7 +2855,6 @@ def plot_ma(
     x_vals = df["M"].to_numpy() + 1
     y_vals = df["LFC"].to_numpy()
     q_vals = df["Q"].to_numpy()
-
     colors = np.where(q_vals < p_cutoff, "black", "gray")
 
     fig, ax = plt.subplots(figsize=(10, 6))
@@ -2837,8 +2872,8 @@ def plot_ma(
         ax.axhline(y=0, linestyle="--", color="gray")
 
     if annotate_numbers:
-        up = np.sum((x_vals > lfc_cutoff) & (q_vals < p_cutoff))
-        down = np.sum((x_vals < -lfc_cutoff) & (q_vals < p_cutoff))
+        up = np.sum((y_vals > lfc_cutoff) & (q_vals < p_cutoff))
+        down = np.sum((y_vals < -lfc_cutoff) & (q_vals < p_cutoff))
         ax.annotate(f"n={up}", xy=(x_vals.max(), y_vals.max()), xycoords="data",
                     ha="right", va="top")
         ax.annotate(f"n={down}", xy=(x_vals.max(), y_vals.min()), xycoords="data",
@@ -2853,8 +2888,8 @@ def plot_ma(
 
 def plot_expression_test(
     data: GrandPy,
-    w4sU: str,
-    no4sU: Union[str, int],
+    w4su: str,
+    no4su: Union[str, int],
     ylim: tuple = (-1, 1),
     hl_quantile: float = 0.8,
     size: float = 10,
@@ -2873,10 +2908,10 @@ def plot_expression_test(
         data : GrandPy
             The GrandPy object containing expression data.
 
-        w4sU : str
+        w4su : str
             Column name or identifier(s) for 4sU-labeled samples.
 
-        no4sU : str or int
+        no4su : str or int
             Column name(s) or a constant value representing non-4sU samples.
             If an int/float, treated as a constant expression value.
 
@@ -2893,6 +2928,8 @@ def plot_expression_test(
             Path to save the plot as PNG, if provided.
         save_fig_format: str, default="svg"
             The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
+        show_plot: bool, default=True
+            Whether to show the plot.
         See Also
         --------
         GrandPy.plots
@@ -2908,11 +2945,11 @@ def plot_expression_test(
             Executes a stored global plot function.
         """
 
-    w = data.get_matrix(mode_slot="count", columns=w4sU)
-    if isinstance(no4sU, (int, float)):
-        n = np.full_like(w, fill_value=no4sU)
+    w = data.get_matrix(mode_slot="count", columns=w4su)
+    if isinstance(no4su, (int, float)):
+        n = np.full_like(w, fill_value=no4su)
     else:
-        n = data.get_matrix(mode_slot="count", columns=no4sU)
+        n = data.get_matrix(mode_slot="count", columns=no4su)
     valid = np.isfinite(w + n)
     w = w[valid]
     n = n[valid]
@@ -2943,7 +2980,7 @@ def plot_expression_test(
 
 
 def plot_type_distribution(
-    data,
+    data: GrandPy,
     mode_slot: Optional[str] = None,
     relative: bool = False,
     palette: str = "Dark2",
@@ -2959,16 +2996,13 @@ def plot_type_distribution(
 
     Parameters
     ----------
-    data : object
-        Object containing expression data and gene information.
-        Expected to have methods:
-          - get_table(mode_slot) -> pd.DataFrame (genes × conditions)
-        and attribute:
-          - gene_info : pd.DataFrame with a 'Type' column specifying gene types.
+    data : GrandPy
+        GrandPy-Object containing expression data and gene information.
 
-    mode_slot : str, optional
-        Data slot to use for expression matrix retrieval.
-        If None, uses the default slot defined on the data object.
+    mode_slot: str or ModeSlot
+            The name of the data slot. If None, uses the default slot.
+
+            A mode("new"|"old"|"total") can be specified in the following formats: ModeSlot('<mode>', '<slot>') or '<mode>_<slot>'
 
     relative : bool, default=False
         If True, plots relative percentages per condition instead of absolute sums.
@@ -2980,6 +3014,8 @@ def plot_type_distribution(
         If provided, saves the plot as a PNG file to this path.
     save_fig_format: str, default="svg"
             The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
+    show_plot: bool, default=True
+        Whether to show the plot.
     See Also
     --------
     GrandPy.plots
