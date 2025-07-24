@@ -5,7 +5,7 @@ import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 import matplotlib.ticker
-import matplotlib.colors as mcolors
+import matplotlib.colors as matplot_colors
 
 from pathlib import Path
 from matplotlib import cm
@@ -336,10 +336,10 @@ def _make_continuous_colors(values, colors: str = None, breaks: int | list = Non
             colors = colors[3:]
         try:
             cmap = cm.get_cmap(colors, len(breaks))
-            color_list = [mcolors.rgb2hex(cmap(i)) for i in range(cmap.N)]
+            color_list = [matplot_colors.rgb2hex(cmap(i)) for i in range(cmap.N)]
         except ValueError:
             cmap = cm.get_cmap("viridis", len(breaks))
-            color_list = [mcolors.rgb2hex(cmap(i)) for i in range(cmap.N)]
+            color_list = [matplot_colors.rgb2hex(cmap(i)) for i in range(cmap.N)]
 
         if reverse:
             color_list = color_list[::-1]
@@ -742,7 +742,7 @@ def plot_scatter(
             The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
 
         figsize : tuple[float, float], default=(10, 6)
-            Size of the figure in inches (width, height).
+            Size of the figure (width, height).
 
         show_plot : bool, default=True
             Show the plot.
@@ -957,6 +957,7 @@ def plot_heatmap(
     title: Optional[str] = None,
     return_matrix: bool = False,
     na_to: Optional[float] = None,
+    figsize: tuple[float, float] = (10, 6),
     path_for_save: Optional[str] | Path = None,
     save_fig_format: str = "svg",
     show_plot: bool = True,
@@ -1018,6 +1019,9 @@ def plot_heatmap(
 
         na_to : float, optional
             Value to substitute for missing (NA) values before plotting.
+
+        figsize : tuple[float, float], default=(10, 6)
+            Size of the figure (width, height).
 
         path_for_save : str, optional
             Saves the plot as a PNG to the specified directory
@@ -1123,7 +1127,7 @@ def plot_heatmap(
 
     g = sns.clustermap(
         df,
-        figsize=(10, 6),
+        figsize=figsize,
         cmap=cmap,
         norm = norm,
         row_cluster=cluster_genes,
@@ -1158,6 +1162,7 @@ def plot_pca(
     columns: Union[str, list, None] = None,
     do_vst: bool = True,
     show_progress: bool = True,
+    figsize : tuple[float, float] = (10, 6),
     path_for_save: Optional[str] | Path = None,
     save_fig_format: str = "svg",
     show_plot: bool = True,
@@ -1194,6 +1199,8 @@ def plot_pca(
             (only if mode_slot is 'count').
         show_progress: bool, default=True
             Shows progress for the PCA. (Only for vst = True)
+        figsize : tuple[float, float], default=(10, 6)
+            Size of the figure (width, height).
         path_for_save : str or None, optional
             If given, saves the PCA plot as a PNG in the specified directory.
         save_fig_format: str, default="svg"
@@ -1256,7 +1263,7 @@ def plot_pca(
     style = aest.get("shape")
     hue = aest.get("color")
 
-    plt.figure(figsize=(10, 6))
+    plt.figure(figsize=figsize)
     sns.scatterplot(data=df, x=f"PC{x}", y=f"PC{y}", style=style, hue=hue, s=50)
     plt.xlabel(f"PC{x}: {percent_var[x - 1] * 100:.1f}% variance")
     plt.ylabel(f"PC{y}: {percent_var[y - 1] * 100:.1f}% variance")
@@ -1280,6 +1287,7 @@ def plot_gene_old_vs_new(
     show_ci: bool = False,
     aest: Optional[dict] = None,
     size: float = 50,
+    figsize: tuple = (10, 6),
     path_for_save: Optional[str] | Path = None,
     save_fig_format: str = "svg",
     show_plot: bool = True,
@@ -1311,6 +1319,8 @@ def plot_gene_old_vs_new(
             Dictionary defining aesthetic mappings for plotting (e.g. color, shape).
         size : float, default=50
             Size of scatter points.
+        figsize : tuple[float, float], default=(10, 6)
+            Size of the figure (width, height).
         path_for_save : str or None, optional
             If provided, saves the resulting plot as a PNG in the given directory.
         save_fig_format: str, default="svg"
@@ -1355,6 +1365,7 @@ def plot_gene_old_vs_new(
     if style not in plot_df.columns:
         style = None
 
+    unique_groups = None
     if hue and hue in plot_df.columns:
         unique_groups = sorted(plot_df[hue].dropna().unique())
         palette = sns.color_palette("Set2", n_colors=len(unique_groups))
@@ -1362,7 +1373,7 @@ def plot_gene_old_vs_new(
     else:
         color_map = None
 
-    fig, ax = plt.subplots(figsize=(10, 6))
+    fig, ax = plt.subplots(figsize=figsize)
 
     if log:
         ax.set_xscale("log")
@@ -1410,7 +1421,7 @@ def plot_gene_old_vs_new(
         if hue:
             for grp in unique_groups:
                 grp_mask = df_ci[hue] == grp
-                if grp_mask.any():
+                if isinstance(grp_mask, pd.Series) and grp_mask.any():
                     ax.errorbar(
                         df_ci.loc[grp_mask, "old"],
                         df_ci.loc[grp_mask, "new"],
@@ -1466,6 +1477,7 @@ def plot_gene_total_vs_ntr(
     show_ci: bool = False,
     aest: Optional[dict] = None,
     size: float = 50,
+    figsize: tuple[float, float] = (10, 6),
     path_for_save: Optional[str] | Path = None,
     save_fig_format: str = "svg",
     show_plot: bool = True,
@@ -1496,6 +1508,8 @@ def plot_gene_total_vs_ntr(
             Dictionary defining aesthetic mappings (e.g., color, shape).
         size : float, default=50
             Size of scatter points.
+        figsize : tuple[float, float], default=(10, 6)
+            Size of the figure (width, height).
         path_for_save : str or None, optional
             If provided, saves the resulting plot as a PNG in the given directory.
         save_fig_format: str, default="svg"
@@ -1549,7 +1563,7 @@ def plot_gene_total_vs_ntr(
     else:
         color_map = None
 
-    fig, ax = plt.subplots(figsize=(10, 6))
+    fig, ax = plt.subplots(figsize=figsize)
 
     if log:
         ax.set_xscale("log")
@@ -1639,6 +1653,7 @@ def plot_gene_groups_points(
     show_ci: bool = False,
     aest: Optional[dict] = None,
     size: float = 50,
+    figsize: tuple[float, float] = (10, 6),
     transform: Optional[callable] = None,
     dodge: Union[bool, str] = False,
     path_for_save: Optional[str] | Path = None,
@@ -1675,6 +1690,8 @@ def plot_gene_groups_points(
             A dictionary defining aesthetic mappings (e.g., color or shape columns in coldata).
         size : float, default=50
             Point size for the scatterplot.
+        figsize : tuple[float, float], default=(10, 6)
+            Size of the figure (width, height).
         transform : callable, optional
             A function to transform the `plot_df` DataFrame before plotting
             (e.g., for normalization or filtering).
@@ -1754,6 +1771,7 @@ def plot_gene_groups_points(
     if style not in plot_df.columns:
         style = None
 
+    unique_groups = None
     if hue and hue in plot_df.columns:
         unique_groups = sorted(plot_df[hue].dropna().unique())
         palette = sns.color_palette("Set2", n_colors=len(unique_groups))
@@ -1761,7 +1779,7 @@ def plot_gene_groups_points(
     else:
         color_map = None
 
-    fig, ax = plt.subplots(figsize=(10, 6))
+    fig, ax = plt.subplots(figsize=figsize)
     group_order = plot_df[group].unique()
     group_to_num = {g: i for i, g in enumerate(group_order)}
     plot_df["_xbase"] = plot_df[group].map(group_to_num)
@@ -1856,8 +1874,6 @@ def plot_gene_groups_points(
             ]
 
             if hue and hue in plot_df.columns:
-
-
                 for grp in unique_groups:
                     grp_mask = df_ci[hue] == grp
                     ax.errorbar(
@@ -1901,6 +1917,7 @@ def plot_gene_groups_bars(
     show_ci: bool = False,
     x_labels: Optional[Union[str, list]] = None,
     transform: Optional[callable] = None,
+    figsize: tuple[float, float] = (10, 6),
     path_for_save: Optional[str] | Path = None,
     save_fig_format: str = "svg",
     show_plot: bool = True,
@@ -1935,6 +1952,8 @@ def plot_gene_groups_bars(
             * `'logfc'` for log fold change
             * `'none'` for no transform
             or a custom Python function for advanced users.
+        figsize : tuple[float, float], default=(10, 6)
+            Size of the figure (width, height).
         path_for_save : str or None, optional
             If provided, saves the plot as PNG in the given path.
         save_fig_format: str, default="svg"
@@ -1998,7 +2017,7 @@ def plot_gene_groups_bars(
     x = np.arange(len(plot_df))
     width = 0.8
 
-    fig, ax = plt.subplots(figsize=(10, 6))
+    fig, ax = plt.subplots(figsize=figsize)
     ax.bar(x, plot_df["old"], width, label="Old", color="lightgray")
     ax.bar(x, plot_df["new"], width, bottom=plot_df["old"], label="New", color="red")
 
@@ -2054,6 +2073,7 @@ def plot_gene_snapshot_timecourse(
     show_ci: bool = False,
     aest: Optional[dict] = None,
     size: float = 50,
+    figsize: tuple[float, float] = (10, 6),
     dodge: bool = False,
     path_for_save: Optional[str] | Path = None,
     save_fig_format: str = "svg",
@@ -2096,6 +2116,8 @@ def plot_gene_snapshot_timecourse(
             corresponding to metadata columns.
         size : float, default=50
             Marker size for scatter plot points.
+        figsize : tuple[float, float], default=(10, 6)
+            Size of the figure (width, height).
         dodge : bool, default=False
             Whether to horizontally jitter points by hue to reduce overlap.
         path_for_save : str or None, optional
@@ -2133,19 +2155,19 @@ def plot_gene_snapshot_timecourse(
     else:
         selected_columns = data.get_columns(columns)
 
-    df = data.get_data(mode_slot=mode_slot, genes=gene, columns=selected_columns, with_coldata=True, ntr_nan=False)
+    plot_df = data.get_data(mode_slot=mode_slot, genes=gene, columns=selected_columns, with_coldata=True, ntr_nan=False)
 
-    if time not in df.columns:
+    if time not in plot_df.columns:
         raise ValueError(f"Column '{time}' not found in coldata!")
 
-    if isinstance(df[time][0], np.float64):
-        x_vals_numeric = df[time]
+    if isinstance(plot_df[time][0], np.float64):
+        x_vals_numeric = plot_df[time]
     else:
-        x_vals_numeric = df[time].apply(_parse_time_to_float)
+        x_vals_numeric = plot_df[time].apply(_parse_time_to_float)
 
     x_breaks_numeric = None
     if not exact_tics:
-        x_breaks = sorted(df[time].unique())
+        x_breaks = sorted(plot_df[time].unique())
     else:
         x_breaks_numeric = np.linspace(x_vals_numeric.min(), x_vals_numeric.max(), 5)
         x_breaks = [f"{int(round(x))}h" for x in x_breaks_numeric]
@@ -2154,16 +2176,25 @@ def plot_gene_snapshot_timecourse(
     hue = aest.get("color")
     style = aest.get("shape")
 
-    if hue not in df.columns:
+    if hue not in plot_df.columns:
         hue = None
-    if style not in df.columns:
+    if style not in plot_df.columns:
         style = None
-    df["Time_float"] = x_vals_numeric
 
-    df["Time_float_dodged"] = df["Time_float"]
+    unique_groups = None
+    if hue and hue in plot_df.columns:
+        unique_groups = sorted(plot_df[hue].dropna().unique())
+        palette = sns.color_palette("Set2", n_colors=len(unique_groups))
+        color_map = dict(zip(unique_groups, palette))
+    else:
+        color_map = None
 
-    if dodge and hue and hue in df.columns:
-        hue_values = sorted(df[hue].unique())
+    plot_df["Time_float"] = x_vals_numeric
+
+    plot_df["Time_float_dodged"] = plot_df["Time_float"]
+
+    if dodge and hue and hue in plot_df.columns:
+        hue_values = sorted(plot_df[hue].unique())
         n = len(hue_values)
         if n > 1:
             spread = min(0.2, 0.1 * (n - 1))
@@ -2173,7 +2204,7 @@ def plot_gene_snapshot_timecourse(
         else:
             offset_map = {hue_values[0]: 0}
 
-        df["Time_float_dodged"] = df.apply(
+        plot_df["Time_float_dodged"] = plot_df.apply(
             lambda row: row["Time_float"] + offset_map.get(row[hue], 0),
             axis=1
         )
@@ -2181,7 +2212,7 @@ def plot_gene_snapshot_timecourse(
     x = "Time_float"
     y = gene
     y_label = "NTR" if slot == "ntr" else f"{mode.capitalize()} RNA ({slot})"
-    fig, ax = plt.subplots(figsize=(10, 6))
+    fig, ax = plt.subplots(figsize=figsize)
 
     if show_ci:
         if "lower" not in data.slots or "upper" not in data.slots:
@@ -2213,15 +2244,15 @@ def plot_gene_snapshot_timecourse(
         err_high = ymax - dfmode_slot
 
 
-        if dodge and hue and hue in df.columns:
-            hue_vals = sorted(df[hue].unique())
+        if dodge and hue and hue in plot_df.columns:
+            hue_vals = sorted(plot_df[hue].unique())
             n = len(hue_vals)
             if n > 1:
                 spread = min(0.2, 0.1 * (n - 1))
                 offsets = {val: (-spread + 2 * spread * i / (n - 1)) for i, val in enumerate(hue_vals)}
             else:
                 offsets = {hue_vals[0]: 0.0}
-            hue_col = df[hue].to_numpy()
+            hue_col = plot_df[hue].to_numpy()
             x_dodged = np.array([x + offsets.get(h, 0.0) for x, h in zip(x_vals_numeric, hue_col)])
         else:
             x_dodged = x_vals_numeric
@@ -2243,19 +2274,16 @@ def plot_gene_snapshot_timecourse(
             err_low_valid = err_low[mask]
             err_high_valid = err_high[mask]
 
-            if hue and hue in df.columns:
-                hue_col = df[hue].to_numpy()[mask]
-                palette = sns.color_palette(n_colors=len(np.unique(hue_col)))
-                hue_to_color = {val: palette[i] for i, val in enumerate(sorted(np.unique(hue_col)))}
-
-                for val in sorted(np.unique(hue_col)):
-                    group_mask = hue_col == val
+            if hue and hue in plot_df.columns:
+                hue_vals_masked = np.array(plot_df[hue])[mask]
+                for grp in sorted(color_map):
+                    group_mask = hue_vals_masked == grp
                     ax.errorbar(
                         x=x_valid_all[group_mask],
                         y=y_valid_all[group_mask],
                         yerr=[err_low_valid[group_mask], err_high_valid[group_mask]],
                         fmt='none',
-                        ecolor=hue_to_color[val],
+                        ecolor=color_map[grp],
                         capsize=3
                     )
             else:
@@ -2280,24 +2308,41 @@ def plot_gene_snapshot_timecourse(
     ax.set_title(gene)
 
     if average_lines:
-        avg_input_df = df.drop(columns=["Replicate"], errors="ignore")
+        avg_input_df = plot_df.drop(columns=["Replicate"], errors="ignore")
         group_cols = [x]
         if hue and hue in avg_input_df.columns:
             group_cols.append(hue)
         if style and style in avg_input_df.columns and style != hue:
             group_cols.append(style)
+
         avg_df = avg_input_df.groupby(group_cols, observed=True)[y].mean().reset_index()
 
-        sns.lineplot(
-            data=avg_df,
-            x=x,
-            y=y,
-            hue=hue,
-            ax=ax,
-            legend=False,
-            linewidth=1
-        )
-    sns.scatterplot(data=df, x="Time_float_dodged", y=y, hue=hue, style=style, s=size, ax=ax)
+        plot_kwargs = {
+            "data": avg_df,
+            "x": x,
+            "y": y,
+            "ax": ax,
+            "legend": False,
+            "linewidth": 1,
+        }
+        if hue and hue in avg_df.columns:
+            plot_kwargs["hue"] = hue
+        if style and style in avg_df.columns and style != hue:
+            plot_kwargs["style"] = style
+
+        sns.lineplot(**plot_kwargs)
+
+    sns.scatterplot(
+        data=plot_df,
+        x="Time_float_dodged",
+        y=y,
+        hue=hue,
+        palette=color_map,
+        style=style,
+        s=size,
+        ax=ax
+    )
+
     plt.tight_layout()
     if path_for_save:
         fig.savefig(f"{path_for_save}/{gene}_Snapshot_Timecourse.{save_fig_format}", format=save_fig_format, dpi=300)
@@ -2316,6 +2361,8 @@ def plot_vulcano(
     y_lim: Optional[tuple[float, float]] = None,
     remove_outliers: float = 0.0,
     color_palette: str = "viridis",
+    size: int = 10,
+    figsize: tuple[float, float] = (10, 6),
     path_for_save: Union[str, Path, None] = None,
     save_fig_format: str = "svg",
     show_plot: bool = True,
@@ -2346,6 +2393,10 @@ def plot_vulcano(
             Tuple of (ymin, ymax) to set y‑axis limits.
         color_palette : str, default="viridis"
             Density color palette for 2D density.
+        size: int, default=10
+            Size of the scatter points.
+        figsize : tuple[float, float], default=(10, 6)
+            Size of the figure (width, height).
         path_for_save : str or Path, optional
             Directory path where to save the plot. If provided, saves as
             “Vulcano.{save_fig_format}” in that folder.
@@ -2390,7 +2441,7 @@ def plot_vulcano(
     x = x_all[mask_keep]
     y = y_all[mask_keep]
 
-    fig, ax = plt.subplots(figsize=(10, 6))
+    fig, ax = plt.subplots(figsize=figsize)
     try:
         density = _density2d(x, y, n=100, margin='n')
     except NameError:
@@ -2402,7 +2453,7 @@ def plot_vulcano(
         sc = ax.scatter(x, y, c=density, s=10, cmap=color_palette, alpha=1)
         fig.colorbar(sc, ax=ax, label="Density")
     else:
-        ax.scatter(x, y, c='purple', s=10, alpha=0.7)
+        ax.scatter(x, y, c='purple', s=size, alpha=0.7)
 
     y_thr = -np.log10(p_cutoff)
     ax.axhline(y_thr, linestyle='--', color='grey')
@@ -2473,6 +2524,7 @@ def plot_gene_progressive_timecourse(
     show_ci: bool = False,
     rescale: bool = True,
     return_tables: bool = False,
+    figsize: tuple[float, float] = (4, 1),
     path_for_save: Optional[str] | Path = None,
     save_fig_format: str = "svg",
     show_plot: bool = True,
@@ -2522,6 +2574,9 @@ def plot_gene_progressive_timecourse(
 
     return_tables : bool, default=False
         If True, prints the underlying DataFrame used for plotting.
+
+    figsize : tuple[float, float], default = (6,1)
+        Size of the figure (height, aspect).
 
     path_for_save : str or Path, optional
         Directory path to save the plot file. If None, the plot is not saved.
@@ -2711,8 +2766,8 @@ def plot_gene_progressive_timecourse(
         col="condition",
         sharey=True,
         sharex=True,
-        height=6,
-        aspect=1
+        height=figsize[0],
+        aspect=figsize[1]
     )
 
     # Plot total, new, old points
@@ -2828,6 +2883,8 @@ def plot_ma(
     p_cutoff: float = 0.05,
     lfc_cutoff: float = 1.0,
     annotate_numbers: bool = True,
+    size: int = 10,
+    figsize: tuple[float, float] = (10, 6),
     path_for_save: Optional[str] | Path = None,
     save_fig_format: str = "svg",
     show_plot: bool = True,
@@ -2855,6 +2912,12 @@ def plot_ma(
 
     annotate_numbers : bool, default=True
         Whether to annotate the plot with counts of significantly up- and down-regulated genes.
+
+    size : int, default=10
+        The size of the scatter points.
+
+    figsize : tuple[float, float], default=(10, 6)
+            Size of the figure (width, height).
 
     path_for_save : str, optional
         If specified, saves the plot as a PNG file to this directory.
@@ -2897,8 +2960,8 @@ def plot_ma(
     q_vals = df["Q"].to_numpy()
     colors = np.where(q_vals < p_cutoff, "black", "gray")
 
-    fig, ax = plt.subplots(figsize=(10, 6))
-    ax.scatter(x_vals, y_vals, c=colors, s=10, alpha=0.7)
+    fig, ax = plt.subplots(figsize=figsize)
+    ax.scatter(x_vals, y_vals, c=colors, s=size, alpha=0.7)
 
     ax.set_xscale("log")
     ax.set_xlabel("Total expression")
@@ -2933,6 +2996,7 @@ def plot_expression_test(
     y_lim: float | tuple[float, float] | None = (-1, 1),
     hl_quantile: float = 0.8,
     size: float = 10,
+    figsize: tuple[float, float] = (10, 6),
     path_for_save: Optional[str] | Path = None,
     save_fig_format: str = "svg",
     show_plot: bool = True,
@@ -2963,6 +3027,9 @@ def plot_expression_test(
 
         size : float, default=10
             Size of scatter points.
+
+        figsize : tuple[float, float], default=(10, 6)
+            Size of the figure (width, height).
 
         path_for_save : str, optional
             Path to save the plot as PNG, if provided.
@@ -3003,7 +3070,7 @@ def plot_expression_test(
 
     idx = np.argsort(density)
     M, lfc, density = M[idx], lfc[idx], density[idx]
-    fig, ax = plt.subplots(figsize=(10, 6))
+    fig, ax = plt.subplots(figsize=figsize)
     sc = ax.scatter(M, lfc, c=density, cmap="viridis", s=size, alpha=1)
     ax.axhline(y=0, color="gray", linestyle="--")
     ax.set_xlabel("Mean expression (log10)")
@@ -3024,6 +3091,7 @@ def plot_type_distribution(
     mode_slot: Optional[str] = None,
     relative: bool = False,
     palette: str = "Dark2",
+    figsize: tuple[float, float] = (10, 6),
     path_for_save: Optional[str] | Path = None,
     save_fig_format: str = "svg",
     show_plot: bool = True,
@@ -3049,6 +3117,9 @@ def plot_type_distribution(
 
     palette : str, default="Dark2"
         Color palette for the gene types.
+
+    figsize : tuple[float, float], default=(10, 6)
+            Size of the figure (width, height).
 
     path_for_save : str, optional
         If provided, saves the plot as a PNG file to this path.
@@ -3090,7 +3161,7 @@ def plot_type_distribution(
     df_long = sums.reset_index().melt(id_vars='index', var_name='Type', value_name='value')
     df_long.rename(columns={'index': 'Condition'}, inplace=True)
 
-    fig, ax = plt.subplots(figsize=(10, 6))
+    fig, ax = plt.subplots(figsize=figsize)
     sns.barplot(data=df_long, x='Condition', y='value', hue='Type', palette=palette, ax=ax)
     ax.set_xlabel('')
     ax.set_ylabel(mode_slot)

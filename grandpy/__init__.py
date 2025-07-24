@@ -14,7 +14,8 @@ from .plot import (
     plot_type_distribution,
     plot_expression_test,
     plot_vulcano,
-    plot_ma
+    plot_ma,
+    format_correlation
 )
 
 from .utils import concat
@@ -39,6 +40,7 @@ __all__ = [
     "plot_expression_test",
     "plot_vulcano",
     "plot_ma",
+    "format_correlation",
     "concat",
     "ModeSlot",
     "Plot",
