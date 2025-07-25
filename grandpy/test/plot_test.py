@@ -1,9 +1,11 @@
-import io
-import pytest
-import tempfile
 import contextlib
-import grandpy as gp
+import io
+import tempfile
 from pathlib import Path
+
+import pytest
+
+import grandpy as gp
 
 TOLERANCE_KB = 1
 OUT_OF_RANGE = []

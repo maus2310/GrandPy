@@ -1,10 +1,14 @@
 from io import StringIO
+
 import numpy as np
 import pandas as pd
 import pytest
 
 from grandpy import read_grand, ModeSlot
 from grandpy.utils import _make_unique
+
+
+# TODO: Funktions not yet tested: get_significant_genes(), get_analysis_table(), (get_references()), to_anndata, from_anndata
 
 
 @pytest.fixture(scope="module")
@@ -27,12 +31,18 @@ def test_slots_and_with_dropped_slots(sars):
     assert sorted(dropped.slots) == sorted(expected_slots)
 
 def test_with_condition(sars):
-    updated_list = sars.with_condition(["MOGGED"] * 12)
+    updated_str = sars.with_condition("Control")
+    updated_list = sars.with_condition(["Control"] * 12)
     updated_dict = sars.with_condition({"Mock.1h.A": "Test1", "Mock.3h.A": "Test2"})
+    updated_coldata_columns = sars.with_condition(["Condition", "Replicate"])
 
+    coldata_columns_exp = ["Mock A", "Mock A", "Mock A", "Mock B", "Mock A", "Mock A", "SARS A", "SARS A", "SARS A", "SARS B", "SARS A", "SARS A"]
+
+    assert all(condition == "Control" for condition in updated_str.condition)
+    assert all(condition == "Control" for condition in updated_list.condition)
     assert updated_dict.coldata["Condition"]["Mock.1h.A"] == "Test1"
     assert updated_dict.coldata["Condition"]["Mock.3h.A"] == "Test2"
-    assert all(condition == "MOGGED" for condition in updated_list.condition)
+    assert all(updated_coldata_columns.coldata["Condition"].values == coldata_columns_exp)
 
     with pytest.raises(ValueError):
         sars.with_condition(["a", "b"])
@@ -50,16 +60,116 @@ def test_with_swapped_columns(sars):
     assert all(swapped.get_matrix(columns="Mock.1h.A") == sars.get_matrix(columns="Mock.2h.A"))
     assert all(swapped.get_matrix(columns="Mock.2h.A") == sars.get_matrix(columns="Mock.1h.A"))
 
+def test_get_matrix(sars):
+    # --- Basic Test: Should return a ndarray with rows and columns ---
+    result = sars.get_matrix(mode_slot="count", genes=["UHMK1", "ATF3"], columns=[0, 1])
+    assert isinstance(result, np.ndarray)
+    assert result.shape == (2, 2)
+    assert np.allclose(result[0, 0], 650.0)
+    assert np.allclose(result[1, 1], 188.0)
+
+    # --- Test mode slot ---
+    result = sars.get_matrix(mode_slot="old_count", genes=["UHMK1", "ATF3"], columns=[0, 1], ntr_nan=False)
+    assert result.shape == (2, 2)
+    assert not np.isnan(result[0, 0])
+    assert np.allclose(result[0, 1], 4312.0, atol=1)
+    assert np.allclose(result[1, 1], 69.0, atol=1)
+
+    # --- Test ntr_nan=True with mode slot ---
+    result = sars.get_matrix(mode_slot="new_count", genes=["UHMK1", "ATF3"], columns=[0, 1], ntr_nan=True)
+    assert np.isnan(result[0, 0])
+    assert not np.isnan(result[1, 1])
+    assert np.allclose(result[0, 1], 201.0, atol=1)
+    assert np.allclose(result[1, 1], 118.0, atol=1)
+
+    # --- Test with invalid mode_slot ---
+    with pytest.raises(ValueError):
+        sars.get_matrix(mode_slot="invalid_slot", genes=["UHMK1", "ATF3"], columns=[0, 1])
+
+    # --- Test without genes ---
+    result = sars.get_matrix(mode_slot="new_count", genes=[], columns=[0, 1])
+    assert result.shape[0] == 0
+
 def test_get_table(sars):
-    expected = {
-        "Mock.no4sU.A": [0.0, 0.0, 0.0],
-        "Mock.1h.A": [201.79815, 118.64680, 531.08850],
-        "Mock.2h.A": [434.818800, 81.973500, 1197.084926]
-    }
-    result = sars.get_table(ModeSlot("new", "count"), [0, 1, 2], [0, 1, 2])
-    for col in expected:
-        for row in range(3):
-            assert round(result[col][row], 3) == round(expected[col][row], 3)
+    # --- Basic Test: Should return a DataFrame with rows and columns ---
+    result = sars.get_table()
+    assert result.shape[0] == 1045
+    assert result.shape[1] == 12
+
+    # --- Test with Specific Genes ---
+    genes = ["UHMK1", "ATF3"]
+    result = sars.get_table(genes=genes)
+    assert all(gene in result.index for gene in genes)
+    assert result.shape[0] == len(genes)
+
+    # --- Test with Specific Columns (Samples) ---
+    columns = [0, 1]
+    result = sars.get_table(columns=columns)
+    assert result.shape[1] == len(columns)
+
+    # --- Test with gene_info included ---
+    result = sars.get_table(with_gene_info=True)
+    assert "Symbol" in result.columns
+    assert "Length" in result.columns
+
+    # --- Test with different `name_genes_by` (Ensembl IDs instead of Symbols) ---
+    result = sars.get_table(with_gene_info=True, name_genes_by="Gene")
+    assert result.index.name == "Gene"
+
+    # --- Test with summarize DataFrame ---
+    summarize = sars.get_summary_matrix()
+    result = sars.get_table(summarize=summarize)
+    assert result.shape == (1045,2)
+
+    # --- Test with Prefix for Column Names ---
+    result = sars.get_table(prefix="Test_")
+    assert all(col.startswith("Test_") for col in result.columns)
+
+    # --- Test with ntr_nan=True (Check if no4sU has NaN values) ---
+    result = sars.get_table(mode_slot="new_count", ntr_nan=True)
+    assert all(np.isnan(result.loc[:,["Mock.no4sU.A", "SARS.no4sU.A"]]))
+
+    # --- Test with reorder_columns=True (Columns should match original order) ---
+    result = sars.get_table(columns=list(range(4,8)) + list(range(0,4)) + list(range(8,12)), reorder_columns=True)
+    assert list(result.columns) == list(sars.coldata.index)
+
+    # --- Test with invalid genes (should return empty DataFrame) ---
+    result = sars.get_table(genes=["NonExistentGene"])
+    assert result.shape[0] == 0
+
+def test_get_data(sars):
+    # --- Basic Test: Should return a DataFrame with rows and columns ---
+    result = sars.get_data(with_coldata=False)
+    assert result.shape[0] == 12
+    assert result.shape[1] == 1045
+
+    # --- Test with Specific Genes ---
+    genes = ["UHMK1", "ATF3"]
+    result = sars.get_data(genes=genes)
+    assert all(gene in result.columns for gene in genes)
+    assert result.shape[1] == len(genes) + len(sars.coldata.columns)
+
+    # --- Test with Specific Columns (Samples) ---
+    columns = [0, 1]
+    result = sars.get_data(columns=columns)
+    assert result.shape[0] == len(columns)
+
+    # --- Test with coldata included ---
+    result = sars.get_data(with_coldata=True)
+    assert isinstance(result, pd.DataFrame)
+    assert "Condition" in result.columns
+
+    # --- Test with different `name_genes_by` (Ensembl IDs instead of Symbols) ---
+    result = sars.get_data(with_coldata=False, name_genes_by="Gene")
+    assert result.columns[0] == "ENSG00000152332"
+
+    # --- Test with by_rows=True ---
+    result = sars.get_data(by_rows=True)
+    assert result.shape[0] > result.shape[1]
+
+    # --- Test with invalid genes (should return empty DataFrame) ---
+    result = sars.get_data(genes=["NonExistentGene"], with_coldata=False)
+    assert result.shape[1] == 0
 
 def test_merge_coldata(sars):
     gp1 = sars[0:10]
@@ -197,4 +307,53 @@ def test_replace(sars):
 
     with pytest.raises(ValueError):
         sars[0:3].replace(slots={"count": np.ones((5, 5))})  # invalid shape
+
+def test_with_updated_symbols(sars):
+    small_sars = sars[0:3]
+
+    # Test 1: Test on already correct symbols
+    t1_sars = small_sars
+    try:
+        updated_sars = t1_sars.with_updated_symbols(species="human")
+
+        assert "Symbol" in updated_sars.gene_info.columns
+        assert updated_sars.genes == small_sars.genes
+    except Exception as e:
+        pytest.fail(f"Test 1 failed due to exception: {e}")
+
+
+    # Test 2: Update wrong symbols
+    wrong_symbols = ["s1", "s2", "s3"]
+    t2_sars = small_sars.with_gene_info(name="Symbol", value=wrong_symbols)
+    try:
+        updated_sars = t2_sars.with_updated_symbols(species="human")
+
+        assert "Symbol" in updated_sars.gene_info.columns
+        assert updated_sars.genes == small_sars.genes
+    except Exception as e:
+        pytest.fail(f"Test 2 failed due to exception: {e}")
+
+
+    # Test 3: No symbol column
+    t3_sars = small_sars._dev_replace(gene_info=small_sars.gene_info.drop(columns=["Symbol"]))
+    try:
+        updated_sars = t3_sars.with_updated_symbols(species="human")
+
+        assert "Symbol" in updated_sars.gene_info.columns
+        assert updated_sars.genes == small_sars.genes
+    except Exception as e:
+        pytest.fail(f"Test 3 failed due to exception: {e}")
+
+
+    # Test 4: Ensemble ID has no matching symbol
+    wrong_symbols = [None, "S", "s3"]
+    t4_sars = sars[["ORF1ab", "S", "UHMK1"]].with_gene_info(name="Symbol", value=wrong_symbols)
+    try:
+        updated_sars = t4_sars.with_updated_symbols(species="human")
+
+        assert "Symbol" in updated_sars.gene_info.columns
+        assert updated_sars.genes == [None, "S", "UHMK1"]
+    except Exception as e:
+        pytest.fail(f"Test 4 failed due to exception: {e}")
+
 

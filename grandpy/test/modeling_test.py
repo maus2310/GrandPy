@@ -1,6 +1,7 @@
-import pytest
-import numpy as np
 import re
+
+import numpy as np
+import pytest
 
 from grandpy import read_grand
 

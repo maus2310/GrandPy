@@ -1,9 +1,9 @@
-import warnings
-import numpy as np
-from math import log
-import pandas as pd
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Union, Optional, Any
+from math import log
+from typing import TYPE_CHECKING, Union, Optional
+
+import numpy as np
+import pandas as pd
 
 if TYPE_CHECKING:
     from .grandPy import GrandPy
@@ -284,7 +284,7 @@ def _filter_genes(
     if use is None:
         aggregation_matrix = None
         if min_condition is not None:
-            aggregation_matrix = data.get_summary_matrix(no4sU=True, average=False)
+            aggregation_matrix = data.get_summary_matrix(no4su=True, average=False)
             min_columns = min_condition
 
         matrix = data.get_table(mode_slot=mode_slot, summarize=aggregation_matrix)

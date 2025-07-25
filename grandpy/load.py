@@ -1,22 +1,20 @@
-import tempfile
-import urllib.request
-import shutil
 import gzip
 import re
+import shutil
+import tempfile
+import urllib.request
 import warnings
+from pathlib import Path
 from typing import Any, Optional, Callable
+from urllib.parse import urlparse, unquote
 
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
-
-from pathlib import Path
 from scipy.io import mmread
-from urllib.parse import urlparse, unquote
 
-from .utils import _to_sparse, _make_unique
 from .grandPy import GrandPy
-
+from .utils import _to_sparse, _make_unique
 
 # Predefined design variable names for harmonized analysis (mirrors R's Design list)
 DESIGN_KEYS = {

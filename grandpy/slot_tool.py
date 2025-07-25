@@ -1,10 +1,11 @@
 import warnings
+from collections.abc import Sequence
+from typing import Literal, Union
+
 import anndata as ad
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
-from collections.abc import Sequence
-from typing import Literal, Union, Any
 
 
 class ModeSlot:

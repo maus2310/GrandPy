@@ -1,10 +1,11 @@
-import pytest
 import numpy as np
 import pandas as pd
-
+import pytest
 from mpmath import polygamma
-from grandpy.lfc import psi_lfc, norm_lfc, empirical_bayes_prior, center_median
+
 import grandpy as gp
+from grandpy.lfc import psi_lfc, norm_lfc, empirical_bayes_prior, center_median
+
 
 def test_filter_genes():
     sars = gp.read_grand("../data/sars.tsv", design=("Condition", "dur.4sU", "Replicate"))

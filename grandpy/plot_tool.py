@@ -1,8 +1,9 @@
 import re
 import warnings
-import anndata as ad
 from collections.abc import Mapping
 from typing import Literal, Callable, Any, Union
+
+import anndata as ad
 
 
 class Plot:

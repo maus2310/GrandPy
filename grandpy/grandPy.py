@@ -2,17 +2,18 @@ import copy
 import re
 import warnings
 from collections.abc import Sequence, Mapping
-from typing import Any, Union, Literal, Callable
 from os import PathLike
+from typing import Any, Union, Literal, Callable
+
+import anndata as ad
 import numpy as np
 import pandas as pd
-import anndata as ad
 import scipy.sparse as sp
 
-from .lfc import psi_lfc
-from .slot_tool import SlotTool, ModeSlot
-from .plot_tool import PlotTool, Plot
 from .analysis_tool import AnalysisTool
+from .lfc import psi_lfc
+from .plot_tool import PlotTool, Plot
+from .slot_tool import SlotTool, ModeSlot
 from .utils import _ensure_list, _make_unique, _reindex_by_index_name, _subset_dense_or_sparse
 
 
@@ -144,7 +145,7 @@ class GrandPy:
         )
 
     def __repr__(self):
-        return f"<GrandPy object with {self._anndata.n_obs} genes and {self._anndata.n_vars} samples>"
+        return f"<GrandPy object: {self._anndata.n_obs} genes x {self._anndata.n_vars} samples>"
 
     def __len__(self):
         return self._anndata.n_obs
@@ -165,7 +166,7 @@ class GrandPy:
 
 
 
-    # ----- basic "mutation" functions -----
+    # ----- fundamental transformation methods -----
     def replace(
             self,
             *,
@@ -329,6 +330,10 @@ class GrandPy:
 
         compression: Literal["gzip" or "lzf"], optional
             For ['lzf', 'gzip'], see the h5py :ref:`dataset_compression`.
+
+        Returns
+        -------
+        None
         """
         anndata = self._anndata.copy()
 
@@ -1036,6 +1041,9 @@ class GrandPy:
 
         genes = _ensure_list(genes)
 
+        if genes == []:
+            return []
+
         if any(pd.isna(genes)):
             warnings.warn("NaN values removed from gene input.")
             genes = [g for g in genes if pd.notna(g)]
@@ -1049,7 +1057,7 @@ class GrandPy:
             return list(np.flatnonzero(mask))
 
         # Boolean mask
-        if all(isinstance(g, (bool, np.bool_)) for g in genes):
+        if all(isinstance(g, (bool, np.bool)) for g in genes):
             if len(genes) != n:
                 raise ValueError("Boolean mask length does not match gene count.")
             return list(np.flatnonzero(genes))
@@ -1098,8 +1106,8 @@ class GrandPy:
         """
         import mygene
 
-        new_gene_info = self.gene_info.copy()
-        genes = new_gene_info["Gene"].tolist()
+        gene_info = self.gene_info
+        genes = gene_info["Gene"].tolist()
 
         mg = mygene.MyGeneInfo()
 
@@ -1117,12 +1125,16 @@ class GrandPy:
 
         result = _make_unique(result["symbol"].dropna())
         result.index.name = "Gene"
-        result = _reindex_by_index_name(result, new_gene_info)
+        result = _reindex_by_index_name(result, gene_info)
 
-        if new_gene_info.get("Symbol", None) is not None:
+        if gene_info.get("Symbol", None) is not None:
+            new_gene_info = gene_info.set_index("Gene", drop=False)
+
+            result.name = "Symbol"
+
             new_gene_info.update(result)
 
-            return self._dev_replace(gene_info = new_gene_info)
+            result = new_gene_info["Symbol"]
 
         return self.with_gene_info(name="Symbol", value=result.values)
 
@@ -1149,7 +1161,7 @@ class GrandPy:
         """
         return self.gene_info[self.gene_info["Type"] == classification_label].get("Symbol").tolist()
 
-    # TODO: get_significant_genes() doc string umschreiben
+    # TODO: get_significant_genes testen + doc string verbessern
     def get_significant_genes(
             self,
             analysis = None,
@@ -1381,19 +1393,22 @@ class GrandPy:
 
         columns = _ensure_list(columns)
 
+        if columns == []:
+            return []
+
         if all(isinstance(column, int) for column in columns):
-            result = coldata.iloc[columns].index
+            result = coldata.iloc[columns]
 
         else:
             try:
-                result = coldata.loc[columns, :].index
+                result = coldata.loc[columns, :]
             except KeyError as e:
                 raise e
 
         if reorder:
             result = result.reindex(coldata.index).dropna(how="all", axis=0)
 
-        return list(result)
+        return list(result.index)
 
     def with_renamed_columns(self, mapping: Mapping) -> "GrandPy":
         """
@@ -1557,6 +1572,8 @@ class GrandPy:
             mode_slot: Union[str, ModeSlot] = None,
             genes: Union[str, int, Sequence[Union[str, int]]] = None,
             columns: Union[str, int, Sequence[Union[str, int]]] = None,
+            *,
+            ntr_nan: bool = False,
             force_numpy: bool = True
     ) -> Union[np.ndarray, sp.csr_matrix]:
         """
@@ -1576,6 +1593,13 @@ class GrandPy:
 
         columns: str or int or Sequence[str or int]
             The samples/cells to be retrieved. Either by names, indices, or a boolean mask.
+
+        ntr_nan: bool, default False
+            If True, ntr values for no4sU will be set to NaN.
+            Otherwise, they remain 0.
+
+            This has an impact on all slots when they are in a different mode than 'total',
+            as 'new' and 'old' are calculated by multiplying with ntr.
 
         force_numpy: bool, default True
             If True, return will always be a numpy ndarray, regardless of the type of the slots.
@@ -1600,7 +1624,7 @@ class GrandPy:
         if mode_slot is None:
             mode_slot = self.default_slot
 
-        data = self.__resolve_mode_slot(mode_slot)
+        data = self.__resolve_mode_slot(mode_slot=mode_slot, ntr_nan=ntr_nan)
 
         row_indices = self.get_index(genes)
         column_indices = [self.coldata.index.get_loc(column) for column in self.get_columns(columns)]
@@ -1622,6 +1646,17 @@ class GrandPy:
     ) -> pd.DataFrame:
         """
         Get a DataFrame containing the data from data slots, optionally with the corresponding coldata.
+
+        See Also
+        --------
+        GrandPy.get_table
+            Similar to get_data, but slots are transposed, so gene_info can be concatenated.
+
+        GrandPy.get_analysis_table:
+            Get a DataFrame containing analysis tables.
+
+        GrandPy.get_matrix
+            Similar to get_data, but transposed and gives numpy arrays without row or column names.
 
         Parameters
         ----------
@@ -1651,21 +1686,13 @@ class GrandPy:
             If True, ntr values for no4sU will be set to NaN.
             Otherwise, they remain 0.
 
+            This has an impact on all slots when they are in a different mode than 'total',
+            as 'new' and 'old' are calculated by multiplying with ntr.
+
         Returns
         -------
         pd.DataFrame
             A DataFrame containing the specified data for the genes and columns.
-
-        See Also
-        --------
-        GrandPy.get_table
-            Similar to get_data, but slots are transposed, so gene_info can be concatenated.
-
-        GrandPy.get_analysis_table:
-            Get a DataFrame containing analysis tables.
-
-        GrandPy.get_matrix
-            Similar to get_data, but transposed and gives numpy arrays without row or column names.
         """
         coldata = self.coldata
         gene_info = self.gene_info
@@ -1699,6 +1726,7 @@ class GrandPy:
             if with_coldata:
                 result_df = pd.concat([coldata.iloc[row_indices], result_df], axis=1)
 
+            result_df.index.name = name_genes_by
             return result_df
 
         else:
@@ -1707,14 +1735,14 @@ class GrandPy:
                 data_subset = _subset_dense_or_sparse(all_data, row_indices, column_indices)
 
                 df = pd.DataFrame(data_subset, index=row_names, columns=column_names)
-                df = df.reset_index().melt(id_vars="index", var_name=name_genes_by, value_name="Value")
-                df["Slot"] = slot_name
-                df.rename(columns={"index": "Name"}, inplace=True)
+                df.index.name = "Name"
+                df_melted = df.reset_index().melt(id_vars='Name', var_name='Gene', value_name='Value')
+                df_melted["Slot"] = slot_name
 
-                result_df = pd.concat([result_df, df], axis=1)
+                result_df = pd.concat([result_df, df_melted], axis=0)
 
             if with_coldata:
-                result_df = coldata.reset_index().merge(
+                result_df = coldata.reset_index(drop=True).merge(
                     result_df,
                     on="Name",
                     how="left"
@@ -1785,6 +1813,9 @@ class GrandPy:
             If True, ntr values for no4sU will be set to NaN.
             Otherwise, they remain 0.
 
+            This has an impact on all slots when they are in a different mode than 'total',
+            as 'new' and 'old' are calculated by multiplying with ntr.
+
         reorder_columns: bool, default False
             If True, the columns in the result will be in the same order as in the object.
             Otherwise, they will be in the same order as the input.
@@ -1844,6 +1875,7 @@ class GrandPy:
             result_df.columns = [f"{prefix}{col}" for col in result_df.columns]
 
         result_df.index = gene_names
+        result_df.index.name = name_genes_by
         return result_df
 
     def get_analysis_table(
@@ -2104,7 +2136,6 @@ class GrandPy:
         df["__group__"] = (
             df[group_cols].astype(str).agg("_".join, axis=1) if group_cols else "GROUP"
         )
-
         df_subset = df[columns].copy()
 
         if reference_function:
@@ -2135,7 +2166,7 @@ class GrandPy:
 
 
 
-    # ----- Functions on the whole object -----
+    # ----- Methods on the whole object -----
     def merge(
             self,
             other: "GrandPy",
@@ -2268,7 +2299,7 @@ class GrandPy:
         return adata.T
 
 
-    # ----- Processing functions -----
+    # ----- Processing methods -----
     def normalize(self, genes: Sequence[str] = None, name: str = "norm", slot: str = "count",
                   set_to_default: bool = True, size_factors=None, return_size_factors: bool = False) -> Union["GrandPy",np.ndarray]:
         """
@@ -2345,7 +2376,7 @@ class GrandPy:
                               total_len=total_len)
 
     def normalize_rpm(self, genes=None, name: str = "norm", slot: str = "count", set_to_default=True, factor=1e6):
-        from .processing import _normalize_rpm
+        pass
 
         # return _normalize_rpm(self, genes=genes, name=name, slot=slot, set_to_default=set_to_default, factor=factor)
 
@@ -2495,7 +2526,7 @@ class GrandPy:
 
 
 
-    # ----- modeling functions -----
+    # ----- modeling methods -----
     def fit_kinetics(
             self,
             fit_type: Literal["nlls", "ntr", "chase"] = "nlls",
@@ -2693,32 +2724,32 @@ class GrandPy:
 
 
 
-    # ----- Differential Expression functions -----
+    # ----- Differential expression methods -----
     def get_summary_matrix(
             self,
             *,
-            no4sU: bool = False,
-            columns: Union[None, str, list[str]] = None,
+            no4su: bool = False,
+            columns: Union[str, int, Sequence[Union[str, int, bool]]] = None,
             average: bool = True
     ) -> pd.DataFrame:
         """
         Return a summarization matrix for averaging or aggregation.
 
         If this matrix is multiplied with a count table,
-        either the average (average=TRUE) or the sum (average=FALSE) of all columns (samples or cells)
+        either the average (average=TRUE) or the sum (average=FALSE) of all columns
         belonging to the same Condition is computed.
 
         Parameters
         ----------
-        no4sU : bool, default False
+        no4su : bool, default False
             If True, no4sU columns will be included in the summary matrix.
             Otherwise, they will be ignored and returned as zeros.
 
-        columns : str or list of str, optional
-            Column names (samples) to include. Can be condition names or column filters.
+        columns: str or int or Sequence[str or int or bool], optional
+            Samples/cells to be included. Either by their index, their name, or a boolean mask.
 
         average : bool, default True
-            If True, normalize columns to sum to 1 (i.e., compute group-wise average).
+            If True, normalizes columns to sum to 1 (i.e., compute group-wise average).
 
         Returns
         -------
@@ -2727,7 +2758,7 @@ class GrandPy:
         """
         from .diffexp import _get_summary_matrix
 
-        return _get_summary_matrix(self, no4sU, columns, average)
+        return _get_summary_matrix(data=self, no4su=no4su, columns=columns, average=average)
 
 
     def get_contrasts(self, contrast: list = "Condition", columns: Union[Sequence[bool], bool] = None, group: Union[Sequence[str], str] = None, name_format: str = None, no4su: bool = True) -> pd.DataFrame:

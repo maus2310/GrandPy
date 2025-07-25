@@ -1,13 +1,13 @@
+from itertools import combinations
+from typing import Union, TYPE_CHECKING, Callable, Sequence
+
 import numpy as np
 import pandas as pd
-
-from typing import Union, TYPE_CHECKING,Callable, Sequence
-from itertools import combinations
 from pydeseq2.preprocessing import deseq2_norm
 
 from .lfc import psi_lfc, center_median
-from .utils import _ensure_list
 from .slot_tool import ModeSlot, _parse_as_mode_slot
+from .utils import _ensure_list
 
 try:
     from pydeseq2.ds import DeseqDataSet, DeseqStats
@@ -19,25 +19,25 @@ if TYPE_CHECKING:
 
 def _get_summary_matrix(
         data: "GrandPy",
-        no4sU: bool = False,
+        no4su: bool = False,
         columns: Union[None, str, list[str]] = None,
-        average: bool = True) -> pd.DataFrame:
+        average: bool = True
+) -> pd.DataFrame:
     coldata = data.coldata
     sample_names = coldata.index.tolist()
 
     if "Condition" not in coldata.columns:
-        raise ValueError("Object does not have 'Condition' information!")
+        raise ValueError("A GrandPy object must contain a 'Condition' column in its coldata for summarization")
 
     if columns is None:
         columns = sample_names
     else:
-        columns = _ensure_list(columns)
-        columns = [c for c in columns if c in sample_names]
+        columns = data.get_columns(columns)
 
-    # Exclude 4sU-marked samples if requested
-    if not no4sU:
+    # Exclude 4sU-marked samples
+    if not no4su:
         no4su_samples = coldata.index[coldata["no4sU"]]
-        columns = list(set(columns) - set(no4su_samples))
+        columns = [col for col in columns if col not in no4su_samples]
 
     # Mapping: sample_name → condition
     condition_series = coldata.loc[columns, "Condition"]

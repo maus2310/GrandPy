@@ -1,10 +1,11 @@
 import warnings
-import numpy as np
-import pandas as pd
-import anndata as ad
-import scipy.sparse as sp
 from collections.abc import Sequence
 from typing import Union, Iterable, Callable, Literal, TYPE_CHECKING
+
+import anndata as ad
+import numpy as np
+import pandas as pd
+import scipy.sparse as sp
 
 if TYPE_CHECKING:
     from grandpy import GrandPy

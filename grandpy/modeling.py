@@ -1,15 +1,15 @@
 import os
 import warnings
+from collections.abc import Sequence, Mapping
+from dataclasses import dataclass
+from functools import cached_property
+from typing import Union, Literal, TYPE_CHECKING, Callable
+
 import numpy as np
 import pandas as pd
-from collections.abc import Sequence, Mapping
-from typing import Union, Literal, TYPE_CHECKING, Callable
-from scipy.optimize import minimize, minimize_scalar, least_squares, OptimizeResult, brentq, root_scalar
+from scipy.optimize import minimize, minimize_scalar, least_squares, OptimizeResult, brentq
 from scipy.stats import norm, t
 from tqdm import tqdm
-from functools import cached_property, lru_cache
-from dataclasses import dataclass
-
 
 from .slot_tool import ModeSlot
 from .utils import _ensure_list, _get_kinetics_data

@@ -1,10 +1,10 @@
 import warnings
-import numpy as np
-
 from typing import Union, Callable
+
+import numpy as np
+from scipy.optimize import minimize, root_scalar
 from scipy.special import digamma, polygamma
 from scipy.stats import norm, beta
-from scipy.optimize import minimize, root_scalar
 
 
 def empirical_bayes_prior(A: np.ndarray, B: np.ndarray, min_sd: float = 0.0) -> tuple[float, float]:

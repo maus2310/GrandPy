@@ -1,10 +1,11 @@
 import re
 import warnings
+from collections.abc import Sequence
+from typing import Union
+
 import anndata as ad
 import numpy as np
 import pandas as pd
-from typing import Union
-from collections.abc import Sequence
 
 from .utils import _ensure_list, _make_unique, _reindex_by_index_name
 

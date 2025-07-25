@@ -1,23 +1,23 @@
 import re
 import warnings
+from pathlib import Path
+from typing import Optional, Union, Callable, Any, Literal
+
+import matplotlib.colors as matplot_colors
+import matplotlib.pyplot as plt
+import matplotlib.ticker
 import numpy as np
 import pandas as pd
 import seaborn as sns
-import matplotlib.pyplot as plt
-import matplotlib.ticker
-import matplotlib.colors as matplot_colors
-
-from pathlib import Path
 from matplotlib import cm
-from typing import Optional, Union, Callable, Any, Literal
-from scipy.stats import gaussian_kde, pearsonr, spearmanr, kendalltau
-from sklearn.decomposition import PCA
 from pydeseq2.dds import DeseqDataSet
 from scipy.sparse import issparse
-
+from scipy.stats import gaussian_kde, pearsonr, spearmanr, kendalltau
+from sklearn.decomposition import PCA
 
 from .grandPy import GrandPy
 from .slot_tool import ModeSlot, _parse_as_mode_slot
+
 
 def _is_sparse_matrix(mat: any)-> bool:
     """
