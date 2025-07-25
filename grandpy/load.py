@@ -508,7 +508,7 @@ def validate_input(df, required_columns: list[str], context: str = "", warn_only
 def classify_genes(gene_info: pd.DataFrame,
                    custom_classes: dict[str, Any] = None,
                    use_default: bool = True,
-                   name_unknown: str = "Unknown") -> pd.Series:
+                   cg_name: str = "Unknown") -> pd.Series:
     """
     Assigns a type to each gene (e.g. "Cellular", "mito", or custom classes).
 
@@ -523,7 +523,7 @@ def classify_genes(gene_info: pd.DataFrame,
     use_default : bool, default=True
         Whether to include default classes ("mito", "ERCC", "Cellular").
 
-    name_unknown : str, default="Unknown"
+    cg_name : str, default="Unknown"
         Label for unmatched genes.
 
     Returns
@@ -540,11 +540,9 @@ def classify_genes(gene_info: pd.DataFrame,
 
     classes = {}
 
-    # Benutzerdefinierte Klassen übernehmen
     if custom_classes:
         classes.update(custom_classes)
 
-    # Standardklassen ergänzen, falls use_default = True ist
     if use_default:
         classes.update({
             "mito": lambda df: df["Symbol"].str.startswith("MT-", na=False),
@@ -552,13 +550,10 @@ def classify_genes(gene_info: pd.DataFrame,
             "Cellular": lambda df: df["Gene"].str.match(r"^ENS.*G\d+$", na=False)
         })
 
-    # Unknown-Klasse als Fallback
-    classes[name_unknown] = lambda df: pd.Series([True] * len(df), index=df.index)
+    classes[cg_name] = lambda df: pd.Series([True] * len(df), index=df.index)
 
-    # Ergebnis-Vektor initialisieren
     gene_type = pd.Series(index=gene_info.index, dtype="object")
 
-    # Klassifikation rückwärts (benutzerdefiniert überschreibt Standard)
     for name, func in reversed(list(classes.items())):
         matches = func(gene_info)
         gene_type[matches] = name

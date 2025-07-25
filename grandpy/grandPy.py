@@ -1139,7 +1139,7 @@ class GrandPy:
         --------
         Retrieve all genes with the `Type` 'Unknown' from the GrandPy instance 'sars'.
 
-        >>> sars.get_classified_genes("Unknown")
+        >>> self.get_classified_genes("Unknown")
         ['ORF3a', 'E', 'M', 'ORF6', 'ORF7a', 'ORF7b', 'ORF8', 'N', 'ORF10', 'ORF1ab', 'S']
 
         Returns

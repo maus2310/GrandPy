@@ -5,14 +5,14 @@ import contextlib
 import grandpy as gp
 from pathlib import Path
 
-TOLERANCE_KB = 10
+TOLERANCE_KB = 1
 OUT_OF_RANGE = []
 
 EXPECTED_FILE_SIZES = {
     "Expression_Test.svg": 204,
     "Heatmap_norm.svg": 63,
     "PCA_norm.svg": 40,
-    "SARS.1h.A_Mock.1h.A_norm.svg": 210,
+    "SARS.1h.A_Mock.1h.A_norm.svg": 206,
     "SRSF6_Groups_Bars.svg": 36,
     "SRSF6_Groups_Points.svg": 40,
     "SRSF6_Old_vs_New.svg": 52,

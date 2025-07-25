@@ -1791,14 +1791,12 @@ def plot_gene_groups_points(
             for aes_key in ['color', 'shape']:
                 if aest.get(aes_key) == dodge:
                     dodge_col = aest[aes_key]
-                    print("1")
                     found = True
                     break
             if not found:
                 warnings.warn(f"dodge='{dodge}' is not used in aest (color or shape). Skipping dodge.")
         elif dodge:
             dodge_col = aest.get("color")
-            print("2")
 
         if dodge_col and dodge_col in plot_df.columns:
             unique_dodge_vals = sorted(plot_df[dodge_col].unique())
@@ -1807,14 +1805,11 @@ def plot_gene_groups_points(
                 val: (i - (len(unique_dodge_vals) - 1) / 2) * offset_factor
                 for i, val in enumerate(unique_dodge_vals)
             }
-            print("3")
             plot_df["_xpos"] = plot_df["_xbase"] + plot_df[dodge_col].map(val_to_offset)
         else:
             plot_df["_xpos"] = plot_df["_xbase"]
-            print("4")
     else:
         plot_df["_xpos"] = plot_df["_xbase"]
-        print("5")
 
 
     sns.scatterplot(
