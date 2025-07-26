@@ -2400,7 +2400,7 @@ class GrandPy:
 
         Parameters
         ----------
-        data : GrandPy
+        self : GrandPy
             A GrandPy data object containing gene expression matrices and gene annotations.
 
         dilution : float, default 4e4
@@ -2767,7 +2767,7 @@ class GrandPy:
 
         Parameters
         ----------
-        coldata : pd.DataFrame
+        self : pd.DataFrame
             DataFrame containing sample metadata (e.g., conditions, groups).
 
         contrast : list[str]
@@ -2787,7 +2787,7 @@ class GrandPy:
             Supports placeholders: "$A", "$B", "$COL", "$GRP".
             Default: "$A vs $B" (or "$A vs $B.$GRP" if `group` is set)
 
-        no4sU : bool, default False
+        no4su : bool, default False
             If True, samples where `coldata['no4sU'] == False` are excluded from contrast computation.
 
         Returns
