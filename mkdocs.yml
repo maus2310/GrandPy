@@ -1,0 +1,57 @@
+site_name: "grandPy"
+site_author: "Andreas Weiß"
+repo_url: "https://git.uni-regensburg.de/se24/g03/grandpy"
+repo_name: GitLab
+
+theme:
+  name: null
+  custom_dir: 'mkdocs_docskimmer'
+  include_search_page: true
+  search_index_only: false
+  static_templates:
+    - 404.html
+
+plugins:
+  - mkdocs-jupyter
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            extra:
+              show_signatur: false
+            merge_init_into_class: true
+            docstring_style: numpy
+            show_source: true
+            separate_signature: true
+            members_order: source
+
+nav:
+  - Home: index.md
+  - Getting startet: notebooks/notebook_00_getting_started.ipynb
+  - Tutorials: tutorials/tutorials.md
+  - API:
+      - GrandPy: api/grandPy.md
+      - Load: api/load.md
+      - Plots: api/plot.md
+      - Processing: api/processing.md
+      - Lfc: api/lfc.md
+      - Differential Expression: api/diffexp.md
+      - Modeling: api/modeling.md
+      - Utils: api/utils.md
+      - Tools:
+          - Analysis: api/analysis_tool.md
+          - Plot: api/plot_tool.md
+          - Slot: api/slot_tool.md
+
+
+
+extra:
+  version: 0.4.0
+  logo: logo/grandPy_hex_logo.png
+  favicon: logo/grandPy_hex_logo.ico
+
+
+
+
+extra_css:
+  - css/custom.css

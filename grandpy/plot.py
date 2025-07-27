@@ -1186,7 +1186,7 @@ def plot_pca(
         n_top : int, default=500
             Number of top most variable genes/features to include in the PCA.
         aest : dict, optional
-            A dictionary defining aesthetic mappings for plotting, e.g., color or shape.
+            Aesthetic mapping for color and style. Keys are "color" and "shape" corresponding to coldata columns. (e.g. {"color": "duration.4sU", "shape": "Condition"})
         x : int, default=1
             Principal component to use for the x-axis (e.g., 1 = PC1).
         y : int, default=2
@@ -1316,7 +1316,7 @@ def plot_gene_old_vs_new(
         show_ci : bool, default=False
             If True, adds error bars for credible intervals using slots 'lower' and 'upper'.
         aest : dict, optional
-            Dictionary defining aesthetic mappings for plotting (e.g. color, shape).
+            Aesthetic mapping for color and style. Keys are "color" and "shape" corresponding to coldata columns. (e.g. {"color": "duration.4sU", "shape": "Condition"})
         size : float, default=50
             Size of scatter points.
         figsize : tuple[float, float], default=(10, 6)
@@ -1505,7 +1505,7 @@ def plot_gene_total_vs_ntr(
         show_ci : bool, default=False
             If True, adds error bars using the `lower` and `upper` credible interval slots.
         aest : dict, optional
-            Dictionary defining aesthetic mappings (e.g., color, shape).
+            Aesthetic mapping for color and style. Keys are "color" and "shape" corresponding to coldata columns. (e.g. {"color": "duration.4sU", "shape": "Condition"})
         size : float, default=50
             Size of scatter points.
         figsize : tuple[float, float], default=(10, 6)
@@ -1687,7 +1687,7 @@ def plot_gene_groups_points(
         show_ci : bool, default=False
             If True, displays error bars using the `lower` and `upper` credible interval slots.
         aest : dict, optional
-            A dictionary defining aesthetic mappings (e.g., color or shape columns in coldata).
+            Aesthetic mapping for color and style. Keys are "color" and "shape" corresponding to coldata columns. (e.g. {"color": "duration.4sU", "shape": "Condition"})
         size : float, default=50
             Point size for the scatterplot.
         figsize : tuple[float, float], default=(10, 6)
@@ -2107,8 +2107,8 @@ def plot_gene_snapshot_timecourse(
         show_ci : bool, default=False
             Whether to plot confidence intervals. Requires precomputed slots 'lower' and 'upper'.
         aest : dict or None, optional
-            Aesthetic mapping for color and style. Keys typically include "color" and "shape"
-            corresponding to metadata columns.
+            Aesthetic mapping for color and style. Keys are "color" and "shape"
+            corresponding to coldata columns. (e.g. {"color": "duration.4sU", "shape": "Condition"})
         size : float, default=50
             Marker size for scatter plot points.
         figsize : tuple[float, float], default=(10, 6)

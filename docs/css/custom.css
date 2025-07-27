@@ -1,0 +1,122 @@
+/* Remove all default hover/focus styles */
+a:hover,
+a:focus,
+a:focus-visible,
+a:active,
+*:focus,
+*:focus-visible,
+*:focus-within,
+a.md-button:focus,
+.md-nav__link:focus {
+  outline: none !important;
+  box-shadow: none !important;
+  border: none !important;
+  text-decoration: none !important;
+}
+
+/* Set link text color to black on hover/focus */
+a:hover,
+a:focus,
+a:focus-visible {
+  color: black !important;
+}
+
+/* Base code styling */
+code {
+  background: #f5f5f5;
+  padding: 0.1em 0.4em;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: inherit;
+  color: #333;
+  white-space: nowrap;
+}
+
+/* Force inline display for inline code */
+p code,
+span code,
+li code,
+strong code,
+em code {
+  display: inline;
+}
+
+/* Enable word wrapping in text and inline code */
+.md-typeset p,
+.md-typeset li,
+.md-typeset span,
+.md-typeset code,
+p > code,
+li > code,
+span > code,
+.md-typeset table td,
+.md-typeset table th {
+  white-space: normal !important;
+  overflow-wrap: anywhere !important;
+  word-break: break-word !important;
+}
+
+/* Prevent wrapping in code blocks; allow horizontal scrolling */
+pre,
+pre > code,
+.highlight pre,
+.md-typeset .highlight pre,
+.md-typeset pre {
+  white-space: pre !important;
+  overflow-x: auto !important;
+  word-break: normal !important;
+  overflow-wrap: normal !important;
+}
+
+/* Set full navigation bar background color */
+.nav-main {
+  background-color: #007654 !important;
+  border-bottom: 5px solid #007654 !important;
+}
+
+/* Top-level navigation links */
+.nav-main__level > .nav-main__item > .nav-main__link {
+  color: white !important;
+  background-color: transparent;
+  padding: 0.5em 1em;
+}
+
+/* Hover state for navigation links */
+.nav-main__level > .nav-main__item > .nav-main__link:hover {
+  background-color: #008866 !important;
+  color: white !important;
+}
+
+/* Headings color */
+h1, h2, h3, h4, h5, h6 {
+  color: #007654 !important;
+}
+
+/* Active navigation item styling */
+.nav-main__item {
+  border: none !important;
+  box-shadow: none !important;
+
+}
+.nav-main__item--current > .nav-main__link {
+  background-color: #008866 !important;
+  background-size: 20px !important;
+  font-weight: bold;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.nav-main__item--current::before {
+  color: #007654 !important;
+}
+
+/* Table of contents links */
+.section-toc__link {
+  color: #007654 !important;
+}
+
+/* Active TOC link */
+.section-toc__link--active {
+  color: #007654 !important;
+  font-weight: bold;
+}
