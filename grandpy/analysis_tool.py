@@ -65,9 +65,12 @@ class AnalysisTool:
 
         return result
 
-    def with_analysis(self, name: str, table: pd.DataFrame, by: str = None) -> dict[str, pd.DataFrame]:
+    def with_analysis(self, name: str, table: pd.DataFrame) -> dict[str, pd.DataFrame]:
         if not isinstance(table, pd.DataFrame):
             raise TypeError(f"'table' has to be a pd.DataFrame, not {type(table)}")
+
+        if not table.index.name == "Symbol":
+            raise ValueError(f"Index of 'table' has to be named 'Symbol'. It is currently named: {table.index.name}.")
 
         new_analyses = self._adata.uns["analyses"].copy()
 
@@ -76,9 +79,6 @@ class AnalysisTool:
         if new_analyses.get(name, None) is not None:
             warnings.warn(f"An analysis named {name} already exists! It will be overwritten.")
 
-        if by is not None:
-            table = table.set_index(by, drop=False, verify_integrity=False)
-
         table.index = _make_unique(pd.Series(table.index), warn=False)
         table = _reindex_by_index_name(table, self._adata.obs)
 
@@ -86,12 +86,18 @@ class AnalysisTool:
 
         return new_analyses
 
-    def drop_analyses(self, pattern: str = None) -> dict[str, pd.DataFrame]:
+    def drop_analyses(self, pattern: Union[str, Sequence[str]] = None) -> dict[str, pd.DataFrame]:
         new_analyses = self._adata.uns["analyses"]
 
         if pattern is None:
             new_analyses = {}
         else:
-            new_analyses = {key: value for key, value in new_analyses.items() if not re.search(pattern, key)}
+            pattern = _ensure_list(pattern)
+
+            new_analyses = {
+                key: value
+                for key, value in new_analyses.items()
+                if not any(re.search(pat, key) for pat in pattern)
+            }
 
         return new_analyses

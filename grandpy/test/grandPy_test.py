@@ -8,7 +8,7 @@ from grandpy import read_grand, ModeSlot
 from grandpy.utils import _make_unique
 
 
-# TODO: Funktions not yet tested: get_significant_genes(), get_analysis_table(), (get_references()), to_anndata, from_anndata
+# TODO: Funktions not yet tested: get_significant_genes(), (get_references())
 
 
 @pytest.fixture(scope="module")
@@ -29,6 +29,148 @@ def test_slots_and_with_dropped_slots(sars):
     dropped = sars.with_dropped_slots("ntr")
     expected_slots = ['count', 'alpha', 'beta']
     assert sorted(dropped.slots) == sorted(expected_slots)
+
+
+def test_get_analysis_table(sars):
+    mini_sars = sars[0:3]
+    mini_sars = mini_sars.fit_kinetics()
+
+    # Test: Retrieve all analyses without gene info
+    result = mini_sars.get_analysis_table(with_gene_info=False)
+    assert isinstance(result, pd.DataFrame)
+    assert result.shape[0] == 3
+    assert result.shape[1] == 4
+
+    # Test: Retrieve all analyses with gene info
+    result_with_gene_info = mini_sars.get_analysis_table(with_gene_info=True)
+    assert "Symbol" in result_with_gene_info.columns
+    assert result_with_gene_info.shape[1] == 8
+
+    # Test: Retrieve specific analysis with selected genes and columns
+    result_specific = mini_sars.get_analysis_table(analyses="kinetics_Mock", columns="Synthesis", genes=[0, 1], with_gene_info=False)
+    assert result_specific.shape == (2, 1)
+
+    # Test: Use regex to select analyses
+    result_regex = mini_sars.get_analysis_table(analyses="kinetics_.*", regex=True)
+    assert "Mock_Synthesis" in result_regex.columns and "SARS_Synthesis" in result_regex.columns
+
+    # Test: Prefix columns by analyses
+    result_non_prefixed = mini_sars.get_analysis_table(prefix_by_analyses=False)
+    assert not any(col.startswith("kinetics") for col in result_non_prefixed.columns)
+
+    # Test: Use 'by_rows' to add rows instead of columns
+    result_by_rows = mini_sars.get_analysis_table(by_rows=True, with_gene_info=False)
+    assert result_by_rows.shape[0] > result_by_rows.shape[1]
+
+    # Test: Missing genes or columns
+    result_empty_genes = mini_sars.get_analysis_table(genes=[], with_gene_info=False)
+    assert result_empty_genes.shape[0] == 0
+    result_empty_columns = mini_sars.get_analysis_table(columns=[], with_gene_info=False)
+    assert result_empty_columns.shape[1] == 0
+
+    # Test: Gene info column with name_genes_by
+    result_by_gene = mini_sars.get_analysis_table(name_genes_by="Gene", with_gene_info=False)
+    assert result_by_gene.index.name == "Gene"
+
+    # Test: Regex search for columns
+    result_column_regex = mini_sars.get_analysis_table(columns=".*Synthesis.*", prefix_by_analyses=False)
+    assert "Synthesis" in result_column_regex.columns
+    assert not "Half-life" in result_column_regex.columns
+
+def test_analysis_tool(sars):
+    mini_sars = sars[0:2]
+
+    new_analysis_name = "new_analysis"
+    new_analysis_data = pd.DataFrame({
+        "Symbol": ["UHMK1", "ATF3"],
+        "Gene": ["ENSG123", "ENSG456"],
+        "Value": [10, 20]
+    }, index=pd.Index(["UHMK1", "ATF3"],name="Symbol"))
+
+
+    # --- Test with_analysis ---
+    updated_gp = mini_sars.with_analysis(name=new_analysis_name, table=new_analysis_data)
+
+    assert new_analysis_name in updated_gp.analyses
+
+    analysis_data = updated_gp.get_analysis_table(new_analysis_name, with_gene_info=False)
+    assert analysis_data.shape == (2, 3)
+    assert analysis_data["Symbol"].iloc[0] == "UHMK1"
+    assert analysis_data["Value"].iloc[1] == 20
+    assert analysis_data.index.name == "Symbol"
+
+    new_analysis_data_invalid = pd.DataFrame({
+        "Value": [50, 60]
+    })
+    with pytest.raises(ValueError):
+        updated_gp.with_analysis(name="invalid_analysis", table=new_analysis_data_invalid)
+
+
+    # --- Test get_analyses ---
+    mini_sars = mini_sars.with_analysis(name="new_analysis", table=new_analysis_data)
+    mini_sars = mini_sars.with_analysis(name="same_analysis", table=new_analysis_data)
+
+    analyses = mini_sars.analyses
+    assert isinstance(analyses, list)
+    assert len(analyses) == 2
+
+    result = mini_sars.get_analyses(pattern="new_analysis")
+    assert "new_analysis" in result
+
+    result = mini_sars.get_analyses(pattern="new.*", regex=True)
+    assert "new_analysis" in result
+    assert len(result) == 1
+
+    result = mini_sars.get_analyses(pattern=[True, False], regex=False)
+    assert "new_analysis" in result
+    assert len(result) == 1
+
+    result = mini_sars.get_analyses(pattern=["new_analysis"], description=True)
+    assert result == {'new_analysis': ['Symbol', 'Gene', 'Value']}
+
+
+    # --- Test with_dropped_analyses ---
+    drop_gp = mini_sars.with_dropped_analyses(pattern="new_a")
+    assert "new_analysis" not in drop_gp.analyses
+    assert "same_analysis" in drop_gp.analyses
+
+    drop_gp_2 = mini_sars.with_dropped_analyses(pattern=["new_analysis", "same"])
+    assert len(drop_gp_2.analyses) == 0
+
+    drop_gp_3 = mini_sars.with_dropped_analyses()
+    assert len(drop_gp_3.analyses) == 0
+
+    drop_gp_4 = mini_sars.with_dropped_analyses(pattern="x")
+    assert len(drop_gp_4.analyses) == 2
+
+
+def test_get_index_and_get_genes(sars):
+    assert sars.get_index("UHMK1", regex=False) == [0]
+    assert sars.get_index(["UHMK1", "ATF3"], regex=False) == [0, 1]
+    assert sars.get_index(0, regex=False) == [0]
+
+    assert len(sars.get_genes()) == sars.gene_info.shape[0]
+    assert sars.get_genes(0) == ["UHMK1"]
+    assert sars.get_genes(0, get_gene_symbols=False) == ["ENSG00000152332"]
+    assert sars.get_genes("UHMK1") == ["UHMK1"]
+    assert sars.get_genes("UHMK1", get_gene_symbols=False) == ["ENSG00000152332"]
+    assert sars.get_genes([0, 1]) == ["UHMK1", "ATF3"]
+    assert sars.get_genes(["UHMK1", "ATF3"]) == ["UHMK1", "ATF3"]
+    assert sars.get_genes([0, "UHMK1"]) == ["UHMK1"]
+
+    regex_genes = sars.get_genes(r"^U.*1$", regex=True)
+    regex_names = sars.get_genes(r"^U.*1$", regex=True, get_gene_symbols=False)
+    assert regex_genes == ["UHMK1", "UPP1", "UBA1"]
+    assert regex_names == ["ENSG00000152332", "ENSG00000183696", "ENSG00000130985"]
+
+
+def test_with_coldata(sars):
+    updated = sars.with_coldata(name="new_condition", value=list(range(12)))
+    assert "new_condition" not in sars.coldata.columns
+    assert "new_condition" in updated.coldata.columns
+
+    with pytest.raises(ValueError):
+        sars[0:5].with_coldata(name="X", value=list(range(10)))  # length mismatch
 
 def test_with_condition(sars):
     updated_str = sars.with_condition("Control")
@@ -59,6 +201,72 @@ def test_with_swapped_columns(sars):
     swapped = sars.with_swapped_columns("Mock.1h.A", "Mock.2h.A")
     assert all(swapped.get_matrix(columns="Mock.1h.A") == sars.get_matrix(columns="Mock.2h.A"))
     assert all(swapped.get_matrix(columns="Mock.2h.A") == sars.get_matrix(columns="Mock.1h.A"))
+
+
+def test_with_gene_info(sars):
+    small = sars[0:10]
+    updated_list = small.with_gene_info(name="Gene", value=list(range(10)))
+    assert not np.array_equal(updated_list.gene_info["Gene"], small.gene_info.get("Gene", []))
+
+    updated_dict = small.with_gene_info(name="Gene", value={"UHMK1": "Control", "ATF3": "Treatment"})
+    assert updated_dict.gene_info["Gene"][0] == "Control"
+    assert updated_dict.gene_info["Gene"][1] == "Treatment"
+
+    series = pd.Series(range(10), index=small.gene_info.index[:10])
+    updated_series = small.with_gene_info(name="Gene", value=series)
+    assert all(updated_series.gene_info["Gene"].values == series.values)
+
+    with pytest.raises(ValueError):
+        sars[0:5].with_gene_info(name="X", value=list(range(10)))  # too long
+
+def test_with_updated_symbols(sars):
+    small_sars = sars[0:3]
+
+    # Test 1: Test on already correct symbols
+    t1_sars = small_sars
+    try:
+        updated_sars = t1_sars.with_updated_symbols(species="human")
+
+        assert "Symbol" in updated_sars.gene_info.columns
+        assert updated_sars.genes == small_sars.genes
+    except Exception as e:
+        pytest.fail(f"Test 1 failed due to exception: {e}")
+
+
+    # Test 2: Update wrong symbols
+    wrong_symbols = ["s1", "s2", "s3"]
+    t2_sars = small_sars.with_gene_info(name="Symbol", value=wrong_symbols)
+    try:
+        updated_sars = t2_sars.with_updated_symbols(species="human")
+
+        assert "Symbol" in updated_sars.gene_info.columns
+        assert updated_sars.genes == small_sars.genes
+    except Exception as e:
+        pytest.fail(f"Test 2 failed due to exception: {e}")
+
+
+    # Test 3: No symbol column
+    t3_sars = small_sars._dev_replace(gene_info=small_sars.gene_info.drop(columns=["Symbol"]))
+    try:
+        updated_sars = t3_sars.with_updated_symbols(species="human")
+
+        assert "Symbol" in updated_sars.gene_info.columns
+        assert updated_sars.genes == small_sars.genes
+    except Exception as e:
+        pytest.fail(f"Test 3 failed due to exception: {e}")
+
+
+    # Test 4: Ensemble ID has no matching symbol
+    wrong_symbols = [None, "S", "s3"]
+    t4_sars = sars[["ORF1ab", "S", "UHMK1"]].with_gene_info(name="Symbol", value=wrong_symbols)
+    try:
+        updated_sars = t4_sars.with_updated_symbols(species="human")
+
+        assert "Symbol" in updated_sars.gene_info.columns
+        assert updated_sars.genes == [None, "S", "UHMK1"]
+    except Exception as e:
+        pytest.fail(f"Test 4 failed due to exception: {e}")
+
 
 def test_get_matrix(sars):
     # --- Basic Test: Should return a ndarray with rows and columns ---
@@ -171,6 +379,7 @@ def test_get_data(sars):
     result = sars.get_data(genes=["NonExistentGene"], with_coldata=False)
     assert result.shape[1] == 0
 
+
 def test_merge_coldata(sars):
     gp1 = sars[0:10]
     gp2 = sars[0:10]
@@ -231,48 +440,6 @@ CAPN2,ENSG00000162909,4130,Cellular"""
 
     assert (merged.astype(str) == reference.astype(str)).all().all()
 
-def test_with_gene_info(sars):
-    small = sars[0:10]
-    updated_list = small.with_gene_info(name="Gene", value=list(range(10)))
-    assert not np.array_equal(updated_list.gene_info["Gene"], small.gene_info.get("Gene", []))
-
-    updated_dict = small.with_gene_info(name="Gene", value={"UHMK1": "Control", "ATF3": "Treatment"})
-    assert updated_dict.gene_info["Gene"][0] == "Control"
-    assert updated_dict.gene_info["Gene"][1] == "Treatment"
-
-    series = pd.Series(range(10), index=small.gene_info.index[:10])
-    updated_series = small.with_gene_info(name="Gene", value=series)
-    assert all(updated_series.gene_info["Gene"].values == series.values)
-
-    with pytest.raises(ValueError):
-        sars[0:5].with_gene_info(name="X", value=list(range(10)))  # too long
-
-def test_with_coldata(sars):
-    updated = sars.with_coldata(name="new_condition", value=list(range(12)))
-    assert "new_condition" not in sars.coldata.columns
-    assert "new_condition" in updated.coldata.columns
-
-    with pytest.raises(ValueError):
-        sars[0:5].with_coldata(name="X", value=list(range(10)))  # length mismatch
-
-def test_get_index_and_get_genes(sars):
-    assert sars.get_index("UHMK1", regex=False) == [0]
-    assert sars.get_index(["UHMK1", "ATF3"], regex=False) == [0, 1]
-    assert sars.get_index(0, regex=False) == [0]
-
-    assert len(sars.get_genes()) == sars.gene_info.shape[0]
-    assert sars.get_genes(0) == ["UHMK1"]
-    assert sars.get_genes(0, get_gene_symbols=False) == ["ENSG00000152332"]
-    assert sars.get_genes("UHMK1") == ["UHMK1"]
-    assert sars.get_genes("UHMK1", get_gene_symbols=False) == ["ENSG00000152332"]
-    assert sars.get_genes([0, 1]) == ["UHMK1", "ATF3"]
-    assert sars.get_genes(["UHMK1", "ATF3"]) == ["UHMK1", "ATF3"]
-    assert sars.get_genes([0, "UHMK1"]) == ["UHMK1"]
-
-    regex_genes = sars.get_genes(r"^U.*1$", regex=True)
-    regex_names = sars.get_genes(r"^U.*1$", regex=True, get_gene_symbols=False)
-    assert regex_genes == ["UHMK1", "UPP1", "UBA1"]
-    assert regex_names == ["ENSG00000152332", "ENSG00000183696", "ENSG00000130985"]
 
 def test_replace(sars):
     sars_small = sars[0:3, 0:3]
@@ -308,52 +475,5 @@ def test_replace(sars):
     with pytest.raises(ValueError):
         sars[0:3].replace(slots={"count": np.ones((5, 5))})  # invalid shape
 
-def test_with_updated_symbols(sars):
-    small_sars = sars[0:3]
-
-    # Test 1: Test on already correct symbols
-    t1_sars = small_sars
-    try:
-        updated_sars = t1_sars.with_updated_symbols(species="human")
-
-        assert "Symbol" in updated_sars.gene_info.columns
-        assert updated_sars.genes == small_sars.genes
-    except Exception as e:
-        pytest.fail(f"Test 1 failed due to exception: {e}")
-
-
-    # Test 2: Update wrong symbols
-    wrong_symbols = ["s1", "s2", "s3"]
-    t2_sars = small_sars.with_gene_info(name="Symbol", value=wrong_symbols)
-    try:
-        updated_sars = t2_sars.with_updated_symbols(species="human")
-
-        assert "Symbol" in updated_sars.gene_info.columns
-        assert updated_sars.genes == small_sars.genes
-    except Exception as e:
-        pytest.fail(f"Test 2 failed due to exception: {e}")
-
-
-    # Test 3: No symbol column
-    t3_sars = small_sars._dev_replace(gene_info=small_sars.gene_info.drop(columns=["Symbol"]))
-    try:
-        updated_sars = t3_sars.with_updated_symbols(species="human")
-
-        assert "Symbol" in updated_sars.gene_info.columns
-        assert updated_sars.genes == small_sars.genes
-    except Exception as e:
-        pytest.fail(f"Test 3 failed due to exception: {e}")
-
-
-    # Test 4: Ensemble ID has no matching symbol
-    wrong_symbols = [None, "S", "s3"]
-    t4_sars = sars[["ORF1ab", "S", "UHMK1"]].with_gene_info(name="Symbol", value=wrong_symbols)
-    try:
-        updated_sars = t4_sars.with_updated_symbols(species="human")
-
-        assert "Symbol" in updated_sars.gene_info.columns
-        assert updated_sars.genes == [None, "S", "UHMK1"]
-    except Exception as e:
-        pytest.fail(f"Test 4 failed due to exception: {e}")
 
 

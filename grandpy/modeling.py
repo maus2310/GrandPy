@@ -152,7 +152,7 @@ def fit_kinetics_nlls(
     unique_conditions = np.unique(condition_vector)
 
     # --- Decide on parallelisation ---
-    datasize = len(genes_to_fit) * len(unique_conditions)
+    datasize = len(genes_to_fit)
 
     max_workers = get_dynamic_process_count(datasize, max_processes, exact_processes)
 
@@ -264,7 +264,7 @@ def fit_kinetics_chase(
     unique_conditions = np.unique(condition_vector)
 
     # --- Decide on parallelisation ---
-    datasize = len(genes_to_fit) * len(unique_conditions)
+    datasize = len(genes_to_fit)
 
     max_workers = get_dynamic_process_count(datasize, max_processes, exact_processes)
 

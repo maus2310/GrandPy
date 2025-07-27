@@ -26,7 +26,7 @@ class GrandPy:
 
     Notes
     -----
-    The Object is designed to be immutable. Changes are made through `with_...` methods.
+    The Object is designed to be immutable. Most changes are made through `with_...` methods.
     Simple getters are implemented as properties, more complex ones through `get_...` methods.
 
     Examples
@@ -575,13 +575,11 @@ class GrandPy:
         """
         Get the names of all stored analyses.
 
-        Returns
-        -------
-        list[str]
-            A list of analysis names.
-
         See Also
         --------
+        GrandPy.get_analysis_table:
+            Retrieve analysis data.
+
         GrandPy.get_analysis:
             Get the names of analyses matching a pattern.
 
@@ -590,12 +588,31 @@ class GrandPy:
 
         GrandPy.with_analysis:
             Add an analysis to the object. Usually not to be used directly.
+
+        Returns
+        -------
+        list[str]
+            A list of analysis names.
         """
         return self.__analysis_tool.analyses()
 
     def get_analyses(self, pattern: Union[str, int, Sequence[Union[str, int, bool]]] = None, regex: bool = True, description: bool = False) -> list[str]:
         """
-        Get the names of analyses. Either by a regex, names, indices, or a boolean mask.
+        Get the names of analyses. Either by regex, names, indices, or a boolean mask.
+
+        See Also
+        --------
+        GrandPy.get_analysis_table:
+            Retrieve analysis data.
+
+        GrandPy.analyses:
+            Get a list of all available analyses.
+
+        GrandPy.with_dropped_analyses:
+            Remove analyses with a regex pattern.
+
+        GrandPy.with_analysis:
+            Add an analysis to the object. Usually not to be used directly.
 
         Parameters
         ----------
@@ -612,28 +629,32 @@ class GrandPy:
         -------
         list[str]
             A list containing the names of all matching analyses.
-
-        See Also
-        --------
-        GrandPy.analyses:
-            Get a list of all available analyses.
-
-        GrandPy.with_dropped_analyses:
-            Remove analyses with a regex pattern.
-
-        GrandPy.with_analysis:
-            Add an analysis to the object. Usually not to be used directly.
         """
         return self.__analysis_tool.get_analyses(pattern, regex=regex, description=description)
 
-    def with_analysis(self, name: str, table: pd.DataFrame, by: str = None) -> "GrandPy":
+    def with_analysis(self, name: str, table: pd.DataFrame) -> "GrandPy":
         """
         Returns a new GrandPy object with added analyses.
 
         Not to be used directly in most cases, instead it is called by analysis methods.
 
-        If used directly, the Dataframe has to contain gene names (Ensemble ids) or symbols,
-        that are either already the index or the column name is given to the 'by' parameter.
+        Notes
+        -----
+        The index of `table` has to be named "Symbol", containing the gene symbols.
+
+        See Also
+        --------
+        GrandPy.get_analysis_table:
+            Retrieve analysis data.
+
+        GrandPy.analyses:
+            Get the names of all stored analyses.
+
+        GrandPy.get_analysis:
+            Get the names of analyses matching a pattern.
+
+        GrandPy.with_dropped_analyses:
+            Remove analyses with a regex pattern.
 
         Parameters
         ----------
@@ -643,38 +664,22 @@ class GrandPy:
         table: pd.DataFrame
             A DataFrame containing the analysis data. Has to contain gene names or symbols.
 
-        by: str, optional
-            A column in the table to be used as an index.
-
         Returns
         -------
         A new GrandPy object with added analyses.
-
-        See Also
-        --------
-        GrandPy.analyses:
-            Get the names of all stored analyses.
-
-        GrandPy.get_analysis:
-            Get the names of analyses matching a pattern.
-
-        GrandPy.with_dropped_analyses:
-            Remove analyses with a regex pattern.
         """
-        new_analyses = self.__analysis_tool.with_analysis(name, table, by=by)
+        new_analyses = self.__analysis_tool.with_analysis(name, table)
 
         return self._dev_replace(analyses=new_analyses)
 
-    def with_dropped_analyses(self, pattern: str = None) -> "GrandPy":
+    def with_dropped_analyses(self, pattern: Union[str, Sequence[str]] = None) -> "GrandPy":
         """
         Returns a new GrandPy object with analyses matching the pattern removed.
 
-        If no pattern is given, all analyses will be removed.
-
         Parameters
         ----------
-        pattern: str, optional
-            A regex pattern to match analyses.
+        pattern: str or Sequence[str], optional
+            One or multiple regex patterns to match analyses. If None, all analyses will be removed.
 
         Returns
         -------
@@ -682,6 +687,9 @@ class GrandPy:
 
         See Also
         --------
+        GrandPy.get_analysis_table:
+            Retrieve analysis data.
+
         GrandPy.analyses:
             Get the names of all stored analyses.
 
@@ -1105,11 +1113,15 @@ class GrandPy:
             A GrandPy instance with the column 'Symbols' added to the gene_info.
         """
         import mygene
+        import logging
 
         gene_info = self.gene_info
-        genes = gene_info["Gene"].tolist()
+        genes = self.get_genes(get_gene_symbols=False)
 
         mg = mygene.MyGeneInfo()
+
+        # This is done to suppress a specific warning mygene will output otherwise
+        logging.getLogger('biothings.client').setLevel(logging.ERROR)
 
         # Query: get the symbols in batches (a single large request is not possible with mygene)
         try:
@@ -1122,6 +1134,11 @@ class GrandPy:
             )
         except Exception as e:
             raise RuntimeError(f"MyGeneInfo request failed: {e}")
+
+        if "symbol" not in result:
+            warnings.warn("No valid ensembl IDs were found. Check if the 'species' parameter is set correctly, "
+                          "and that gene_info contains the column 'Gene' with valid Ensemble IDs.")
+            return self
 
         result = _make_unique(result["symbol"].dropna())
         result.index.name = "Gene"
@@ -3007,12 +3024,12 @@ def anndata_to_grandpy(anndata: ad.AnnData, transpose: bool = True) -> GrandPy:
         Notes
         -----
         The internal AnnData has to be transposed, relative to what you would usually expect.
-        Meaning obs has to relate to the rows of X (coldata) and var to the columns (gene_info).
+        Meaning obs has to contain the column metadata (coldata) and var the gene metadata (gene_info).
 
         See Also
         --------
         GrandPy.to_anndata
-            Extract a GrandPy instance from the AnnData.
+            Convert the GrandPy instance to AnnData.
 
         Returns
         -------
@@ -3061,8 +3078,6 @@ def read_h5ad(path: Union[PathLike[str], str]) -> GrandPy:
         A GrandPy instance loaded from the file.
     """
     anndata = ad.read_h5ad(path)
-
-    anndata.uns["plots"] = {}
 
     return anndata_to_grandpy(anndata, transpose = False)
 
