@@ -171,7 +171,7 @@ def _compute_lfc(
 
         # create named columns
         lfc_col = f"{name_prefix}_{contrast}_LFC"
-        table = pd.DataFrame({lfc_col: lfc_vals}, index=gene_list)
+        table = pd.DataFrame({lfc_col: lfc_vals}, index=pd.Index(gene_list, name="Symbol"))
         if compute_m:
             M_vals = 10 ** (0.5 * (np.log10(A_counts + 0.5) + np.log10(B_counts + 0.5)))
             m_col = f"{name_prefix}_{contrast}_M"
@@ -482,12 +482,11 @@ def _pairwise(
 def _get_contrasts(
         data: "GrandPy",
         contrast: Union[Sequence[str], str] = "Condition",
-        columns: Union[Sequence[bool], bool] = None,
+        columns: Union[str, int, Sequence[Union[str, int, bool]]] = None,
         group: Union[Sequence[str], str] = None,
         name_format: str = None,
-        no4sU: bool = False,
+        no4su: bool = False,
         ) -> pd.DataFrame:
-
     coldata = data.coldata
 
     contrast = _ensure_list(contrast)
@@ -499,14 +498,13 @@ def _get_contrasts(
         raise ValueError(f"Column {contrast[0]} not found in coldata.")
     col = contrast[0]
 
-    use_mask = np.ones(len(coldata), dtype=bool)
-    if columns is not None:
-        use_mask = coldata.index.isin(columns) if isinstance(columns, list) else columns
+    columns = data.get_columns(columns)
+    use_mask = [elem in columns for elem in data.columns]
 
     if name_format is None:
         name_format = "$A vs $B" if group is None else "$A vs $B.$GRP"
 
-    if not no4sU and "no4sU" in coldata.columns:
+    if not no4su and "no4sU" in coldata.columns:
         use_mask &= ~coldata["no4sU"].fillna(False)
 
     def make_name(a, b, grp=""):

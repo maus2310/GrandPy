@@ -148,8 +148,12 @@ def fit_kinetics_nlls(
     """
     genes_to_fit = data.get_genes(genes)
 
-    condition_vector = data.coldata["Condition"].values
+    coldata = data.coldata
+
+    condition_vector = coldata["Condition"].values
     unique_conditions = np.unique(condition_vector)
+
+    sample_names = data.coldata["Name"].values
 
     # --- Decide on parallelisation ---
     datasize = len(genes_to_fit)
@@ -179,6 +183,7 @@ def fit_kinetics_nlls(
         time_cond = time[idx]
         new_cond = new_expression[:, idx]
         old_cond = old_expression[:, idx]
+        sample_names_cond = sample_names[idx]
         condition_steady_state = steady_state[condition]
 
         if parallel:
@@ -197,6 +202,7 @@ def fit_kinetics_nlls(
                         chase=False,
                         total_value=None,
                         steady_state=condition_steady_state,
+                        sample_names=sample_names_cond,
                         **kwargs
                     )
                     jobs.append((gene, job))
@@ -229,6 +235,7 @@ def fit_kinetics_nlls(
                     chase=False,
                     total_value=None,
                     steady_state=condition_steady_state,
+                    sample_names=sample_names_cond,
                     **kwargs
                 )
                 series = res.to_series(condition=condition, prefix=name_prefix, fields=return_fields)
@@ -260,8 +267,12 @@ def fit_kinetics_chase(
     """
     genes_to_fit = data.get_genes(genes)
 
-    condition_vector = data.coldata["Condition"].values
+    coldata = data.coldata
+
+    condition_vector = coldata["Condition"].values
     unique_conditions = np.unique(condition_vector)
+
+    sample_names = data.coldata["Name"].values
 
     # --- Decide on parallelisation ---
     datasize = len(genes_to_fit)
@@ -285,6 +296,8 @@ def fit_kinetics_chase(
     condition_vector = condition_vector[~no4sU_mask]
     time = time[~no4sU_mask]
 
+    sample_names = sample_names[~no4sU_mask]
+
     slot_matrix = data.get_matrix(slot, genes=genes_to_fit)
     slot_matrix = slot_matrix[:, ~no4sU_mask]
 
@@ -300,6 +313,7 @@ def fit_kinetics_chase(
         idx = np.where(condition_vector == condition)[0]
         time_cond = time[idx]
         new_cond = new_expression[:, idx]
+        sample_names_cond = sample_names[idx]
 
         if parallel:
             jobs = []
@@ -317,6 +331,7 @@ def fit_kinetics_chase(
                         chase=True,
                         total_value=total_value,
                         steady_state=True,
+                        sample_names=sample_names_cond,
                         **kwargs
                     )
                     jobs.append((gene, job))
@@ -348,6 +363,7 @@ def fit_kinetics_chase(
                     chase=True,
                     total_value=slot_values_per_gene.get(gene, None),
                     steady_state=True,
+                    sample_names=sample_names_cond,
                     **kwargs
                 )
                 series = res.to_series(condition=condition, prefix=name_prefix, fields=return_fields)
@@ -371,6 +387,7 @@ def fit_kinetics_gene_least_squares(
     chase: bool = False,
     steady_state: bool = True,
     total_value: float = None,
+    sample_names: list[str] = None,
 ) -> "FitResult":
     """
     Fits synthesis and degradation rates for a single gene and condition using non-linear least squares.
@@ -403,6 +420,9 @@ def fit_kinetics_gene_least_squares(
 
     total_value : float, optional
        Optional total expression values used to estimate initial concentration in chase mode.
+
+    sample_names: list[str], optional
+        Sample names for naming residuals.
 
     Returns
     -------
@@ -458,7 +478,8 @@ def fit_kinetics_gene_least_squares(
         slot_total=total_value,
         opt_result=result,
         ci_size=ci_size,
-        steady_state=steady_state
+        steady_state=steady_state,
+        sample_names=sample_names
     )
 
 
@@ -492,6 +513,9 @@ class FitResult:
 
     steady_state : bool
         Whether steady-state assumption was used during fitting.
+
+    sample_names : list
+        A List of sample names for naming residuals.
     """
     time: np.ndarray = np.nan
     new_values: np.ndarray = np.nan
@@ -501,9 +525,10 @@ class FitResult:
     opt_result: OptimizeResult = None
     ci_size: float = 0.95
     steady_state: bool = True
+    sample_names: list[str] = None
 
     # --- Core Parameters ---
-    @cached_property
+    @property
     def synthesis(self) -> float:
         return self.opt_result.x[0] if self.opt_result is not None else np.nan
 
@@ -514,11 +539,11 @@ class FitResult:
         else:
             return self.synthesis
 
-    @cached_property
+    @property
     def degradation(self) -> float:
         return self.opt_result.x[1] if self.opt_result is not None else np.nan
 
-    @cached_property
+    @property
     def inv_deg(self) -> float:
         return 1.0 / self.degradation if self.degradation > 0 else np.nan
 
@@ -527,12 +552,12 @@ class FitResult:
     def exp_old(self) -> np.ndarray:
         return np.exp(-self.degradation * self.time)
 
-    @cached_property
+    @property
     def exp_new(self) -> np.ndarray:
         return np.exp(-self.degradation * self.time)
 
     # --- Predictions ---
-    @cached_property
+    @property
     def pred_old(self) -> np.ndarray:
         if self.chase:
             return np.zeros_like(self.time)
@@ -541,17 +566,14 @@ class FitResult:
         else:
             return self.f0 * np.exp(-self.degradation * self.time)
 
-    @cached_property
+    @property
     def pred_new(self) -> np.ndarray:
         if self.chase:
             return self.synthesis * self.inv_deg * self.exp_new
-        if self.steady_state:
-            return self.synthesis * self.inv_deg * (1 - self.exp_new)
-        else:
-            return self.synthesis * self.inv_deg * (1 - np.exp(-self.degradation * self.time))
+        return self.synthesis * self.inv_deg * (1 - self.exp_new)
 
     # --- Residuals ---
-    @cached_property
+    @property
     def residuals_raw(self) -> np.ndarray:
         return np.concatenate([
             self.old_values - self.pred_old,
@@ -567,11 +589,13 @@ class FitResult:
             expected = np.concatenate([self.pred_old, self.pred_new])
             observed = np.concatenate([self.old_values, self.new_values])
 
+        abs = np.abs(observed - expected)
+
         rel = expected / (observed + 1e-8)
 
         return {
-            "Absolute": expected,
-            "Relative": rel
+            "absolute": abs,
+            "relative": rel
         }
 
     # --- Metrics ---
@@ -619,7 +643,7 @@ class FitResult:
             return self.opt_result.x[2] # steady_state = False
         return np.nan
 
-    @cached_property
+    @property
     def ci_bounds(self) -> tuple[np.ndarray, np.ndarray]:
         if self.opt_result is None or self.opt_result.jac is None:
             return (np.full_like(self.opt_result.x, np.nan),) * 2
@@ -708,43 +732,30 @@ class FitResult:
 
             if key == "residuals":
                 # isolated handling for residuals
-                from collections import defaultdict
+                sample_names = np.concatenate([self.sample_names, self.sample_names])
 
                 for res_type, values in val.items():
                     n_old = len(self.time)
-                    rep_counter = defaultdict(int)
-
-                    old_i = 0
-                    new_i = 0
 
                     for i, v in enumerate(values):
                         if self.chase:
-                            kind = "New"
-                            time = self.time[i]
-                            key = (kind, time)
-                            r = rep_counter[key]
-                            rep_counter[key] += 1
+                            kind = "new"
+                            sample_name = sample_names[i].replace(".", "_")
                         else:
                             if i < n_old:
-                                kind = "Old"
-                                time = self.time[old_i]
-                                key = (kind, time)
-                                r = rep_counter[key]
-                                rep_counter[key] += 1
-                                old_i += 1
+                                kind = "old"
+                                sample_name = sample_names[i].replace(".", "_")
                             else:
-                                kind = "New"
-                                time = self.time[new_i]
-                                key = (kind, time)
-                                r = rep_counter[key]
-                                rep_counter[key] += 1
-                                new_i += 1
+                                kind = "new"
+                                sample_name = sample_names[i].replace(".", "_")
 
-                        full_key = f"{base_key}_{res_type}_{kind}_t{time:g}_r{r}"
+                        full_key = f"{prefix}{sample_name}_{key}_{res_type}_{kind}"
                         flat[full_key] = v
+
             elif isinstance(val, dict):
                 for subkey, subval in val.items():
                     flat[f"{base_key}_{subkey}"] = subval
+
             elif isinstance(val, (list, np.ndarray)):
                 for i, v in enumerate(val):
                     flat[f"{base_key}_{i}"] = v

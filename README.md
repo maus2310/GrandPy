@@ -33,13 +33,12 @@ With all dependencies available, installation of grandPy typically takes <span s
 <span style="color:red">work in progress!</span>
 
 ## How to get started
-First have a look at the [Getting started](../grandpy/grandpy/vignettes/vignette_00_getting_started.ipynb) vignette.
+First have a look at the [Getting started](../grandpy/grandpy/docs/notebooks/notebook_00_getting_started.ipynb) notebook.
 
-Then, go through the [Differential expression](../grandpy/grandpy/vignettes/vignette_01_differential_expression_(snapshot_data).ipynb) or the [Kinetic modeling](../grandpy/grandpy/vignettes/vignette_02_kinetic_modeling_(progressive_labeling_time_courses).ipynb) vignette, which provide a comprehensive walk-through of the two main settings of nucleotide conversion experiments.
+Then, go through [differential expression](../grandpy/grandpy/docs/notebooks/notebook_01_differential_expression(snapshot_data).ipynb) or [kinetic modeling](../grandpy/grandpy/docs/notebooks/notebook_02_kinetic_modeling_(progressive_labeling_time_courses).ipynb), which provide a comprehensive walk-through of the two main settings of nucleotide conversion experiments.
 
-There are also additional vignettes:
+There are also additional notebooks:
 
-- [Loading data and working with grandPy objects](../grandpy/grandpy/vignettes/vignette_03_loading_data_and_working_with_grandPy_objects.ipynb): Learn more about programming with grandPy
-- [Working with data matrices and analysis results](../grandpy/grandpy/vignettes/vignette_04_working_with_data_matrices_and_analysis_results.ipynb): Learn more about how to retrieve data from grandPy objects
-- [...]
-- [Pulse-chase](../grandpy/grandpy/vignettes/vignette_06_fitting_pulse-chase_data.ipynb): Learn how to fit pulse-chase data with grandPy
+- [Loading data and working with grandPy objects](../grandpy/grandpy/doc/notebooks/notebook_03_loading_data_and_working_with_grandPy_objects.ipynb): Learn more about programming with grandPy
+- [Working with data matrices and analysis results](../grandpy/grandpy/docs/notebooks/notebook_04_working_with_data_matrices_and_analysis_results.ipynb): Learn more about how to retrieve data from grandPy objects
+- [Pulse-chase](../grandpy/grandpy/docs/notbooks/notebook_05_fitting_pulse-chase_data.ipynb): Learn how to fit pulse-chase data with grandPy

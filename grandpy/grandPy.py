@@ -970,9 +970,20 @@ class GrandPy:
 
     def get_genes(self, genes: Union[str, int, Sequence[Union[str, int, bool]]] = None, *, get_gene_symbols: bool = True, regex: bool = False) -> list[str]:
         """
-        Get gene names or symbols.
+        Get symbols or ensemble IDs.
 
         If no genes are specified, all genes are returned.
+
+        See Also
+        --------
+        GrandPy.get_columns
+            Get the sample/cell names.
+
+        GrandPy.gene_info
+            Get the entire gene_info DataFrame.
+
+        GrandPy.get_index
+            Get the index of gene names/symbols.
 
         Parameters
         ----------
@@ -990,17 +1001,6 @@ class GrandPy:
         -------
         list[str]
             A list containing the specified genes.
-
-        See Also
-        --------
-        GrandPy.get_columns
-            Get the sample/cell names.
-
-        GrandPy.gene_info
-            Get the entire gene_info DataFrame.
-
-        GrandPy.get_index
-            Get the index of gene names/symbols.
         """
         if get_gene_symbols:
             if genes is None:
@@ -2008,26 +2008,19 @@ class GrandPy:
         for name in analyses:
             analysis_data = self._anndata.uns["analyses"][name]
 
-            if columns is not None:
-                columns = _ensure_list(columns)
-
-                columns = [
-                    col for col in analysis_data.columns
-                    if any(re.search(pattern, col) for pattern in columns)
-                ]
-
             if genes is not None:
                 analysis_data = analysis_data.loc[gene_info.index]
 
             if columns is not None:
+                columns = _ensure_list(columns)
                 if regex:
-                    matching_cols = [col for col in analysis_data.columns if any(re.search(pat, col) for pat in columns)]
+                    matching_columns = [col for col in analysis_data.columns if any(re.search(pat, col) for pat in columns)]
                 else:
-                    matching_cols = [col for col in columns if col in analysis_data.columns]
+                    matching_columns = [col for col in columns if col in analysis_data.columns]
             else:
-                matching_cols = analysis_data.columns
+                matching_columns = analysis_data.columns
 
-            selected_data = analysis_data[matching_cols].copy()
+            selected_data = analysis_data[matching_columns].copy()
 
             if not prefix_by_analyses:
                 cond = name.rsplit("_", 1)[-1]
@@ -2778,7 +2771,7 @@ class GrandPy:
         return _get_summary_matrix(data=self, no4su=no4su, columns=columns, average=average)
 
 
-    def get_contrasts(self, contrast: list = "Condition", columns: Union[Sequence[bool], bool] = None, group: Union[Sequence[str], str] = None, name_format: str = None, no4su: bool = True) -> pd.DataFrame:
+    def get_contrasts(self, contrast: Union[str, Sequence[str]] = "Condition", columns: Union[str, int, Sequence[Union[str, int, bool]]] = None, group: Union[Sequence[str], str] = None, name_format: str = None, no4su: bool = True) -> pd.DataFrame:
         """
         Generate contrast matrix for differential comparisons.
 
@@ -2787,14 +2780,14 @@ class GrandPy:
         self : pd.DataFrame
             DataFrame containing sample metadata (e.g., conditions, groups).
 
-        contrast : list[str]
+        contrast : str or Sequence[str]
             Defines the contrast logic:
             - [condition_column] → all pairwise contrasts
             - [condition_column, reference_level] → all vs. reference
             - [condition_column, level_A, level_B] → specific comparison A vs B
 
-        columns : list[str], optional
-            Subset of sample IDs to consider in contrast computation. If None, all samples are used.
+        columns: str or int or Sequence[str or int or bool], optional
+            Samples/cells considered in contrast computation. Either by their index, their name, or a boolean mask.
 
         group : str, optional
             Column name in `coldata` to compute contrasts within each group level separately.
@@ -2805,7 +2798,7 @@ class GrandPy:
             Default: "$A vs $B" (or "$A vs $B.$GRP" if `group` is set)
 
         no4su : bool, default False
-            If True, samples where `coldata['no4sU'] == False` are excluded from contrast computation.
+            If True, no4sU samples are included in contrast computation.
 
         Returns
         -------
@@ -2815,7 +2808,7 @@ class GrandPy:
         """
         from .diffexp import _get_contrasts
 
-        return _get_contrasts(self, contrast = contrast, columns = columns, group = group, name_format = name_format, no4sU = no4su)
+        return _get_contrasts(self, contrast = contrast, columns = columns, group = group, name_format = name_format, no4su= no4su)
 
 
     def compute_lfc(
