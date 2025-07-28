@@ -1,4 +1,6 @@
 import re
+import io
+import contextlib
 import warnings
 from pathlib import Path
 from typing import Optional, Union, Callable, Any, Literal
@@ -10,6 +12,7 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 from matplotlib import cm
+from numpy.f2py.crackfortran import quiet
 from pydeseq2.dds import DeseqDataSet
 from scipy.sparse import issparse
 from scipy.stats import gaussian_kde, pearsonr, spearmanr, kendalltau
@@ -1161,7 +1164,7 @@ def plot_pca(
     y: int = 2,
     columns: Union[str, list, None] = None,
     do_vst: bool = True,
-    show_progress: bool = True,
+    show_progress: bool = False,
     figsize : tuple[float, float] = (10, 6),
     path_for_save: Optional[str] | Path = None,
     save_fig_format: str = "svg",
@@ -1197,7 +1200,7 @@ def plot_pca(
         do_vst : bool, default=True
             Whether to apply variance-stabilizing transformation on raw counts before PCA
             (only if mode_slot is 'count').
-        show_progress: bool, default=True
+        show_progress: bool, default=False
             Shows progress for the PCA. (Only for vst = True)
         figsize : tuple[float, float], default=(10, 6)
             Size of the figure (width, height).
@@ -1240,8 +1243,9 @@ def plot_pca(
     slotmat = mat.T.round().astype(int)
 
     if do_vst:
-        dds = DeseqDataSet(counts=slotmat, metadata=coldata, design_factors="Condition", low_memory=True, quiet=show_progress)
-        dds.deseq2()
+        dds = DeseqDataSet(counts=slotmat, metadata=coldata, design_factors="Condition", low_memory=True, quiet=not show_progress)
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            dds.deseq2()
         dds.vst_fit()
         vst_array = dds.vst_transform()
 
