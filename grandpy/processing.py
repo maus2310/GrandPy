@@ -115,38 +115,40 @@ def _comp_fpkm(
     return fpkm
 
 def _comp_rpm(
-    cmat: np.ndarray,
+    count_matrix: np.ndarray,
     subset: Union[Sequence[int], np.ndarray, None] = None,
     factor: float = 1e6
 ) -> np.ndarray:
     """
-    Berechnet RPM (Reads per Million) aus einer Count-Matrix.
+    Computes the RPM (Reads per Million) from a count-matrix.
 
     Parameters
     ----------
-    cmat : np.ndarray
-        Zählmatrix (Gene × Samples)
-    subset : Liste von Indizes, optional
-        Nur diese Gene werden zur Skalierung verwendet.
-    factor : float
-        Skalenfaktor (Standard: 1e6)
+    count_matrix : np.ndarray
+        The matrix to compute.
+
+    subset : list of indices, optional
+        Only the given genes are used for the computation.
+
+    factor : float, default 1e6
+        scaling factor
 
     Returns
     -------
     np.ndarray
-        RPM-normalisierte Matrix
+        RPM-normalised matrix
     """
-    cmat = np.asarray(cmat)
+    count_matrix = np.asarray(count_matrix)
 
     if subset is not None:
         subset = np.atleast_1d(subset)
-        scale = np.nansum(cmat[subset, :], axis=0) / factor
+        scale = np.nansum(count_matrix[subset, :], axis=0) / factor
     else:
-        scale = np.nansum(cmat, axis=0) / factor
+        scale = np.nansum(count_matrix, axis=0) / factor
 
-    scale[scale == 0] = np.nan  # Verhindere Division durch 0
+    scale[scale == 0] = np.nan  # prevent deivision through 0
 
-    rpm = cmat / scale  # Broadcasting über Spalten
+    rpm = count_matrix / scale
 
     return rpm
 
@@ -322,22 +324,28 @@ def _normalize(
 
     """
     DESeq2-ähnliche Normalisierung einer Slot-Matrix durch Size Factors.
+    Normalization of a slot-matrix
 
     Parameters
     ----------
-    data : GrandPy
-        Das GrandPy-Objekt.
-    genes : list[str] oder bool-Maske, optional
-        Gene zur Berechnung der Size Factors. Default: alle.
-    name : str
-        Name des neuen Slots.
-    slot : str
-        Slot zur Normalisierung, z.B. "count".
-    set_to_default : bool
+    data: GrandPy
+        The grandPy object to normalize.
+
+    genes: list[str] or boolean mask, optional
+        Genes used for the computation of the size factors.
+
+    name: str, default "norm"
+        Name of the new slot.
+
+    slot: str, default "count"
+        Slot to be normalized.
+
+    set_to_default: bool, default True
         Ob der neue Slot als default gesetzt wird.
-    size_factors : np.ndarray, optional
+
+    size_factors: np.ndarray, optional
         Falls gegeben, verwende diese Size Factors direkt.
-    return_size_factors : bool
+    return_size_factors: bool
         Wenn True, gib die Size Factors zurück.
 
     Returns
@@ -386,7 +394,8 @@ def _normalize_fpkm(
 ) -> "GrandPy":
 
     """
-    FPKM-Normalisierung eines GrandPy-Objekts, analog zu DESeq2::NormalizeFPKM in R.
+    FPKM-normalisation eines GrandPy-Objekts, analog zu DESeq2::NormalizeFPKM
+    for a grandPy-objects
 
     Parameters
     ----------
@@ -439,7 +448,8 @@ def _normalize_tpm(
     Parameters
     ----------
     data: GrandPy
-        a GrandPy-object
+        a GrandPy-object.
+
     genes: sequence of genes or indices
         genes or indices used for the tpm-normalization
     name: str
@@ -530,46 +540,44 @@ def _normalize_baseline(
     slot: str = "count",
     set_to_default: bool = False,
     normalize: bool = True,
-    pseudocount_min: float = 0.5,
     **kwargs
 )-> "GrandPy":
     """
     Normalize expression data against a baseline using stabilized log2 fold change (PsiLFC).
 
-    Parameters:
-        data : your data object
-        baseline : pandas DataFrame [cells × conditions] with boolean masks per condition
-        name : str, name for the new slot
-        slot : str, which data slot to use
-        set_to_default : bool, whether to make this slot the new default
-        normalize : bool, apply median-centering
-        pseudocount_min : float, added to prior for numerical stability
-        **kwargs : extra args passed to PsiLFC if needed
+    Parameters
+    ----------
+        data: grandPy Object
+            The grandPy object to normalize.
 
-    Returns:
-        data : modified data object with normalized slot
+        baseline: pandas DataFrame
+            Boolean masks per condition.
+
+        name: str, default "baseline"
+            Name for the slot being added.
+
+        slot: str, default "count"
+            Which data slot to use.
+
+        set_to_default: bool, default False
+            Whether to make this slot the new default.
+
+        normalize: bool, default True
+            Apply median-centering.
+
+        **kwargs: optional
+            Extra args passed to PsiLFC if needed.
+
+    Returns
+    -------
+        data:
+            Modified data object with normalized slot.
     """
 
-    unique_conditions = pd.unique(data.condition)[0]
+    unique_conditions = pd.unique(data.condition)
+
     if baseline is None:
-        baseline = data.get_references(reference = True)
-
-    def psi_lfc(A, B, normalize=True, pseudocount_min=0.5):
-        A = np.asarray(A, dtype=float)
-        B = np.asarray(B, dtype=float)
-        assert A.shape == B.shape, "A and B must have the same shape"
-
-        # Empirical Bayes prior
-        prior_A = np.mean(A) + pseudocount_min
-        prior_B = np.mean(B) + pseudocount_min
-
-        A_stab = A + prior_A
-        B_stab = B + prior_B
-
-        lfc = np.log2(A_stab / B_stab)
-        if normalize:
-            lfc -= np.median(lfc)
-        return lfc
+        baseline = data.get_references(reference = lambda x: x == unique_conditions[0])
 
     # Matrix of expression data: genes × cells
     mat = data.get_matrix(mode_slot=slot)
@@ -581,7 +589,7 @@ def _normalize_baseline(
         # Cells where baseline[condition] is True
         ref_mask = baseline[col_name].values.astype(bool)
         ref_mean = mat[:, ref_mask].mean(axis=1)  # mean expression for each gene
-        result[:, i] = psi_lfc(mat[:, i], ref_mean, normalize=normalize, pseudocount_min=pseudocount_min)
+        result[:, i] = Psi_LFC(mat[:, i], ref_mean, normalize_fun = normalize)
 
     return data.with_slot(name, result, set_to_default=set_to_default)
 

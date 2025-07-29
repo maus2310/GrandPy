@@ -487,6 +487,7 @@ def _get_contrasts(
         name_format: str = None,
         no4su: bool = False,
         ) -> pd.DataFrame:
+
     coldata = data.coldata
 
     contrast = _ensure_list(contrast)
@@ -502,17 +503,17 @@ def _get_contrasts(
     use_mask = [elem in columns for elem in data.columns]
 
     if name_format is None:
-        name_format = "$A vs $B" if group is None else "$A vs $B.$GRP"
+        name_format = "A vs B" if group is None else "A vs B.GRP"
 
     if not no4su and "no4sU" in coldata.columns:
         use_mask &= ~coldata["no4sU"].fillna(False)
 
     def make_name(a, b, grp=""):
-        return (name_format
-                .replace("$A", str(a))
-                .replace("$B", str(b))
-                .replace("$COL", col)
-                .replace("$GRP", grp))
+         return (name_format
+                 .replace("$A", str(a))
+                 .replace("$B", str(b))
+                 .replace("$COL", col)
+                 .replace("$GRP", grp))
 
     def make_vector(a, b, use):
         re = np.zeros(len(coldata))
