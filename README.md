@@ -12,14 +12,14 @@ grandPy is <span style="color:red">available</span> from [[PyPi]](...). Install 
 
 You can also install the development version from GitLab:
 
-<pre> pip install git + https://git.uni-regensburg.de/se24/g03/grandpy.git </pre>
+<pre> pip install git+https://git.uni-regensburg.de/se24/g03/grandpy.git </pre>
 
 ## System Requirements
 grandPy should be compatible with Windows operating systems <span style="color:red">(?)</span>, we recommend using grandPy on a Windows machine, where it has been tested. grandPy runs on standard laptops (multi-core CPUs are recommended and memory requirements depend on the size of your data sets).
 
 Installing it via `pip` will make sure that the following (standard) packages are available:
 
-<pre><span style="color:red">List of used packages</span> </pre>
+<pre><span style="color:red"></span> </pre>
 
 Additional packages are optional and important for particular functions:
 

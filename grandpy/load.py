@@ -1058,10 +1058,6 @@ def _read(file_path, sparse, default_slot, design,
             if "count" not in slots:
                 raise ValueError("Default slot not specified and 'count' slot not found in data.")
             default_slot = "count"
-        elif default_slot != "count":
-            raise ValueError(f"Invalid default slot '{default_slot}'. Only 'count' is allowed.")
-        elif "count" not in slots:
-            raise ValueError("Default slot 'count' was specified but is not present in the slots.")
 
         slots = pad_slots(slots, sparse=True, coldata=coldata, slot_sample_names=slot_sample_names)
 
@@ -1121,10 +1117,6 @@ def _read(file_path, sparse, default_slot, design,
             if "count" not in slots:
                 raise ValueError("Default slot not specified and 'count' slot not found in data.")
             default_slot = "count"
-        elif default_slot != "count":
-            raise ValueError(f"Invalid default slot '{default_slot}'. Only 'count' is allowed.")
-        elif "count" not in slots:
-            raise ValueError("Default slot 'count' was specified but is not present in the slots.")
 
         if "ntr" not in slots:
             if "alpha" in slots and "beta" in slots:
