@@ -392,34 +392,34 @@ def fit_kinetics_gene_least_squares(
     """
     Fits synthesis and degradation rates for a single gene and condition using non-linear least squares.
 
-    This function implements a least-squares optimization to infer kinetic parameters from time-resolved data.
+    This method implements a least-squares optimization to infer kinetic parameters from time-resolved data.
     Optionally supports "chase" mode for experiments where labeled RNA is decaying.
 
     Parameters
     ----------
     new_values : np.ndarray
-       Observed values of new RNA.
+        Observed values of new RNA.
 
     time : np.ndarray
-       Time points
+        Time points
 
     old_values : np.ndarray, optional
-       Observed values of old RNA. Irrelevant for chase.
+        Observed values of old RNA. Irrelevant for chase.
 
     ci_size : float, default 0.95
-       Confidence interval level.
+        Confidence interval level.
 
     max_iter : int, default 250
-       Maximum number of optimization iterations.
+        Maximum number of optimization iterations.
 
     chase : bool, default False
-       Whether to perform the fit in "chase" mode (only v_new is used).
+        Whether to perform the fit in "chase" mode (only v_new is used).
 
     steady_state : bool, default True
         Whether to use steady for a condition.
 
     total_value : float, optional
-       Optional total expression values used to estimate initial concentration in chase mode.
+        Optional total expression values used to estimate initial concentration in chase mode.
 
     sample_names: list[str], optional
         Sample names for naming residuals.
@@ -427,12 +427,12 @@ def fit_kinetics_gene_least_squares(
     Returns
     -------
     FitResult
-       A container object holding fitted parameters, residuals, confidence intervals, and diagnostics.
+        A container object holding fitted parameters, residuals, confidence intervals, and diagnostics.
 
     See Also
     --------
     FitResult
-       Object encapsulating result and post-fit statistics.
+        Object encapsulating result and post-fit statistics.
     """
 
     if time.size + time.size == 0:
@@ -589,13 +589,14 @@ class FitResult:
             expected = np.concatenate([self.pred_old, self.pred_new])
             observed = np.concatenate([self.old_values, self.new_values])
 
-        abs = np.abs(observed - expected)
+        absolute = observed - expected
 
-        rel = expected / (observed + 1e-8)
+        modval = np.concatenate([self.old_values, self.new_values,]) - absolute
+        relative = absolute / (modval + 1e-10)
 
         return {
-            "absolute": abs,
-            "relative": rel
+            "absolute": np.abs(absolute),
+            "relative": relative
         }
 
     # --- Metrics ---
