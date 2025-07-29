@@ -4,6 +4,7 @@ import warnings
 from collections.abc import Sequence, Mapping
 from os import PathLike
 from typing import Any, Union, Literal, Callable
+from pathlib import Path
 
 import anndata as ad
 import numpy as np
@@ -353,9 +354,7 @@ class GrandPy:
         prefix = self._anndata.uns.get('prefix')
         if prefix is None:
             raise KeyError("Title not available. Please specify a prefix when initializing the GrandPy object")
-        else:
-            x = prefix.split('/')
-            return x[-1]
+        return Path(prefix).name
 
     @property
     def shape(self) -> tuple[int]:

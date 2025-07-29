@@ -157,8 +157,7 @@ if __name__ == "__main__":
     contrasts = sars.get_contrasts(contrast=["Condition", "Mock"])
 
     sars = sars.compute_lfc(mode_slot="count", contrasts=contrasts)
-    sars = sars.compute_lfc(mode_slot="new_count", normalization="total", contrasts=contrasts,
-                       LFC_fun=norm_lfc)
+    sars = sars.compute_lfc(mode_slot="new_count", normalization="total", contrasts=contrasts)
 
     result = sars.get_analysis_table(with_gene_info=True)
     print(result)

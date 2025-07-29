@@ -21,8 +21,7 @@ def _get_summary_matrix(
         data: "GrandPy",
         no4su: bool = False,
         columns: Union[None, str, list[str]] = None,
-        average: bool = True
-) -> pd.DataFrame:
+        average: bool = True) -> pd.DataFrame:
     coldata = data.coldata
     sample_names = coldata.index.tolist()
 
@@ -76,8 +75,7 @@ def _compute_lfc(
     compute_m: bool = True,
     genes: Union[str, int, Sequence[Union[str, int, bool]]] = None,
     verbose: bool = False,
-    **kwargs
-) -> "GrandPy":
+    **kwargs) -> "GrandPy":
     """
     Estimate log2 fold changes and optional M values for each contrast and store analyses.
 
@@ -109,7 +107,7 @@ def _compute_lfc(
     Returns
     -------
     GrandPy
-        A GrandPy instance containg an analysis for each contrast. Each analysis
+        A GrandPy instance containing an analysis for each contrast. Each analysis
         has two columns named "{prefix}_{contrast}_LFC" and
         "{prefix}_{contrast}_M".
     """
@@ -187,13 +185,6 @@ def _compute_lfc(
     return new_data
 
 
-# TODO: fit_type ...
-
-#  In R: -- note: fitType='parametric', but the dispersion trend was not well captured by the
-#    function: y = a/x + b, and a local regression fit was automatically substituted.
-#    specify fitType='local' or 'mean' to avoid this message next time.
-# but pydeseq2 only has the fitTypes "parametric" and "mean"
-
 def _pairwise_DESeq2(
     data: "GrandPy",
     contrasts: pd.DataFrame,
@@ -202,8 +193,7 @@ def _pairwise_DESeq2(
     mode_slot: Union[str, ModeSlot] = "count",
     normalization: Union[str, Sequence[float]] = None,
     genes: Union[str, int, Sequence[Union[str, int, bool]]] = None,
-    verbose: bool = False
-) -> "GrandPy":
+    verbose: bool = False) -> "GrandPy":
     """
     Run DESeq2 (via pydeseq2) for each contrast defined in the contrast matrix.
 
@@ -241,8 +231,8 @@ def _pairwise_DESeq2(
 
     Notes
     -----
-    Uses fit_type="mean" for compatibility with pydeseq2.
-    pydeseq2 does not currently support fit_type="local".
+    Uses fit_type="parametric" for compatibility with pydeseq2.
+    pydeseq2 does not currently support fit_type="local" (as in grandR).
     """
     try:
         import pydeseq2

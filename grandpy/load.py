@@ -13,8 +13,8 @@ import pandas as pd
 import scipy.sparse as sp
 from scipy.io import mmread
 
-from .grandPy import GrandPy
-from .utils import _to_sparse, _make_unique
+from grandpy.grandPy import GrandPy
+from grandpy.utils import _to_sparse, _make_unique
 
 # Predefined design variable names for harmonized analysis (mirrors R's Design list)
 DESIGN_KEYS = {
@@ -688,6 +688,8 @@ def read_dense(file_path: str,
     classification_genes=None,
     classification_genes_label: str = "Unknown",
     classify_genes_func=None,
+    pseudobulk: Optional[str] = None,
+    targets: Optional[str] = None,
     estimator: str = "Binom",
     rename_sample: Optional[Callable[[str], str]] = None) -> GrandPy:
 
@@ -717,6 +719,12 @@ def read_dense(file_path: str,
     estimator : str, default "Binom"
         Keyword to infer NTR/alpha/beta suffixes.
 
+    pseudobulk : str, optional
+        Pseudobulk tag, propagated into metadata.
+
+    targets : str, optional
+        Targets tag, propagated into metadata.
+
     rename_sample : Callable[[str], str], optional
         Function to rename sample names before coldata is built
         (e.g. regex or string replacements).
@@ -737,7 +745,8 @@ def read_dense(file_path: str,
         design_arg = None
     return _read(file_path, sparse=False, default_slot=default_slot, design=design_arg,
                  classification_genes=classification_genes, classification_genes_label=classification_genes_label,
-                 classify_genes_func=classify_genes_func, estimator=estimator, rename_sample=rename_sample)
+                 classify_genes_func=classify_genes_func, estimator=estimator, rename_sample=rename_sample,
+                 pseudobulk=pseudobulk, targets=targets)
 
 
 def read_sparse(folder_path,
@@ -802,7 +811,7 @@ def read_sparse(folder_path,
     else:
         design_arg = None
 
-    base = Path(folder_path)
+    base = Path(folder_path).resolve()
     expected_parts = []
     if targets:
         expected_parts.append(str(targets))
@@ -885,7 +894,7 @@ def read_grand(prefix, pseudobulk=None, targets=None, **kwargs):
                 with urllib.request.urlopen(prefix) as response, open(local_file, 'wb') as out_file:
                     shutil.copyfileobj(response, out_file)
 
-                result = read_grand(local_file, pseudobulk=pseudobulk, targets=targets, **kwargs)
+                result = read_grand(str(local_file.resolve()), pseudobulk=pseudobulk, targets=targets, **kwargs)
                 print(f"Temporary file {local_file.name} was deleted after loading.")
                 return result
 
@@ -1079,7 +1088,8 @@ def _read(file_path, sparse, default_slot, design,
             "Output": "sparse",
             "Version": version,
             "pseudobulk": pseudobulk,
-            "targets": targets
+            "targets": targets,
+            "prefix": str(Path(file_path).resolve()).replace("\\", "/")
         }
 
         return GrandPy(
@@ -1092,7 +1102,7 @@ def _read(file_path, sparse, default_slot, design,
 
     else:
         df = pd.read_csv(file_path, sep="\t", compression="infer")
-        prefix = Path(file_path).stem
+        prefix = str(Path(file_path).resolve())
 
         slot_suffixes = infer_suffixes_from_df(df, estimator=estimator, sparse=False)
         slots, sample_names, slot_sample_names = parse_slots(df, slot_suffixes, sparse)
@@ -1152,7 +1162,8 @@ def _read(file_path, sparse, default_slot, design,
             "Output": "sparse" if sparse else "dense",
             "Version": version,
             "pseudobulk": pseudobulk,
-            "targets": targets
+            "targets": targets,
+            "prefix": str(Path(file_path).resolve()).replace("\\", "/")
         }
 
         return GrandPy(

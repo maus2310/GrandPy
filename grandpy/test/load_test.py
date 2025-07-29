@@ -328,6 +328,9 @@ if __name__ == "__main__":
     qc = get_table_qc(grand)
     print(qc.head())
 
+    gp = read_grand("test-datasets/test_dense.targets", design=("Condition", "Time", "Replicate"))
+    print("Title:", gp.title)
+    print("Prefix:", gp.metadata["prefix"])
 
 # ------------------------------------------------------------------------------
 
@@ -345,6 +348,10 @@ def is_result_ds(p: Path) -> bool:
 
     if p.is_file() and ".targets" in name and name.endswith((".tsv", ".tsv.gz")):
         return True
+    #
+    # if p.is_file() and p.name.endswith((".tsv", ".tsv.gz")):
+    #     if "conversion" in p.name and "targets" in p.name:
+    #         return True
 
     if p.is_dir():
         files = {q.name.lower() for q in p.iterdir()}
