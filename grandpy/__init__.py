@@ -1,5 +1,4 @@
-from .grandPy import GrandPy
-from .grandPy import anndata_to_grandpy, read_h5ad
+from .core_grandpy import GrandPy
 from .load import DESIGN_KEYS, semantics_time, build_coldata, read_grand, classify_genes, parse_time_string
 from .plot import (
     plot_scatter,
@@ -18,7 +17,7 @@ from .plot import (
     format_correlation
 )
 
-from .utils import concat
+from .utils import concat, read_h5ad, anndata_to_grandpy
 from .slot_tool import ModeSlot
 from .plot_tool import Plot
 

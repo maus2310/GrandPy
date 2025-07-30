@@ -13,7 +13,7 @@ import pandas as pd
 import scipy.sparse as sp
 from scipy.io import mmread
 
-from grandpy.grandPy import GrandPy
+from grandpy.core_grandpy import GrandPy
 from grandpy.utils import _to_sparse, _make_unique
 
 # Predefined design variable names for harmonized analysis (mirrors R's Design list)

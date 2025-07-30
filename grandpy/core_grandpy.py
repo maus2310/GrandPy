@@ -11,11 +11,11 @@ import numpy as np
 import pandas as pd
 import scipy.sparse as sp
 
-from .analysis_tool import AnalysisTool
-from .lfc import psi_lfc
-from .plot_tool import PlotTool, Plot
-from .slot_tool import SlotTool, ModeSlot
-from .utils import _ensure_list, _make_unique, _reindex_by_index_name, _subset_dense_or_sparse
+from grandpy.analysis_tool import AnalysisTool
+from grandpy.lfc import psi_lfc
+from grandpy.plot_tool import PlotTool, Plot
+from grandpy.slot_tool import SlotTool, ModeSlot
+from grandpy.utils import _ensure_list, _make_unique, _reindex_by_index_name, _subset_dense_or_sparse
 
 
 class GrandPy:
@@ -32,7 +32,7 @@ class GrandPy:
 
     Examples
     --------
-    Read a GrandPy Object from a file.
+    Read a GrandPy object from a file.
 
     >>> import grandpy as gp
     >>> sars = gp.read_grand("./data/sars.tsv", design=("Condition", "Time", "Replicate"))
@@ -174,10 +174,10 @@ class GrandPy:
             prefix: str = None,
             gene_info: pd.DataFrame = None,
             coldata: pd.DataFrame = None,
-            slots: dict[str, Union[np.ndarray, sp.csr_matrix]] = None,
-            metadata: dict[str, Any] = None,
-            analyses: dict[str, Any] = None,
-            plots: dict[str, Any] = None,
+            slots: Mapping[str, Union[np.ndarray, sp.csr_matrix]] = None,
+            metadata: Mapping[str, Any] = None,
+            analyses: Mapping[str, Any] = None,
+            plots: Mapping[str, Any] = None,
             anndata: ad.AnnData = None
     ) -> "GrandPy":
         """
@@ -245,10 +245,10 @@ class GrandPy:
             prefix: str = None,
             gene_info: pd.DataFrame = None,
             coldata: pd.DataFrame = None,
-            slots: dict[str, Union[np.ndarray, sp.csr_matrix]] = None,
-            metadata: dict[str, Any] = None,
-            analyses: dict[str, Any] = None,
-            plots: dict[str, Any] = None,
+            slots: Mapping[str, Union[np.ndarray, sp.csr_matrix]] = None,
+            metadata: Mapping[str, Any] = None,
+            analyses: Mapping[str, Any] = None,
+            plots: Mapping[str, Any] = None,
             anndata: ad.AnnData = None
     ) -> "GrandPy":
         """
@@ -2096,7 +2096,6 @@ class GrandPy:
         TypeError
             When `reference` is neither a string nor a callable.
         """
-
         def map_refs_by_group(df, selected_refs):
             """
             Helper to assign found references to their groups.
@@ -2465,7 +2464,7 @@ class GrandPy:
 
         Examples
         --------
-        Get the amount of genes in an unfiltered dataset.
+        Get the number of genes in an unfiltered dataset.
 
         >>> len(sars.genes)
         19659
@@ -2695,9 +2694,10 @@ class GrandPy:
 
         compute_confidence : bool, default False
             Whether to compute the confidence intervals for the labeling time.
+            This will add a considerable amount of time to the computation.
 
         n_top_genes : int, default 1000
-            Uses the n top expressed genes for calibration.
+            Uses the n top genes for calibration. (Selected by expression and half-life)
             More genes make the calibration more accurate, but each iteration is slower.
 
         max_iterations : int, default 10000
@@ -2742,11 +2742,16 @@ class GrandPy:
             average: bool = True
     ) -> pd.DataFrame:
         """
-        Return a summarization matrix for averaging or aggregation.
+        Get a summarization matrix for averaging or aggregation.
 
         If this matrix is multiplied with a count table,
         either the average (average=TRUE) or the sum (average=FALSE) of all columns
         belonging to the same Condition is computed.
+
+        See Also
+        --------
+        GrandPy.get_table
+            Retrieve the data for slots. get_summary_matrix is mainly used as input for get_table.
 
         Parameters
         ----------
@@ -2770,7 +2775,14 @@ class GrandPy:
         return _get_summary_matrix(data=self, no4su=no4su, columns=columns, average=average)
 
 
-    def get_contrasts(self, contrast: Union[str, Sequence[str]] = "Condition", columns: Union[str, int, Sequence[Union[str, int, bool]]] = None, group: Union[Sequence[str], str] = None, name_format: str = None, no4su: bool = True) -> pd.DataFrame:
+    def get_contrasts(
+            self,
+            contrast: Union[str, Sequence[str]] = "Condition",
+            columns: Union[str, int, Sequence[Union[str, int, bool]]] = None,
+            group: Union[Sequence[str], str] = None,
+            name_format: str = None,
+            no4su: bool = True
+    ) -> pd.DataFrame:
         """
         Generate contrast matrix for differential comparisons.
 
@@ -2998,80 +3010,6 @@ class GrandPy:
         return new_gp
 
 
-
-
-def anndata_to_grandpy(anndata: ad.AnnData, transpose: bool = True) -> GrandPy:
-        """
-        Create a GrandPy instance from an AnnData instance.
-
-        Parameters
-        ----------
-        anndata: ad.AnnData
-            The AnnData to convert.
-
-        transpose: bool, default True
-            If True, all Matrizes in the AnnData are transposed. (see Notes)
-            Otherwise, they remain in their original form.
-
-        Notes
-        -----
-        The internal AnnData has to be transposed, relative to what you would usually expect.
-        Meaning obs has to contain the column metadata (coldata) and var the gene metadata (gene_info).
-
-        See Also
-        --------
-        GrandPy.to_anndata
-            Convert the GrandPy instance to AnnData.
-
-        Returns
-        -------
-        GrandPy
-            A GrandPy instance built from the AnnData.
-        """
-        if transpose:
-            adata = anndata.T
-
-            if adata.uns.get("analyses", None) is not None:
-                for name, analysis in adata.uns["analyses"].items():
-                    adata.uns["analyses"][name] = analysis.T
-        else:
-            adata = anndata
-
-        return GrandPy(
-            prefix=adata.uns.get("prefix", None),
-            gene_info=adata.obs,
-            coldata=adata.var,
-            slots=adata.layers,
-            metadata=adata.uns.get("metadata", None),
-            analyses=adata.uns.get("analyses", None),
-            plots=adata.uns.get("plots", None),
-        )
-
-def read_h5ad(path: Union[PathLike[str], str]) -> GrandPy:
-    """
-    Construct a GrandPy instance from a file.
-
-    Notes
-    -----
-    Stored plot function can currently not be saved to a file.
-
-    See Also
-    --------
-    GrandPy.write_h5ad: Write a GrandPy instance to a file.
-
-    Parameters
-    ----------
-    path: PathLike[str] or str
-        The path to the file.
-
-    Returns
-    -------
-    GrandPy
-        A GrandPy instance loaded from the file.
-    """
-    anndata = ad.read_h5ad(path)
-
-    return anndata_to_grandpy(anndata, transpose = False)
 
 
 

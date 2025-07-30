@@ -15,7 +15,7 @@ except ImportError:
     DeseqDataSet = DeseqStats = None
 
 if TYPE_CHECKING:
-    from .grandPy import GrandPy
+    from .core_grandpy import GrandPy
 
 def _get_summary_matrix(
         data: "GrandPy",

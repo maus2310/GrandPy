@@ -17,7 +17,7 @@ from scipy.sparse import issparse
 from scipy.stats import gaussian_kde, pearsonr, spearmanr, kendalltau
 from sklearn.decomposition import PCA
 
-from .grandPy import GrandPy
+from .core_grandpy import GrandPy
 from .slot_tool import ModeSlot, _parse_as_mode_slot
 
 #TODO outlier bei scatter bei limit falsch

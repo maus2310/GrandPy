@@ -1,4 +1,5 @@
 import warnings
+from os import PathLike
 from collections.abc import Sequence
 from typing import Union, Iterable, Callable, Literal, TYPE_CHECKING
 
@@ -107,6 +108,83 @@ def concat(
     new_adata.var.index = _make_unique(pd.Series(new_adata.var.index))
 
     return objects[0]._dev_replace(anndata=new_adata)
+
+
+def anndata_to_grandpy(anndata: ad.AnnData, transpose: bool = True) -> "GrandPy":
+    """
+    Create a GrandPy instance from an AnnData instance.
+
+    Parameters
+    ----------
+    anndata: ad.AnnData
+        The AnnData to convert.
+
+    transpose: bool, default True
+        If True, all Matrizes in the AnnData are transposed. (see Notes)
+        Otherwise, they remain in their original form.
+
+    Notes
+    -----
+    The internal AnnData has to be transposed, relative to what you would usually expect.
+    Meaning obs has to contain the column metadata (coldata) and var the gene metadata (gene_info).
+
+    See Also
+    --------
+    GrandPy.to_anndata
+        Convert the GrandPy instance to AnnData.
+
+    Returns
+    -------
+    GrandPy
+        A GrandPy instance built from the AnnData.
+    """
+    from core_grandpy import GrandPy
+
+    if transpose:
+        adata = anndata.T
+
+        if adata.uns.get("analyses", None) is not None:
+            for name, analysis in adata.uns["analyses"].items():
+                adata.uns["analyses"][name] = analysis.T
+    else:
+        adata = anndata
+
+    return GrandPy(
+        prefix=adata.uns.get("prefix", None),
+        gene_info=adata.obs,
+        coldata=adata.var,
+        slots=adata.layers,
+        metadata=adata.uns.get("metadata", None),
+        analyses=adata.uns.get("analyses", None),
+        plots=adata.uns.get("plots", None),
+    )
+
+
+def read_h5ad(path: Union[PathLike[str], str]) -> "GrandPy":
+    """
+    Construct a GrandPy instance from a file.
+
+    Notes
+    -----
+    Stored plot function can currently not be saved to a file.
+
+    See Also
+    --------
+    GrandPy.write_h5ad: Write a GrandPy instance to a file.
+
+    Parameters
+    ----------
+    path: PathLike[str] or str
+        The path to the file.
+
+    Returns
+    -------
+    GrandPy
+        A GrandPy instance loaded from the file.
+    """
+    anndata = ad.read_h5ad(path)
+
+    return anndata_to_grandpy(anndata, transpose=False)
 
 
 

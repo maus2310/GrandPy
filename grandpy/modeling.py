@@ -15,7 +15,7 @@ from .slot_tool import ModeSlot
 from .utils import _ensure_list, _get_kinetics_data
 
 if TYPE_CHECKING:
-    from .grandPy import GrandPy
+    from .core_grandpy import GrandPy
 
 
 def _fit_kinetics(
@@ -100,7 +100,7 @@ def get_dynamic_process_count(data_size: int, max_processes: int = None, exact_p
     return num_processes
 
 
-# TODO: Verhalten von correct überprüfen
+
 def correct_new(new_expressions: np.ndarray, time: np.ndarray) -> np.ndarray:
     """
     Applies a correction to every row of `all_expressions`, where time = 1.
@@ -1356,15 +1356,15 @@ def uniroot_safe(fun, lower, upper):
 
 
 
-# ----- time calibration functions -----
-def compute_use_mask(HLs, totals, time, n_estimate):
+# ----- time calibration -----
+def compute_use_mask(half_life, totals, time, n_top_genes):
     bin_edges = np.concatenate([np.linspace(0, 2 * np.max(time), num=5), [np.inf]])
-    HL_cat = np.digitize(HLs, bin_edges, right=False)
+    HL_cat = np.digitize(half_life, bin_edges, right=False)
 
     use_mask = np.zeros_like(totals, dtype=bool)
     unique_cats = np.unique(HL_cat)
     n_groups = len(unique_cats)
-    group_threshold = int(np.ceil(n_estimate / n_groups))
+    group_threshold = int(np.ceil(n_top_genes / n_groups))
 
     for cat in unique_cats:
         group_idx = np.where(HL_cat == cat)[0]
@@ -1380,31 +1380,6 @@ def compute_use_mask(HLs, totals, time, n_estimate):
         use_mask[group_idx] = group_totals >= threshold
 
     return use_mask
-
-# def select_top_genes_by_hl_and_expression(half_lives, totals, time_vector, gene_names, n_top_genes):
-#     """
-#     Selects about n top genes by half-life and expression.
-#     """
-#     max_time = np.max(time_vector)
-#     bins = np.linspace(0, 2 * max_time, 5)
-#     bins = np.concatenate([bins, [np.inf]])
-#
-#     hl_cat_indices = np.digitize(half_lives, bins, right=False)  # 1-based bin indices
-#     n_bins = len(bins)
-#
-#     use_mask = np.zeros_like(totals, dtype=bool)
-#
-#     for bin_idx in range(1, n_bins + 1):
-#         in_bin = hl_cat_indices == bin_idx
-#         n_in_bin = np.sum(in_bin)
-#         if n_in_bin == 0:
-#             continue
-#         threshold_index = min(n_in_bin - 1, int(np.ceil(n_top_genes / n_bins)))
-#         sorted_indices = np.argsort(-totals[in_bin])
-#         keep_indices = np.where(in_bin)[0][sorted_indices[:threshold_index + 1]]
-#         use_mask[keep_indices] = True
-#
-#     return np.array(gene_names)[use_mask].tolist()
 
 def _calibrate_effective_labeling_time_kinetic_fit(
     data,
@@ -1432,14 +1407,13 @@ def _calibrate_effective_labeling_time_kinetic_fit(
         eval_bar = tqdm(desc=f"Optimizing {cond}", dynamic_ncols=True, unit=" Iterations", disable=not show_progress)
 
         mask = np.array(conditions) == cond
-        sub = data[:, mask].with_dropped_analyses()
+        subset_data = data[:, mask].with_dropped_analyses()
 
-        expr = sub.get_matrix(slot)
+        expr = subset_data.get_matrix(slot)
         totals = expr.sum(axis=1)
-        gene_names = np.array(sub.genes)
 
         kinetics = _get_kinetics_data(
-            sub,
+            subset_data,
             fit_type="nlls",
             slot=slot,
             time=time,
@@ -1448,20 +1422,12 @@ def _calibrate_effective_labeling_time_kinetic_fit(
             **kwargs
         ).get(f"kinetics_{cond}")
 
-        half_live = kinetics.values.squeeze()
+        half_life = kinetics.values.squeeze()
 
-        use_mask_genes = compute_use_mask(half_live, totals, data.coldata[time].values, n_top_genes)
+        use_mask_genes = compute_use_mask(half_life=half_life, totals=totals, time=data.coldata[time].values, n_top_genes=n_top_genes)
 
-        # use_genes = select_top_genes_by_hl_and_expression(
-        #     half_lives=half_live,
-        #     totals=totals,
-        #     time_vector=data.coldata[time].values,
-        #     gene_names=gene_names,
-        #     n_top_genes=n_top_genes
-        # )
-
-        sub = sub[use_mask_genes].with_dropped_analyses()
-        init = sub.coldata[time]
+        subset_data = subset_data[use_mask_genes].with_dropped_analyses()
+        init = subset_data.coldata[time]
         init_array = init.values
 
         use_mask_columns = (init_array > 0) & (init_array < init_array.max())
@@ -1472,7 +1438,7 @@ def _calibrate_effective_labeling_time_kinetic_fit(
             tt = init_array.copy()
             tt[use_mask_columns] = times
             kin = _get_kinetics_data(
-                sub,
+                subset_data,
                 fit_type="nlls",
                 slot=slot,
                 time=tt,
@@ -1539,7 +1505,7 @@ def _calibrate_effective_labeling_time_kinetic_fit(
 
         final_tt = init_array.copy()
         final_tt[use_mask_columns] = res.x
-        result.loc[sub.coldata.index, name] = final_tt
+        result.loc[subset_data.coldata.index, name] = final_tt
 
         if compute_confidence:
             try:
@@ -1563,7 +1529,7 @@ def _calibrate_effective_labeling_time_kinetic_fit(
                 conf_tt = np.zeros_like(init_array)
                 conf_tt[use_mask_columns] = ci_half
 
-                result.loc[sub.coldata.index, name + "_conf"] = conf_tt
+                result.loc[subset_data.coldata.index, name + "_conf"] = conf_tt
 
             except Exception as e:
                 warnings.warn(f"Confidence interval computation failed for {cond}: {e}")

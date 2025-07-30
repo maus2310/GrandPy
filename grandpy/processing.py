@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 
 if TYPE_CHECKING:
-    from .grandPy import GrandPy
+    from .core_grandpy import GrandPy
     from .slot_tool import ModeSlot
 
 def _comp_hl(p, time=1):
