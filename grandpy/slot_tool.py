@@ -198,16 +198,17 @@ class SlotTool:
             raise ValueError(f"Slot '{mode_slot.slot}' not found in data slots.")
 
         slot_total = self._adata.layers[mode_slot.slot].copy()
-        ntr = self._adata.layers["ntr"].copy()
-
-        if ntr_nan:
-            boolean_mask = self._adata.var["no4sU"].values
-            ntr[:, boolean_mask] = np.nan
 
         resulting_mode_slot = slot_total
 
         # The resulting data is computed, depending on the mode
         if mode_slot.mode != "total":
+            ntr = self._adata.layers["ntr"].copy()
+
+            if ntr_nan:
+                boolean_mask = self._adata.var["no4sU"].values
+                ntr[:, boolean_mask] = np.nan
+
             if self._is_sparse:
                 resulting_mode_slot = slot_total.multiply(ntr) if mode_slot.mode == "new" else slot_total.multiply(one_minus_csr_matrix(ntr))
             else:
