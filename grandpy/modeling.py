@@ -528,7 +528,7 @@ class FitResult:
     sample_names: list[str] = None
 
     # --- Core Parameters ---
-    @property
+    @cached_property
     def synthesis(self) -> float:
         return self.opt_result.x[0] if self.opt_result is not None else np.nan
 
@@ -539,25 +539,25 @@ class FitResult:
         else:
             return self.synthesis
 
-    @property
+    @cached_property
     def degradation(self) -> float:
         return self.opt_result.x[1] if self.opt_result is not None else np.nan
 
-    @property
+    @cached_property
     def inv_deg(self) -> float:
         return 1.0 / self.degradation if self.degradation > 0 else np.nan
 
     # --- Cached exponentials ---
-    @property
+    @cached_property
     def exp_old(self) -> np.ndarray:
         return np.exp(-self.degradation * self.time)
 
-    @property
+    @cached_property
     def exp_new(self) -> np.ndarray:
         return np.exp(-self.degradation * self.time)
 
     # --- Predictions ---
-    @property
+    @cached_property
     def pred_old(self) -> np.ndarray:
         if self.chase:
             return np.zeros_like(self.time)
@@ -566,14 +566,14 @@ class FitResult:
         else:
             return self.f0 * np.exp(-self.degradation * self.time)
 
-    @property
+    @cached_property
     def pred_new(self) -> np.ndarray:
         if self.chase:
             return self.synthesis * self.inv_deg * self.exp_new
         return self.synthesis * self.inv_deg * (1 - self.exp_new)
 
     # --- Residuals ---
-    @property
+    @cached_property
     def residuals_raw(self) -> np.ndarray:
         return np.concatenate([
             self.old_values - self.pred_old,
@@ -644,7 +644,7 @@ class FitResult:
             return self.opt_result.x[2] # steady_state = False
         return np.nan
 
-    @property
+    @cached_property
     def ci_bounds(self) -> tuple[np.ndarray, np.ndarray]:
         if self.opt_result is None or self.opt_result.jac is None:
             return (np.full_like(self.opt_result.x, np.nan),) * 2

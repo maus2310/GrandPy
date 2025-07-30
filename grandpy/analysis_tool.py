@@ -15,6 +15,9 @@ class AnalysisTool:
         self._adata = adata
 
     def analyses(self):
+        """
+        For detailed documentation see GrandPy.analyses.
+        """
         analyses = self._adata.uns["analyses"]
         return list(analyses.keys())
 
@@ -24,6 +27,9 @@ class AnalysisTool:
             regex: bool = True,
             description: bool = False
     ) -> Union[list[str], dict[str, list[str]]]:
+        """
+        For detailed documentation see GrandPy.get_analyses.
+        """
         available_analyses = self.analyses()
 
         if pattern is None:
@@ -66,6 +72,9 @@ class AnalysisTool:
         return result
 
     def with_analysis(self, name: str, table: pd.DataFrame) -> dict[str, pd.DataFrame]:
+        """
+        For detailed documentation see GrandPy.with_analysis.
+        """
         if not isinstance(table, pd.DataFrame):
             raise TypeError(f"'table' has to be a pd.DataFrame, not {type(table)}")
 
@@ -87,6 +96,9 @@ class AnalysisTool:
         return new_analyses
 
     def drop_analyses(self, pattern: Union[str, Sequence[str]] = None) -> dict[str, pd.DataFrame]:
+        """
+        For detailed documentation see GrandPy.with_dropped_analyses.
+        """
         new_analyses = self._adata.uns["analyses"]
 
         if pattern is None:

@@ -20,14 +20,14 @@ from grandpy.utils import _ensure_list, _make_unique, _reindex_by_index_name, _s
 
 class GrandPy:
     """
-    Create a GrandPy object.
+    Create a GrandPy instance.
 
-    Data is typically loaded using the `read_grand()` function, which parses preprocessed GrandR-compatible
+    Data is typically loaded using the `read_grand()` function, which parses preprocessed grandR-compatible
     data formats into a GrandPy object.
 
     Notes
     -----
-    The Object is designed to be immutable. Most changes are made through `with_...` methods.
+    GrandPy objects are designed to be immutable. Most changes are made through `with_...` methods.
     Simple getters are implemented as properties, more complex ones through `get_...` methods.
 
     Examples
@@ -359,14 +359,14 @@ class GrandPy:
     @property
     def shape(self) -> tuple[int]:
         """
-        Get the dimension of the slots(data).
+        Get the dimension of the slots.
         """
         return self._anndata.X.shape
 
     @property
     def dim_names(self) -> tuple[list[str], list[str]]:
         """
-        Get the column and row names of the data.
+        Get the column and row names of the slots.
         """
         row_names = self.gene_info.index.tolist()
         column_names = self.coldata.index.tolist()
@@ -376,12 +376,17 @@ class GrandPy:
     def default_slot(self) -> str:
         """
         Get the name of the default slot
+
+        See Also
+        --------
+        GrandPy.with_default_slot
+            Set a default slot.
         """
         return self.metadata.get('default_slot')
 
     def with_default_slot(self, name: str) -> "GrandPy":
         """
-        Sets the default slot set to `name`.
+        Sets the default slot to `name`.
 
         Parameters
         ----------
@@ -412,20 +417,16 @@ class GrandPy:
     def slots(self) -> list[str]:
         """
         Get the names of all available slots.
+
+        See Also
+        --------
+        GrandPy.get_table:
+            Get the data from slots. (genes x samples)
+
+        GrandPy.get_data:
+            Get the data from slots. (samples x genes)
         """
         return self.__slot_tool.slots()
-
-    @property
-    def _slot_data(self) -> dict[str, Union[np.ndarray, sp.csr_matrix]]:
-        """
-        Get the raw data of all available slots as they are stored internally.
-
-        Returns
-        -------
-        dict[str, Union[np.ndarray, sp.csr_matrix]]
-            The data of all available slots.
-        """
-        return self.__slot_tool.slot_data()
 
     def __check_slot(self, slot: Union[str, ModeSlot], *, allow_ntr: bool = True) -> bool:
         """
@@ -444,7 +445,7 @@ class GrandPy:
         bool:
             True if the slot exists, False otherwise.
         """
-        return self.__slot_tool.check_slot(slot, allow_ntr=allow_ntr)
+        return self.__slot_tool._check_slot(slot, allow_ntr=allow_ntr)
 
     def __resolve_mode_slot(self, mode_slot: Union[str, ModeSlot], *, allow_ntr: bool = True, ntr_nan: bool = False) -> Union[np.ndarray, sp.csr_matrix]:
         """
@@ -468,11 +469,16 @@ class GrandPy:
         Union[np.ndarray, sp.csr_matrix]
             The resulting slot after the mode has been applied.
         """
-        return self.__slot_tool.resolve_mode_slot(mode_slot, allow_ntr=allow_ntr, ntr_nan=ntr_nan)
+        return self.__slot_tool._resolve_mode_slot(mode_slot, allow_ntr=allow_ntr, ntr_nan=ntr_nan)
 
     def with_dropped_slots(self, slots_to_remove: Union[str, Sequence[str]]) -> "GrandPy":
         """
-        Returns a new GrandPy object with specified slot(s) removed.
+        Returns a GrandPy instance with specified slot(s) removed.
+
+        See Also
+        --------
+        GrandPy.with_slot:
+            Add a new slot.
 
         Parameters
         ----------
@@ -482,7 +488,7 @@ class GrandPy:
         Returns
         ----------
         GrandPy
-            A new GrandPy object with specified slot(s) removed.
+            A GrandPy instance with specified slot(s) removed.
         """
         slots_to_remove = _ensure_list(slots_to_remove)
 
@@ -492,12 +498,22 @@ class GrandPy:
 
     def with_slot(self, name: str, new_slot: Union[np.ndarray, pd.DataFrame, sp.csr_matrix, list], *, set_to_default = False) -> "GrandPy":
         """
-        Returns a new GrandPy Object with the new slot added. Will overwrite if the slot already exists and give a warning.
+        Returns a GrandPy instance with the new slot added. Will overwrite if the slot already exists and give a warning.
 
+        Notes
+        -----
         Recommended: use this function with DataFrames for security.
 
         It can only check the order of genes and samples/cells if the given matrix is a pandas DataFrame.
         Otherwise, the given matrix is expected to have rows and columns in the same order as existing slots.
+
+        See Also
+        --------
+        GrandPy.get_table:
+            Get the data from slots. (genes x samples)
+
+        GrandPy.get_data:
+            Get the data from slots. (samples x genes)
 
         Parameters
         ----------
@@ -513,7 +529,7 @@ class GrandPy:
         Returns
         -------
         GrandPy
-            A new GrandPy object with the new slot added.
+            A GrandPy instance with the new slot added.
         """
         new_slots, new_metadata = self.__slot_tool.with_slot(name, new_slot, set_to_default=set_to_default)
 
@@ -539,7 +555,6 @@ class GrandPy:
         >>> print(sars.slots)
         ['count', 'ntr', 'alpha', 'beta', 'upper', 'lower', 'normal_ntr']
 
-
         Parameters
         ----------
         as_ntr: str
@@ -551,7 +566,7 @@ class GrandPy:
         Returns
         -------
         GrandPy
-            A new GrandPy object with a new 'ntr' slot.
+            A GrandPy instance with a new 'ntr' slot.
 
         Raises
         ------
@@ -586,12 +601,7 @@ class GrandPy:
             Remove analyses with a regex pattern.
 
         GrandPy.with_analysis:
-            Add an analysis to the object. Usually not to be used directly.
-
-        Returns
-        -------
-        list[str]
-            A list of analysis names.
+            Add an analysis to the instance. Usually not to be used directly.
         """
         return self.__analysis_tool.analyses()
 
@@ -611,7 +621,7 @@ class GrandPy:
             Remove analyses with a regex pattern.
 
         GrandPy.with_analysis:
-            Add an analysis to the object. Usually not to be used directly.
+            Add an analysis to the instance. Usually not to be used directly.
 
         Parameters
         ----------
@@ -633,7 +643,7 @@ class GrandPy:
 
     def with_analysis(self, name: str, table: pd.DataFrame) -> "GrandPy":
         """
-        Returns a new GrandPy object with added analyses.
+        Returns a GrandPy instance with added analyses.
 
         Not to be used directly in most cases, instead it is called by analysis methods.
 
@@ -665,7 +675,7 @@ class GrandPy:
 
         Returns
         -------
-        A new GrandPy object with added analyses.
+        A GrandPy instance with added analyses.
         """
         new_analyses = self.__analysis_tool.with_analysis(name, table)
 
@@ -673,16 +683,7 @@ class GrandPy:
 
     def with_dropped_analyses(self, pattern: Union[str, Sequence[str]] = None) -> "GrandPy":
         """
-        Returns a new GrandPy object with analyses matching the pattern removed.
-
-        Parameters
-        ----------
-        pattern: str or Sequence[str], optional
-            One or multiple regex patterns to match analyses. If None, all analyses will be removed.
-
-        Returns
-        -------
-            A new GrandPy object with removed analyses.
+        Returns a GrandPy instance with analyses matching the pattern removed.
 
         See Also
         --------
@@ -696,7 +697,16 @@ class GrandPy:
             Get the names of analyses matching a pattern.
 
         GrandPy.with_analysis:
-            Add an analysis to the object. Usually not to be used directly.
+            Add an analysis to the instance. Usually not to be used directly.
+
+        Parameters
+        ----------
+        pattern: str or Sequence[str], optional
+            One or multiple regex patterns to match analyses. If None, all analyses will be removed.
+
+        Returns
+        -------
+            A GrandPy instance with removed analyses.
         """
         new_analyses = self.__analysis_tool.drop_analyses(pattern)
 
@@ -710,14 +720,9 @@ class GrandPy:
         return PlotTool(self._anndata)
 
     @property
-    def plots(self) -> dict[str, dict[str, Any]]:
+    def plots(self) -> dict[str, list[str]]:
         """
-        Get a dictionary of available plot names.
-
-        Returns
-        -------
-        dict[str, dict[str, Any]]
-            A dictionary mapping plot types('gene', 'global') to plot names.
+        Get available plot names.
 
         See Also
         --------
@@ -726,12 +731,17 @@ class GrandPy:
 
         GrandPy.with_dropped_plots
             Remove plots matching a regex pattern.
+
+        Returns
+        -------
+        dict[str, list[str]]
+            A dictionary mapping plot types('gene', 'global') to plot names.
         """
         return self.__plot_tool.plots()
 
     def with_plot(self, name: str, function: Union[Plot, Callable]) -> "GrandPy":
         """
-        Returns a new GrandPy object with a plot added. Either a global or gene plot.
+        Returns a GrandPy instance with a plot added. Either a global or gene plot.
         Global plots only take a GrandPy object. Gene plots additionally require a gene.
 
         Parameters
@@ -740,7 +750,7 @@ class GrandPy:
             A name for the plot.
 
         function: Plot or Callable
-            A Plot Object, or a funktion, that takes a GrandPy object or a GrandPy object and a gene as input and returns a plot.
+            A Plot object, or a funktion, that takes a GrandPy object and optionally a gene as input and returns a plot.
 
         Returns
         -------
@@ -780,20 +790,26 @@ class GrandPy:
         Executing stored plot functions:
 
         >>> sars.plot_global("scatter")
-        >>> sars.plot_gene("old_vs_new", "Mock.1h.A")
+        >>> sars.plot_gene("old_vs_new", gene="Mock.1h.A")
 
         See Also
         --------
         Plot
-            A class used to store plot functions as.
+            A class used to store a plot function.
 
         GrandPy.plots
             Get the names of all stored plot functions.
 
         GrandPy.with_dropped_plots
             Remove plots matching a regex.
+
+        GrandPy.plot_global
+            Execute a stored global plot function.
+
+        GrandPy.plot_gene
+            Execute a stored gene plot function for a given gene.
         """
-        new_plots = self.__plot_tool.add_plot(name, function)
+        new_plots = self.__plot_tool.with_plot(name, function)
 
         return self._dev_replace(plots=new_plots)
 
@@ -1586,7 +1602,7 @@ class GrandPy:
     def get_matrix(
             self,
             mode_slot: Union[str, ModeSlot] = None,
-            genes: Union[str, int, Sequence[Union[str, int]]] = None,
+            genes: Union[str, int, Sequence[Union[str, int, bool]]] = None,
             columns: Union[str, int, Sequence[Union[str, int]]] = None,
             *,
             ntr_nan: bool = False,
@@ -1595,7 +1611,18 @@ class GrandPy:
         """
         Get the data from a data slot as a numpy array, without row or column names.
 
-        This function is mostly not needed, as get_table() or get_data() are usually better suited and more versitile.
+        This function is mostly not needed, as get_table() or get_data() are usually better suited and more versatile.
+
+        See Also
+        --------
+        GrandPy.get_table
+            Get the data from slots, coldata can be concatenated. (genes x samples)
+
+        GrandPy.get_data
+            Get the data from slots, gene_info can be concatenated. (samples x genes)
+
+        GrandPy.get_analysis_table:
+            Get a DataFrame containing analysis results.
 
         Parameters
         ----------
@@ -1604,7 +1631,7 @@ class GrandPy:
 
             A mode("new"|"old"|"total") can be specified in the following formats: ModeSlot('<mode>', '<slot>') or '<mode>_<slot>'
 
-        genes: str or int or Sequence[str or int]
+        genes: str or int or Sequence[str or int or bool]
             The genes to be retrieved. Either by gene symbols, names(Ensembl IDs), indices, or a boolean mask.
 
         columns: str or int or Sequence[str or int]
@@ -1625,17 +1652,6 @@ class GrandPy:
         -------
         Union[np.ndarray, sp.csr_matrix]
             A data matrix, without column or row names.
-
-        See Also
-        --------
-        GrandPy.get_table
-            Similar to get_matrix, but with row and column names and coldata can be concatenated.
-
-        GrandPy.get_data
-            Similar to get_table, but slots are transposed, so gene_info can be concatenated.
-
-        GrandPy.get_analysis_table:
-            Get a DataFrame containing analysis tables.
         """
         if mode_slot is None:
             mode_slot = self.default_slot
@@ -1652,7 +1668,7 @@ class GrandPy:
     def get_data(
             self,
             mode_slot: Union[str, ModeSlot, Sequence[Union[str, ModeSlot]]] = None,
-            genes: Union[str, int, Sequence[Union[str, int]]] = None,
+            genes: Union[str, int, Sequence[Union[str, int, bool]]] = None,
             columns: Union[str, int, Sequence[Union[str, int]]] = None,
             *,
             with_coldata: bool = True,
@@ -1681,8 +1697,8 @@ class GrandPy:
 
             A mode("new"|"old"|"total") can be specified in the following formats: ModeSlot('<mode>', '<slot>') or '<mode>_<slot>'
 
-        genes: str or int or Sequence[str or int], optional
-            The genes to be retrieved. Either by gene symbols, names(Ensembl IDs), or indices.
+        genes: str or int or Sequence[str or int or bool]
+            The genes to be retrieved. Either by gene symbols, names(Ensembl IDs), indices, or a boolean mask.
 
         columns: str or int or Sequence[str or int], optional
             The samples/cells to be retrieved. Either by names or indices.
@@ -1769,7 +1785,7 @@ class GrandPy:
     def get_table(
             self,
             mode_slot: Union[str, ModeSlot, Sequence[Union[str, ModeSlot]]] = None,
-            genes: Union[str, int, Sequence[Union[str, int]]] = None,
+            genes: Union[str, int, Sequence[Union[str, int, bool]]] = None,
             columns: Union[str, int, Sequence[Union[str, int]]] = None,
             *,
             with_gene_info: bool = False,
@@ -1803,8 +1819,8 @@ class GrandPy:
 
             A mode("new"|"old"|"total") can be specified in the following formats: ModeSlot('<mode>', '<slot>') or '<mode>_<slot>'
 
-        genes: str or int or Sequence[str or int], optional
-            The genes to be retrieved. Either by gene symbols, names(Ensembl IDs), or indices.
+        genes: str or int or Sequence[str or int or bool]
+            The genes to be retrieved. Either by gene symbols, names(Ensembl IDs), indices, or a boolean mask.
 
         columns: str or int or Sequence[str or int], optional
             The samples/cells to be retrieved. Either by names or indices.

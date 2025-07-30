@@ -44,7 +44,10 @@ class PlotTool:
     def __init__(self, adata: ad.AnnData):
         self._adata = adata
 
-    def plots(self) -> dict[str, dict[str, Plot]]:
+    def plots(self) -> dict[str, list[str]]:
+        """
+        For detailed documentation see GrandPy.plots.
+        """
         plots = self._adata.uns["plots"]
 
         result = {}
@@ -59,7 +62,10 @@ class PlotTool:
 
         return result
 
-    def add_plot(self, name: str, function: Union[Plot, Callable]) -> dict[str, dict[str, Plot]]:
+    def with_plot(self, name: str, function: Union[Plot, Callable]) -> dict[str, dict[str, Plot]]:
+        """
+        For detailed documentation see GrandPy.with_plot.
+        """
         def function_to_plot(fun: Callable) -> Plot:
             from inspect import signature
 

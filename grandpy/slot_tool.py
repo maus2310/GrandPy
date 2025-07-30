@@ -35,6 +35,11 @@ class ModeSlot:
 
     >>> gp.plot_scatter(data = ..., mode_slot = n_count)
 
+    See Also
+    --------
+    GandPy.with_ntr_slot
+        Set a different slot as the 'ntr' slot. This slot is being used when computing modes.
+
     Parameters
     ----------
     mode: str
@@ -88,21 +93,25 @@ class SlotTool:
         self._is_sparse = is_sparse
 
     def slots(self) -> list[str]:
+        """
+        For detailed documentation see GrandPy.slots.
+        """
         return list(self._adata.layers.keys())
 
-    def slot_data(self) -> dict[str, Union[np.ndarray, sp.csr_matrix]]:
+    def _slot_data(self) -> dict[str, Union[np.ndarray, sp.csr_matrix]]:
+        """
+        Internal function to get the data for all slots.
+        """
         def safe_copy(obj):
             return obj.copy() if hasattr(obj, "copy") else obj
 
         return {k: safe_copy(v) for k, v in self._adata.layers.items()}
 
-    def get_slot(self, slot: str) -> Union[np.ndarray, sp.csr_matrix]:
-        if slot not in self._adata.layers:
-            raise KeyError(f"Slot '{slot}' not found.")
-        return self._adata.layers[slot].copy()
-
     def with_slot(self, name: str, new_slot: Union[np.ndarray, pd.DataFrame, sp.csr_matrix, Sequence], *, set_to_default=False) -> tuple[dict, dict]:
-        new_slots = self.slot_data()
+        """
+        For detailed documentation see GrandPy.with_slot.
+        """
+        new_slots = self._slot_data()
         # rows and columns are not modified so there is no need to copy
         rows = self._adata.obs.index
         columns = self._adata.var.index
@@ -142,7 +151,10 @@ class SlotTool:
         return new_slots, new_metadata
 
     def with_dropped_slots(self,slots_to_remove: Sequence[str]) -> tuple[dict, dict]:
-        current_slots = self.slot_data()
+        """
+        For detailed documentation see GrandPy.with_dropped_slots.
+        """
+        current_slots = self._slot_data()
 
         remaining = [s for s in current_slots if s not in slots_to_remove]
 
@@ -157,14 +169,20 @@ class SlotTool:
 
         return new_slots, new_metadata
 
-    def check_slot(self, slot: Union[str, ModeSlot], *, allow_ntr: bool = True) -> bool:
+    def _check_slot(self, slot: Union[str, ModeSlot], *, allow_ntr: bool = True) -> bool:
+        """
+        Internal function to check if a slot exists.
+        """
         if isinstance(slot, ModeSlot):
             slot = slot.slot
         if not allow_ntr and slot == "ntr":
             return False
         return slot in self.slots()
 
-    def resolve_mode_slot(self, mode_slot: Union[str, ModeSlot], *, allow_ntr = True, ntr_nan = False) -> Union[np.ndarray, sp.csr_matrix]:
+    def _resolve_mode_slot(self, mode_slot: Union[str, ModeSlot], *, allow_ntr = True, ntr_nan = False) -> Union[np.ndarray, sp.csr_matrix]:
+        """
+        Internal function to resolve a mode_slot.
+        """
         def one_minus_csr_matrix(matrix: sp.csr_matrix) -> sp.csr_matrix:
             """
             Helper funktion to compute one minus a sparse matrix.
@@ -176,11 +194,11 @@ class SlotTool:
         # if mode_slot is a string, it gets parsed into a ModeSlot Object
         mode_slot = _parse_as_mode_slot(mode_slot)
 
-        if not self.check_slot(mode_slot.slot, allow_ntr=allow_ntr):
+        if not self._check_slot(mode_slot.slot, allow_ntr=allow_ntr):
             raise ValueError(f"Slot '{mode_slot.slot}' not found in data slots.")
 
         slot_total = self._adata.layers[mode_slot.slot].copy()
-        ntr = self._adata.layers.get("ntr")
+        ntr = self._adata.layers["ntr"].copy()
 
         if ntr_nan:
             boolean_mask = self._adata.var["no4sU"].values
@@ -198,7 +216,10 @@ class SlotTool:
         return resulting_mode_slot
 
     def with_ntr_slot(self, as_ntr: str, save_ntr_as: str = None) -> dict[str, Union[np.ndarray, sp.csr_matrix]]:
-        new_slots = self.slot_data()
+        """
+        For detailed documentation see GrandPy.with_ntr_slot.
+        """
+        new_slots = self._slot_data()
 
         if save_ntr_as is not None:
             new_slots[save_ntr_as] = new_slots["ntr"]

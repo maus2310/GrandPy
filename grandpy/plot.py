@@ -3,64 +3,52 @@ import io
 import contextlib
 import warnings
 from pathlib import Path
-from typing import Optional, Union, Callable, Any, Literal
+from typing import Union, Callable, Any, Literal
+from collections.abc import Sequence, Mapping
 
-import matplotlib.colors as matplot_colors
-import matplotlib.pyplot as plt
-import matplotlib.ticker
 import numpy as np
 import pandas as pd
 import seaborn as sns
+import matplotlib.ticker
+import matplotlib.pyplot as plt
+import matplotlib.colors as matplot_colors
 from matplotlib import cm
 from pydeseq2.dds import DeseqDataSet
-from scipy.sparse import issparse
 from scipy.stats import gaussian_kde, pearsonr, spearmanr, kendalltau
 from sklearn.decomposition import PCA
 
 from .core_grandpy import GrandPy
 from .slot_tool import ModeSlot, _parse_as_mode_slot
+from .utils import _ensure_list
+
 
 #TODO outlier bei scatter bei limit falsch
 
-def _is_sparse_matrix(mat: any)-> bool:
-    """
-        Check whether a matrix is a SciPy sparse matrix.
 
-        Parameters
-        ----------
-        mat : any
-            Object to check for sparse matrix type.
-
-        Returns
-        -------
-        bool
-            True if `mat` is a SciPy sparse matrix, False otherwise.
-        """
-    return issparse(mat)
-
+# ----- Private helper functions -----
 def _parse_time_to_float(t: str)-> float:
     """
-        Convert a time string like '24h' or '1.5h' to a float (in hours).
+    Convert a time string like '24h' or '1.5h' to a float (in hours).
 
-        Parameters
-        ----------
-        t : str
-            Time string expected to end with 'h', e.g. '12h' or '0.5h'.
+    Parameters
+    ----------
+    t : str
+        Time string expected to end with 'h', e.g. '12h' or '0.5h'.
 
-        Returns
-        -------
-        float
-            Parsed numeric value in hours. Returns 0.0 if the format is invalid.
+    Returns
+    -------
+    float
+        Parsed numeric value in hours. Returns 0.0 if the format is invalid.
 
-        Examples
-        --------
-        >>> _parse_time_to_float("24h")
-        24.0
-        >>> _parse_time_to_float("1.5h")
-        1.5
-        >>> _parse_time_to_float("invalid")
-        0.0
-        """
+    Examples
+    --------
+    >>> _parse_time_to_float("24h")
+    24.0
+    >>> _parse_time_to_float("1.5h")
+    1.5
+    >>> _parse_time_to_float("invalid")
+    0.0
+    """
     match = re.match(r"(\d+(\.\d+)?)h", t)
     if match:
         return float(match.group(1))
@@ -139,27 +127,25 @@ def _plot_diagonal(ax, diag, x_range):
 def _highlight_points(ax: Any, data: GrandPy, x_vals: np.ndarray, y_vals: np.ndarray,
                       highlight: list[str] | dict[str, list[str]] | None, size: float, highlight_size: float):
     """
-        Highlight specific points on a scatter plot.
+    Highlight specific points on a scatter plot.
 
-        Parameters:
-            ax (matplotlib.axes.Axes): The axis object to draw on.
-            data (GrandPy): The data object providing index lookup via `get_index()`.
-            x_vals (np.ndarray): X-values of the points.
-            y_vals (np.ndarray): Y-values of the points.
-            highlight (list[str] | dict[str, list[str]] | None): List of gene names to highlight in red,
-                                                                  or a dict mapping colors to gene lists.
-            size (float): Base size of the scatter points.
-            highlight_size (float): Scaling factor for highlighted points.
-        """
-    def get_indices(genes):
-        return data.get_index(genes, regex=False)
+    Parameters:
+        ax (matplotlib.axes.Axes): The axis object to draw on.
+        data (GrandPy): The data object providing index lookup via `get_index()`.
+        x_vals (np.ndarray): X-values of the points.
+        y_vals (np.ndarray): Y-values of the points.
+        highlight (list[str] | dict[str, list[str]] | None): List of gene names to highlight in red,
+                                                              or a dict mapping colors to gene lists.
+        size (float): Base size of the scatter points.
+        highlight_size (float): Scaling factor for highlighted points.
+    """
     if isinstance(highlight, dict):
         for color, genes in highlight.items():
-            idxs = get_indices(genes)
+            idxs = data.get_index(genes, regex=False)
             if idxs:
                 ax.scatter(x_vals[idxs], y_vals[idxs], color=color, s=size * 3)
     else:
-        idxs = get_indices(highlight)
+        idxs = data.get_index(highlight, regex=False)
         if idxs:
             ax.scatter(x_vals[idxs], y_vals[idxs], color="red", s=size * highlight_size)
 
@@ -167,21 +153,18 @@ def _label_points(ax: Any, data: GrandPy, x_vals: np.ndarray,
                   y_vals: np.ndarray, label: list[str] | dict[str, list[str]] | None,
                   size: float, highlight_size: float, y_label_offset: Any):
     """
-        Label specific points on a scatter plot.
+    Label specific points on a scatter plot.
 
-        Parameters:
-            ax (matplotlib.axes.Axes): The axis object to draw on.
-            data (GrandPy): The data object providing index lookup via `get_index()`.
-            x_vals (np.ndarray): X-values of the points.
-            y_vals (np.ndarray): Y-values of the points.
-            label (list[str] | dict[str, list[str]] | None): List of gene names to label
-            size (float): Base size of the scatter points.
-            highlight_size (float): Scaling factor for labels.
-        """
-    def get_indices(genes):
-        return data.get_index(genes, regex=False)
-
-    indices = get_indices(label)
+    Parameters:
+        ax (matplotlib.axes.Axes): The axis object to draw on.
+        data (GrandPy): The data object providing index lookup via `get_index()`.
+        x_vals (np.ndarray): X-values of the points.
+        y_vals (np.ndarray): Y-values of the points.
+        label (list[str] | dict[str, list[str]] | None): List of gene names to label
+        size (float): Base size of the scatter points.
+        highlight_size (float): Scaling factor for labels.
+    """
+    indices = data.get_index(label, regex=False)
     if isinstance(label, list) and all(isinstance(g, str) for g in label):
         gene_names = label
     else:
@@ -194,15 +177,15 @@ def _label_points(ax: Any, data: GrandPy, x_vals: np.ndarray,
 
 def _setup_default_aes(data: GrandPy, aest: dict | None = None) -> dict:
     """
-       Set up default aesthetics dictionary for plotting based on data coldata.
+    Set up default aesthetics dictionary for plotting based on data coldata.
 
-       Parameters:
-           data (GrandPy): The data object containing metadata in `coldata`.
-           aest (dict | None): Optional initial aesthetics dictionary to update.
+    Parameters:
+       data (GrandPy): The data object containing metadata in `coldata`.
+       aest (dict | None): Optional initial aesthetics dictionary to update.
 
-       Returns:
-           dict: Updated aesthetics dictionary with default keys added if missing.
-       """
+    Returns:
+       dict: Updated aesthetics dictionary with default keys added if missing.
+    """
     if aest is None:
         aest = {}
 
@@ -221,21 +204,21 @@ def _setup_default_aes(data: GrandPy, aest: dict | None = None) -> dict:
 
 def _density2d(x: np.ndarray, y: np.ndarray, n: int = 100, margin: str ='n')-> np.ndarray:
     """
-        Compute a 2D kernel density estimate (KDE) for points (x, y).
+    Compute a 2D kernel density estimate (KDE) for points (x, y).
 
-        Parameters:
-            x (array-like): 1D array of x coordinates.
-            y (array-like): 1D array of y coordinates.
-            n (int): Number of points for KDE grid (not used directly here but kept for API compatibility).
-            margin (str): Margin normalization, options:
-                          'x' - normalize densities along unique x values,
-                          'y' - normalize densities along unique y values,
-                          'n' - normalize overall density.
+    Parameters:
+        x (array-like): 1D array of x coordinates.
+        y (array-like): 1D array of y coordinates.
+        n (int): Number of points for KDE grid (not used directly here but kept for API compatibility).
+        margin (str): Margin normalization, options:
+                      'x' - normalize densities along unique x values,
+                      'y' - normalize densities along unique y values,
+                      'n' - normalize overall density.
 
-        Returns:
-            np.ndarray: Density values for each (x, y) point, same shape as input.
-                        NaN where input is invalid or KDE could not be computed.
-        """
+    Returns:
+        np.ndarray: Density values for each (x, y) point, same shape as input.
+                    NaN where input is invalid or KDE could not be computed.
+    """
     x = np.asarray(x)
     y = np.asarray(y)
     xy = np.vstack([x, y])
@@ -272,27 +255,27 @@ def _density2d(x: np.ndarray, y: np.ndarray, n: int = 100, margin: str ='n')-> n
 
 def _make_continuous_colors(values, colors: str = None, breaks: int | list = None)-> dict:
     """
-       Generate color breaks and corresponding colors for continuous values.
+    Generate color breaks and corresponding colors for continuous values.
 
-       The function determines appropriate quantiles or breaks for the given values,
-       distinguishes between values that contain negatives and positives, and chooses
-       a diverging or sequential color scheme accordingly. It can also handle color maps
-       by name and optionally reverse them.
+    The function determines appropriate quantiles or breaks for the given values,
+    distinguishes between values that contain negatives and positives, and chooses
+    a diverging or sequential color scheme accordingly. It can also handle color maps
+    by name and optionally reverse them.
 
-       Parameters:
-           values (array-like): Numeric values for which colors should be generated.
-           colors (str or sequence of str, optional): Color map name (e.g. 'viridis', 'revRdBu') or
-               list of hex colors. If a string starts with 'rev', the color map will be reversed.
-           breaks (str, int, or array-like, optional): Specifies how to calculate breaks:
-               - 'minmax': use min/max for breaks evenly spaced,
-               - int: number of breaks to generate,
-               - array-like: explicit break points.
+    Parameters:
+        values (array-like): Numeric values for which colors should be generated.
+        colors (str or sequence of str, optional): Color map name (e.g. 'viridis', 'revRdBu') or
+            list of hex colors. If a string starts with 'rev', the color map will be reversed.
+        breaks (str, int, or array-like, optional): Specifies how to calculate breaks:
+            - 'minmax': use min/max for breaks evenly spaced,
+            - int: number of breaks to generate,
+            - array-like: explicit break points.
 
-       Returns:
-           dict: Dictionary with keys:
-               'breaks' : array of break points for the color scale,
-               'colors' : list of colors corresponding to the breaks.
-       """
+    Returns:
+        dict: Dictionary with keys:
+            'breaks' : array of break points for the color scale,
+            'colors' : list of colors corresponding to the breaks.
+    """
     values = np.asarray(values, dtype=np.float64)
     values = values[np.isfinite(values)]
 
@@ -354,28 +337,28 @@ def _make_continuous_colors(values, colors: str = None, breaks: int | list = Non
 
 def _transform_no(matrix: np.ndarray) -> np.ndarray:
     """
-        Identity transform: returns the input matrix unchanged.
+    Identity transform: returns the input matrix unchanged.
 
-        Parameters:
-            matrix (np.ndarray): Input matrix.
+    Parameters:
+        matrix (np.ndarray): Input matrix.
 
-        Returns:
-            np.ndarray: The same input matrix without any modifications.
-        """
+    Returns:
+        np.ndarray: The same input matrix without any modifications.
+    """
     return matrix
 
 def _transform_z(matrix: np.ndarray, center: bool = True, scale: bool = True) -> np.ndarray:
     """
-        Apply z-score transformation to each row of the input matrix.
+    Apply z-score transformation to each row of the input matrix.
 
-        Parameters:
-            matrix (np.ndarray): Input 2D array (samples x features).
-            center (bool): If True, subtract the mean (center the data).
-            scale (bool): If True, divide by the standard deviation (scale the data).
+    Parameters:
+        matrix (np.ndarray): Input 2D array (samples x features).
+        center (bool): If True, subtract the mean (center the data).
+        scale (bool): If True, divide by the standard deviation (scale the data).
 
-        Returns:
-            np.ndarray: Transformed matrix with z-score normalization applied row-wise.
-        """
+    Returns:
+        np.ndarray: Transformed matrix with z-score normalization applied row-wise.
+    """
     if not center and not scale:
         return matrix.astype(np.float64)
 
@@ -384,17 +367,17 @@ def _transform_z(matrix: np.ndarray, center: bool = True, scale: bool = True) ->
 
 def _transform_vst(data: GrandPy, selected_columns: list, mode_slot: str | list[ModeSlot], genes: str | list[str]) -> pd.DataFrame:
     """
-        Perform variance stabilizing transformation (VST) on selected gene expression data.
+    Perform variance stabilizing transformation (VST) on selected gene expression data.
 
-        Parameters:
-            data: GrandPy-like object with `get_table` and `coldata`.
-            selected_columns (list): Columns to select from the data.
-            mode_slot (str): Mode slot, e.g., "count" or others.
-            genes (list): Genes to include in the transformation.
+    Parameters:
+        data: GrandPy-like object with `get_table` and `coldata`.
+        selected_columns (list): Columns to select from the data.
+        mode_slot (str): Mode slot, e.g., "count" or others.
+        genes (list): Genes to include in the transformation.
 
-        Returns:
-            pd.DataFrame: VST-transformed data frame (samples x genes).
-        """
+    Returns:
+        pd.DataFrame: VST-transformed data frame (samples x genes).
+    """
     mat = data.get_table(mode_slot=mode_slot, columns=selected_columns, genes=genes)
     mat = mat.loc[:, mat.notna().any(axis=0)]
 
@@ -414,7 +397,7 @@ def _transform_vst(data: GrandPy, selected_columns: list, mode_slot: str | list[
     vst_df = pd.DataFrame(vst_array, index=slotmat.index, columns=slotmat.columns)
     return vst_df
 
-def _transform_logfc(m: np.ndarray, reference_columns: Optional[list[int]] = None, lfc_fun: Optional[Callable[[np.ndarray, np.ndarray], np.ndarray]] = None) -> np.ndarray:
+def _transform_logfc(m: np.ndarray, reference_columns: list[int] = None, lfc_fun: Callable[[np.ndarray, np.ndarray], np.ndarray] = None) -> np.ndarray:
     """
     Compute log2 fold changes for a matrix against a reference (e.g., mean of columns).
 
@@ -425,7 +408,7 @@ def _transform_logfc(m: np.ndarray, reference_columns: Optional[list[int]] = Non
     reference_columns : list of int, optional
         Columns used to compute reference expression per gene.
         Defaults to all columns.
-    lfc_fun : function, optional
+    lfc_fun : Callable[[np.ndarray, np.ndarray], np.ndarray], optional
         A custom logFC function: takes (x, ref) and returns logFCs.
         If None, uses log2((x+1)/(ref+1)).
 
@@ -447,27 +430,27 @@ def _transform_logfc(m: np.ndarray, reference_columns: Optional[list[int]] = Non
 
 def _f_old_nonequi(t: np.ndarray, f0: float, s: float, d: float)-> (float | np.ndarray):
     """
-        Calculate concentration decay over time from an initial amount without synthesis.
+    Calculate concentration decay over time from an initial amount without synthesis.
 
-        Models exponential decay of a substance starting at initial concentration `f0`
-        with degradation rate `kd`. The synthesis rate `ks` is not used in this model.
+    Models exponential decay of a substance starting at initial concentration `f0`
+    with degradation rate `kd`. The synthesis rate `ks` is not used in this model.
 
-        Parameters
-        ----------
-        t : float or np.ndarray
-            Time point(s) at which to evaluate the function.
-        f0 : float
-            Initial concentration at time zero.
-        s : float
-            Synthesis rate (not used in this function).
-        d : float
-            Degradation rate constant.
+    Parameters
+    ----------
+    t : float or np.ndarray
+        Time point(s) at which to evaluate the function.
+    f0 : float
+        Initial concentration at time zero.
+    s : float
+        Synthesis rate (not used in this function).
+    d : float
+        Degradation rate constant.
 
-        Returns
-        -------
-        float or np.ndarray
-            Concentration at time `t`, calculated as `f0 * exp(-kd * t)`.
-        """
+    Returns
+    -------
+    float or np.ndarray
+        Concentration at time `t`, calculated as `f0 * exp(-kd * t)`.
+    """
     return f0 * np.exp(-t * d)
 
 def _f_old_equi(t: np.ndarray, s: float, d: float) -> float| np.ndarray:
@@ -478,61 +461,71 @@ def _f_old_equi(t: np.ndarray, s: float, d: float) -> float| np.ndarray:
 
 def _f_new(t: np.ndarray, s: float, d: float)-> float | np.ndarray:
     """
-        Calculate concentration over time with synthesis and degradation reaching equilibrium.
+    Calculate concentration over time with synthesis and degradation reaching equilibrium.
 
-        Models the concentration change over time given a synthesis rate `ks` and degradation
-        rate `kd`, converging to the steady-state level `ks / kd`.
+    Models the concentration change over time given a synthesis rate `ks` and degradation
+    rate `kd`, converging to the steady-state level `ks / kd`.
 
-        Parameters
-        ----------
-        t : float or np.ndarray
-            Time point(s) at which to evaluate the function.
-        s : float
-            Synthesis rate.
-        d : float
-            Degradation rate constant.
+    Parameters
+    ----------
+    t : float or np.ndarray
+        Time point(s) at which to evaluate the function.
+    s : float
+        Synthesis rate.
+    d : float
+        Degradation rate constant.
 
-        Returns
-        -------
-        float or np.ndarray
-            Concentration at time `t`, calculated as `ks / kd * (1 - exp(-kd * t))`.
-        """
+    Returns
+    -------
+    float or np.ndarray
+        Concentration at time `t`, calculated as `ks / kd * (1 - exp(-kd * t))`.
+    """
     return s / d * (1 - np.exp(-t * d))
 
+
+
+
+# ----- Public functions -----
 def format_correlation(method: str = "pearson", n_format: str | None = None,
                        coeff_format: str | None = ".2f", p_format: str | None = ".2g",
-                       slope_format: str | None = None, rmsd_format: str | None = None, min_obs: int = 5) -> callable:
+                       slope_format: str | None = None, rmsd_format: str | None = None, min_obs: int = 5) -> Callable[[np.ndarray, np.ndarray], str]:
     """
-        Create a function to compute and format correlation statistics between two arrays.
+    Create a function to compute and format correlation statistics between two arrays.
 
-        Parameters
-        ----------
-        method : str, default "pearson"
-            Correlation method to use. One of "pearson", "spearman", or "kendall".
-        n_format : str or None, optional
-            Format string (without '%') for the number of observations (e.g., "d"). If None, omit this from output.
-        coeff_format : str or None, optional
-            Format string for the correlation coefficient (e.g., ".2f"). If None, omit this from output.
-        p_format : str or None, optional
-            Format string for the p-value (e.g., ".2g" or ".2e"). If None, omit this from output.
-        slope_format : str or None, optional
-            Format string for the PCA-based slope between x and y (not from linear regression). If None, omit this.
-        rmsd_format : str or None, optional
-            Format string for the root mean square deviation (RMSD). If None, omit this.
-        min_obs : int, default 5
-            Minimum number of valid observations required to compute and return results.
+    Notes
+    -----
+    - NaN or infinite values are automatically excluded before computing correlations.
+    - The slope is computed from the first principal component and reflects direction, not regression.
 
-        Returns
-        -------
-        callable
-            A function that takes two numeric arrays (x, y) and returns a formatted string describing
-            the correlation statistics, or None if not enough valid data points.
+    Parameters
+    ----------
+    method : str, default "pearson"
+        Correlation method to use. One of "pearson", "spearman", or "kendall".
 
-        Notes
-        -----
-        - NaN or infinite values are automatically excluded before computing correlations.
-        - The slope is computed from the first principal component and reflects direction, not regression.
-        """
+    n_format : str or None, optional
+        Format string (without '%') for the number of observations (e.g., "d"). If None, omit this from output.
+
+    coeff_format : str or None, optional
+        Format string for the correlation coefficient (e.g., ".2f"). If None, omit this from output.
+
+    p_format : str or None, optional
+        Format string for the p-value (e.g., ".2g" or ".2e"). If None, omit this from output.
+
+    slope_format : str or None, optional
+        Format string for the PCA-based slope between x and y (not from linear regression). If None, omit this.
+
+    rmsd_format : str or None, optional
+        Format string for the root mean square deviation (RMSD). If None, omit this.
+
+    min_obs : int, default 5
+        Minimum number of valid observations required to compute and return results.
+
+    Returns
+    -------
+    Callable[tuple(np.ndarray, np.ndarray), str]
+        A function that takes two numeric arrays (x, y) and returns a formatted string describing
+        the correlation statistics, or None if not enough valid data points.
+    """
     def formatted_correlation(x, y):
         if len(x) != len(y):
             raise ValueError("Cannot compute correlation, unequal lengths!")
@@ -580,12 +573,14 @@ def format_correlation(method: str = "pearson", n_format: str | None = None,
     return formatted_correlation
 
 
+
+# --- Global plots ---
 def plot_scatter(
     data: GrandPy,
-    x: Optional[str] = None,
-    y: Optional[str] = None,
-    genes: Optional[list[str]] = None,
-    filter: Optional[Union[slice, tuple[int, int],list[int], list[tuple[int, int]], np.ndarray, pd.Series]] = None,
+    x: str = None,
+    y: str = None,
+    genes: Union[str, int, Sequence[Union[str, int, bool]]] = None,
+    filter: Union[slice, tuple[int, int],Sequence[int], Sequence[tuple[int, int]], np.ndarray, pd.Series] = None,
     log: bool = False,
     log_x: bool = False,
     log_y: bool = False,
@@ -596,174 +591,175 @@ def plot_scatter(
     remove_outlier: bool = True,
     show_outlier: float = 1.5,
     size: float = 5,
-    limit: Optional[tuple[float, float]] = None,
-    x_limit: Optional[tuple[float, float]] = None,
-    y_limit: Optional[tuple[float, float]] = None,
+    limit: tuple[float, float] = None,
+    x_limit: tuple[float, float] = None,
+    y_limit: tuple[float, float] = None,
     color: str = None,
     color_palette: str = None,
-    cross: Optional[bool] = None,
-    diagonal: Optional[bool | float | tuple] = None,
-    highlight: Optional[Union[list[str], dict[str, list[str]]]] = None,
+    cross: bool = None,
+    diagonal: bool | float | tuple = None,
+    highlight: Union[Sequence[str], Mapping[str, Sequence[str]]] = None,
     highlight_size: float = 3,
-    x_axis_label: Optional[str] = None,
-    y_axis_label: Optional[str] = None,
-    label: Optional[Union[list[int], list[str]]] = None,
+    x_axis_label: str = None,
+    y_axis_label: str = None,
+    label: Union[Sequence[int], Sequence[str]] = None,
     y_label_offset: float = 0.001,
     analysis: str = None,
     rasterized: bool = False,
     density_margin: str = "n",
     density_n: int = 100,
-    correlation: Optional[Callable[[np.ndarray, np.ndarray], Optional[str]]] = None,
-    path_for_save: Optional[str] | Path = None,
+    correlation: Callable[[np.ndarray, np.ndarray], str] = None,
+    path_for_save: str | Path = None,
     save_fig_format: str = "svg",
     figsize: tuple[float, float] = (10, 6),
     show_plot: bool = True,
 ):
     """
-        Plot a scatter plot of expression values from a GrandPy object.
+    Plot a scatter plot of expression values from a GrandPy object.
 
-        This function visualizes values associated with two variables (x and y), which can be either sample names,
-        analysis result names, or expressions. It supports various transformations, highlighting, axis styling, and
-        density coloring.
-        Parameters
-        ----------
-        data : GrandPy
-            GrandPy object containing expression data and metadata.
+    This function visualizes values associated with two variables (x and y), which can be either sample names,
+    analysis result names, or expressions. It supports various transformations, highlighting, axis styling, and
+    density coloring.
 
-        x : str, optional
-            Sample name, analysis result name, or expression used for the x-axis. Defaults to the first available.
+    See Also
+    --------
+    GrandPy.plots
+        Get the names of all stored plot functions.
 
-        y : str, optional
-            Sample name, analysis result name, or expression used for the y-axis. Defaults to the second available.
+    GrandPy.with_plot
+        Add a plot function.
 
-        genes : list of str, optional
-            Subset of genes to include in the plot.
+    GrandPy.with_dropped_plots
+        Remove plots matching a regex.
 
-        filter : slice | tuple[int, int] | list[int] | list[tuple[int, int]] | np.ndarray | pd.Series, optional
-            Filters the data to a subset of rows (genes) before plotting.
+    GrandPy.plot_global
+        Executes a stored global plot function.
 
-            Can be:
-                - a slice (e.g., slice(0, 100))
-                - a tuple specifying a range (e.g., (0, 100))
-                - a list of indices
-                - a list of (start, stop) tuples
-                - a boolean mask (Series or array)
+    Parameters
+    ----------
+    data : GrandPy
+        GrandPy object containing expression data and metadata.
 
-        log : bool, default=False
-            If True, apply log10 transform to both x and y values (ignores zeros and negatives).
+    x : str, optional
+        Sample name, analysis result name, or expression used for the x-axis. Defaults to the first available.
 
-        log_x : bool, default=False
-            If True, apply log10 transform to x-axis values.
+    y : str, optional
+        Sample name, analysis result name, or expression used for the y-axis. Defaults to the second available.
 
-        log_y : bool, default=False
-            If True, apply log10 transform to y-axis values.
+    genes: str or int or Sequence[str or int or bool], optional
+        Subset of genes to include. Either by gene symbols, names(Ensembl IDs), indices, or a boolean mask.
 
-        axis : bool, default=False
-            If True, remove both axes (ticks, labels, spines).
+    filter : slice | tuple[int, int] | Sequence[int] | Sequence[tuple[int, int]] | np.ndarray | pd.Series, optional
+        Filters the data to a subset of rows (genes) before plotting.
 
-        axis_x : bool, default=False
-            If True, remove x-axis only.
+        Can be:
+            - a slice (e.g., slice(0, 100))
+            - a tuple specifying a range (e.g., (0, 100))
+            - a list of indices
+            - a list of (start, stop) tuples
+            - a boolean mask (Series or array)
 
-        axis_y : bool, default=False
-            If True, remove y-axis only.
+    log : bool, default False
+        If True, apply log10 transform to both x and y values (ignores zeros and negatives).
 
-        mode_slot: str or ModeSlot
-            The name of the data slot. If None, uses the default slot.
+    log_x : bool, default False
+        If True, apply log10 transform to x-axis values.
 
-            A mode("new"|"old"|"total") can be specified in the following formats: ModeSlot('<mode>', '<slot>') or '<mode>_<slot>'
+    log_y : bool, default False
+        If True, apply log10 transform to y-axis values.
 
-        remove_outlier : float, default=1.5
-            Whether to detect and remove outliers using IQR-based filtering.
+    axis : bool, default False
+        If True, remove both axes (ticks, labels, spines).
 
-        show_outlier : bool, default=True
-            If True, plot filtered outliers in gray behind the main scatter plot.
+    axis_x : bool, default False
+        If True, remove x-axis only.
 
-        size : float, default=5
-            Size of each point in the scatter plot.
+    axis_y : bool, default False
+        If True, remove y-axis only.
 
-        limit : tuple[float, float], optional
-            Sets both x and y limits to the same value, unless x_limit or y_limit are specified.
+    mode_slot: str or ModeSlot, optional
+        The name of the data slot. If None, uses the default slot.
 
-        x_limit : tuple[float, float], optional
-            Explicitly set the x-axis limits.
+        A mode("new"|"old"|"total") can be specified in the following formats: ModeSlot('<mode>', '<slot>') or '<mode>_<slot>'
 
-        y_limit : tuple[float, float], optional
-            Explicitly set the y-axis limits.
+    remove_outlier : float, default 1.5
+        Whether to detect and remove outliers using IQR-based filtering.
 
-        color : str, optional
-            Variable name from DataFrame to color points by. If None, use density-based coloring.
+    show_outlier : bool, default True
+        If True, plot filtered outliers in gray behind the main scatter plot.
 
-        color_palette : str, default="viridis"
-            Name of the matplotlib colormap to use for coloring.
+    size : float, default 5
+        Size of each point in the scatter plot.
 
-        cross : bool, optional
-            If True, draw dashed lines at x=0 and y=0.
+    limit : tuple[float, float], optional
+        Sets both x and y limits to the same value, unless x_limit or y_limit are specified.
 
-        diagonal : bool | float | tuple, optional
-            If True, draw identity line (y = x).
-            If float or tuple of float(s), draw y = x + offset(s).
+    x_limit : tuple[float, float], optional
+        Explicitly set the x-axis limits.
 
-        highlight : list[str] | dict[str, list[str]], optional
-            Genes to highlight. Either:
-                - list of gene names (default color used)
-                - dict mapping color → list of genes
+    y_limit : tuple[float, float], optional
+        Explicitly set the y-axis limits.
 
-        highlight_size : float, default=3
-            Size of highlighted points (multiplied with base size).
+    color : str, optional
+        Variable name from DataFrame to color points by. If None, use density-based coloring.
 
-        x_axis_label : str, optional
-            Label on the x-axis.
+    color_palette : str, default "viridis"
+        Name of the matplotlib colormap to use for coloring.
 
-        y_axis_label : str, optional
-            Label on the y-axis.
+    cross : bool, optional
+        If True, draw dashed lines at x=0 and y=0.
 
-        label : list[int] | list[str], optional
-            Genes to label in the plot (by name or index).
+    diagonal : bool | float | tuple, optional
+        If True, draw identity line (y = x).
+        If float or tuple of float(s), draw y = x + offset(s).
 
-        y_label_offset : float, default=0.001
-            Vertical offset to apply when rendering gene labels.
+    highlight : list[str] | dict[str, list[str]], optional
+        Genes to highlight. Either:
+            - list of gene names (default color used)
+            - dict mapping color → list of genes
 
-        analysis : str, optional
-            Analysis name to use when extracting data from analysis tables.
+    highlight_size : float, default 3
+        Size of highlighted points (multiplied with base size).
 
-        rasterized : bool, default=False
-            Whether to rasterize scatter plot (useful for large plots with many points).
+    x_axis_label : str, optional
+        Label on the x-axis.
 
-        density_margin : str, default="n"
-            Defines density estimation behavior (passed to internal function).
+    y_axis_label : str, optional
+        Label on the y-axis.
 
-        density_n : int, default=100
-            Number of bins or grid size for density computation.
+    label : list[int] | list[str], optional
+        Genes to label in the plot (by name or index).
 
-        correlation : Callable, str, optional
-            A correlation function that takes two arrays as input and return a scalar. For example: format_correlation(method="spearman")
+    y_label_offset : float, default 0.001
+        Vertical offset to apply when rendering gene labels.
 
-        path_for_save : str, optional
-            If given, save the figure as a PNG to this directory with auto-generated filename.
+    analysis : str, optional
+        Analysis name to use when extracting data from analysis tables.
 
-        save_fig_format: str, default="svg"
-            The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
+    rasterized : bool, default False
+        Whether to rasterize scatter plot (useful for large plots with many points).
 
-        figsize : tuple[float, float], default=(10, 6)
-            Size of the figure (width, height).
+    density_margin : str, default "n"
+        Defines density estimation behavior (passed to internal function).
 
-        show_plot : bool, default=True
-            Show the plot.
-        See Also
-        --------
-        GrandPy.plots
-         Get the names of all stored plot functions.
+    density_n : int, default 100
+        Number of bins or grid size for density computation.
 
-        GrandPy.with_plot
-         Add a plot function.
+    correlation : Callable[[np.ndarray, np.ndarray], str], optional
+        A correlation function that takes two arrays as input and returns a scalar. For example: format_correlation(method="spearman")
 
-        GrandPy.with_dropped_plots
-         Remove plots matching a regex.
+    path_for_save : str, optional
+        If given, save the figure as a PNG to this directory with auto-generated filename.
 
-        GrandPy.plot_global
-         Executes a stored global plot function.
+    save_fig_format: str, default "svg"
+        The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
+
+    figsize : tuple[float, float], default (10, 6)
+        Size of the figure (width, height).
+
+    show_plot : bool, default=True
+        Show the plot.
     """
-
     if data.analyses:
         if analysis is None:
             analysis = data.analyses[0]
@@ -771,7 +767,7 @@ def plot_scatter(
             analysis = analysis
         names = data.get_analysis_table(with_gene_info=False).keys().tolist()
     else:
-        names = list(data.coldata["Name"])
+        names = data.columns
     x = x or names[0]
     y = y or names[1]
     if x not in names:
@@ -782,8 +778,7 @@ def plot_scatter(
     if mode_slot is None:
         mode_slot = data.default_slot
 
-    raw_matrix = data.get_matrix(mode_slot, force_numpy=False)
-    if _is_sparse_matrix(raw_matrix) or analysis:
+    if analysis:
         df = data.get_analysis_table(genes=genes, with_gene_info=False)
     else:
         df = data.get_table(mode_slot=mode_slot, genes=genes)
@@ -791,7 +786,7 @@ def plot_scatter(
     if filter is not None:
         if isinstance(filter, (tuple, slice)):
             df = df.iloc[slice(*filter) if isinstance(filter, tuple) else filter]
-        elif isinstance(filter, list):
+        elif isinstance(filter, Sequence):
             indices = []
             for item in filter:
                 if isinstance(item, tuple):
@@ -945,114 +940,121 @@ def plot_scatter(
 
 
 def plot_heatmap(
-    data,
-    mode_slot: Union[str, list, None] = None,
-    columns: Optional[Union[str, list]] = None,
-    genes: Optional[list] = None,
+    data: GrandPy,
+    mode_slot: Union[str, ModeSlot, Sequence[Union[str, ModeSlot]]] = None,
+    columns: Union[str, Sequence[str]] = None,
+    genes: Union[str, int, Sequence[Union[str, int, bool]]] = None,
     summarize: pd.DataFrame = None,
-    transform: Union[str, callable] = "Z",
+    transform: Union[str, Callable] = "Z",
     cluster_genes: bool = True,
     cluster_columns: bool = False,
-    label_genes: Optional[bool] = None,
-    x_labels: Optional[list] = None,
-    breaks: Optional[list] = None,
-    colors: Optional[Union[list, str]] = None,
-    title: Optional[str] = None,
+    label_genes: bool = None,
+    x_labels: Sequence[str] = None,
+    breaks: Sequence[int] = None,
+    colors: Union[str, Sequence[str]] = None,
+    title: str = None,
     return_matrix: bool = False,
-    na_to: Optional[float] = None,
+    na_to: float = None,
     figsize: tuple[float, float] = (10, 6),
-    path_for_save: Optional[str] | Path = None,
+    path_for_save: str | Path = None,
     save_fig_format: str = "svg",
     show_plot: bool = True,
 ):
     """
-        Create heatmaps from grandR objects.
+    Create heatmaps from GrandPy objects.
 
-        Convenience method to compare among more two variables (slot data or analyses results).
+    Convenience method to compare among more two variables (slot data or analyses results).
 
-        Parameters
-        ----------
-        data : GrandPy
-            The GrandPy object containing the data to visualize.
+    See Also
+    --------
+    GrandPy.plots
+        Get the names of all stored plot functions.
 
-        mode_slot: str or ModeSlot
-            The name of the data slot. If None, uses the default slot.
+    GrandPy.with_plot
+        Add a plot function.
 
-            A mode("new"|"old"|"total") can be specified in the following formats: ModeSlot('<mode>', '<slot>') or '<mode>_<slot>'
+    GrandPy.with_dropped_plots
+        Remove plots matching a regex.
 
-        columns : str or list, optional
-            The columns (samples/cells) to include. Can be a logical expression
-            over the sample metadata, a list of column names, or None for all columns.
+    GrandPy.plot_global
+        Executes a stored global plot function.
 
-        genes : list, optional
-            A list of gene names to restrict the plot to. If None, uses all genes.
+    GrandPy.get_summary_matrix
+        Get a summarization matrix for averaging or aggregation.
 
-        summarize: pd.DataFrame, optional
-            A summary DataFrame. This can be retrieved via GrandPy.get_summary_matrix(). columns will be ignored if provided
+    Parameters
+    ----------
+    data : GrandPy
+        The GrandPy object containing the data to visualize.
 
-        transform : str or callable, default="Z"
-            Transformation to apply to the data matrix. Possible string values are
-            "Z" (z-score per row), "vst" (variance stabilizing transform),
-            "logFC" (log2 fold change), or "none".
+    mode_slot: str or ModeSlot or Sequence[str or ModeSlot], optional
+        The name of the data slot. If None, uses the default slot.
 
-        cluster_genes : bool, default=True
-            Whether to cluster genes (rows) hierarchically.
+        A mode("new"|"old"|"total") can be specified in the following formats: ModeSlot('<mode>', '<slot>') or '<mode>_<slot>'
 
-        cluster_columns : bool, default=False
-            Whether to cluster samples/cells (columns) hierarchically.
+    columns : str or Sequence[str], optional
+        The columns (samples/cells) to include. Can be a logical expression
+        over the sample metadata, a list of column names, or None for all columns.
 
-        label_genes : bool, optional
-            Whether to show gene names on the y-axis. Defaults to True if number
-            of genes is <=50, otherwise False.
+    genes: str or int or Sequence[str or int or bool], optional
+        The genes to restrict the plot to. Either by gene symbols, names(Ensembl IDs), indices, or a boolean mask.
 
-        x_labels : list, optional
-            Custom labels for the x-axis. Only valid if a single mode_slot is specified.
+    summarize: pd.DataFrame, optional
+        A summary DataFrame. This can be retrieved via GrandPy.get_summary_matrix(). columns will be ignored if provided
 
-        breaks : list, optional
-            Numeric vector specifying color breaks for the heatmap.
+    transform : str or Callable, default "Z"
+        Transformation to apply to the data matrix. Possible string values are
+        "Z" (z-score per row), "vst" (variance stabilizing transform),
+        "logFC" (log2 fold change), or "none".
 
-        colors : list or str, optional
-            A color palette or a list of colors for the heatmap gradient.
+    cluster_genes : bool, default True
+        Whether to cluster genes (rows) hierarchically.
 
-        title : str, optional
-            The title for the heatmap.
+    cluster_columns : bool, default False
+        Whether to cluster samples/cells (columns) hierarchically.
 
-        return_matrix : bool, default=False
-            If True, prints the matrix used for plotting.
+    label_genes : bool, optional
+        Whether to show gene names on the y-axis. Defaults to True if number
+        of genes is <=50, otherwise False.
 
-        na_to : float, optional
-            Value to substitute for missing (NA) values before plotting.
+    x_labels : Sequence[str], optional
+        Custom labels for the x-axis. Only valid if a single mode_slot is specified.
 
-        figsize : tuple[float, float], default=(10, 6)
-            Size of the figure (width, height).
+    breaks : Sequence[int], optional
+        Numeric vector specifying color breaks for the heatmap.
 
-        path_for_save : str, optional
-            Saves the plot as a PNG to the specified directory
+    colors : str or Sequence[str], optional
+        A color palette or a list of colors for the heatmap gradient.
 
-        save_fig_format: str, default="svg"
-            The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
+    title : str, optional
+        The title for the heatmap.
 
-        show_plot : bool, default=True
-            Whether to show the heatmap.
+    return_matrix : bool, default False
+        If True, prints the matrix used for plotting.
 
-        See Also
-        --------
-        GrandPy.plots : Get the names of all stored plot functions.
-        GrandPy.with_plot : Add a plot function.
-        GrandPy.with_dropped_plots : Remove plots matching a regex.
-        GrandPy.plot_global : Executes a stored global plot function.
-        GrandPy.get_summary_matrix : Get a summarization matrix for averaging or aggregation.
+    na_to : float, optional
+        Value to substitute for missing (NA) values before plotting.
+
+    figsize : tuple[float, float], default (10, 6)
+        Size of the figure (width, height).
+
+    path_for_save : str, optional
+        Saves the plot as a PNG to the specified directory
+
+    save_fig_format: str, default "svg"
+        The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
+
+    show_plot : bool, default True
+        Whether to show the heatmap.
     """
-
     if mode_slot is None:
         mode_slot = data.default_slot
 
+    mode_slot = _ensure_list(mode_slot)
+
     mode_slots = (
         [_parse_as_mode_slot(t) for t in mode_slot]
-        if isinstance(mode_slot, list)
-        else [_parse_as_mode_slot(mode_slot)]
     )
-
     is_slot = all(m.mode is not None for m in mode_slots)
     is_analysis = all(m.mode is None for m in mode_slots)
 
@@ -1159,71 +1161,84 @@ def plot_pca(
     data: GrandPy,
     mode_slot: str | ModeSlot = None,
     n_top: int = 500,
-    aest: Optional[dict] = None,
+    aest: Mapping = None,
     x: int = 1,
     y: int = 2,
-    columns: Union[str, list, None] = None,
+    columns: Union[str, Sequence[str]] = None,
     do_vst: bool = True,
     show_progress: bool = False,
     figsize : tuple[float, float] = (10, 6),
-    path_for_save: Optional[str] | Path = None,
+    path_for_save: str | Path = None,
     save_fig_format: str = "svg",
     show_plot: bool = True,
 ):
     """
-        Perform a principal component analysis (PCA) on a GrandPy dataset and visualize the results.
+    Perform a principal component analysis (PCA) on a GrandPy dataset and visualize the results.
 
-        The function extracts the specified mode slot, optionally applies
-        variance-stabilizing transformation (VST) on raw counts using PyDESeq2-like methods, selects
-        the top most variable features, and then computes and plots a PCA biplot colored by sample
-        metadata.
+    The function extracts the specified mode slot, optionally applies
+    variance-stabilizing transformation (VST) on raw counts using PyDESeq2-like methods, selects
+    the top most variable features, and then computes and plots a PCA biplot colored by sample
+    metadata.
 
-        Parameters
-        ----------
-        data : GrandPy
-            A GrandPy object containing the data matrix and metadata.
-        mode_slot: str or ModeSlot
-            The name of the data slot. If None, uses the default slot.
+    See Also
+    --------
+    GrandPy.plots
+        Get the names of all stored plot functions.
 
-            A mode("new"|"old"|"total") can be specified in the following formats: ModeSlot('<mode>', '<slot>') or '<mode>_<slot>'
-        n_top : int, default=500
-            Number of top most variable genes/features to include in the PCA.
-        aest : dict, optional
-            Aesthetic mapping for color and style. Keys are "color" and "shape" corresponding to coldata columns. (e.g. {"color": "duration.4sU", "shape": "Condition"})
-        x : int, default=1
-            Principal component to use for the x-axis (e.g., 1 = PC1).
-        y : int, default=2
-            Principal component to use for the y-axis (e.g., 2 = PC2).
-        columns : str, list, or None, optional
-            Column selection filter: if str, interpreted as a pandas query on coldata;
-            if list, interpreted as a list of sample names to include; if None, all samples.
-        do_vst : bool, default=True
-            Whether to apply variance-stabilizing transformation on raw counts before PCA
-            (only if mode_slot is 'count').
-        show_progress: bool, default=False
-            Shows progress for the PCA. (Only for vst = True)
-        figsize : tuple[float, float], default=(10, 6)
-            Size of the figure (width, height).
-        path_for_save : str or None, optional
-            If given, saves the PCA plot as a PNG in the specified directory.
-        save_fig_format: str, default="svg"
-            The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
-        show_plot: bool, default=True
-            Whether to show the plot.
-        See Also
-        --------
-        GrandPy.plots
-            Get the names of all stored plot functions.
+    GrandPy.with_plot
+        Add a plot function.
 
-        GrandPy.with_plot
-            Add a plot function.
+    GrandPy.with_dropped_plots
+        Remove plots matching a regex.
 
-        GrandPy.with_dropped_plots
-            Remove plots matching a regex.
+    GrandPy.plot_global
+        Executes a stored global plot function.
 
-        GrandPy.plot_global
-            Executes a stored global plot function.
-        """
+    Parameters
+    ----------
+    data : GrandPy
+        A GrandPy object containing the data matrix and metadata.
+
+    mode_slot: str or ModeSlot, optional
+        The name of the data slot. If None, uses the default slot.
+
+        A mode("new"|"old"|"total") can be specified in the following formats: ModeSlot('<mode>', '<slot>') or '<mode>_<slot>'
+
+    n_top : int, default 500
+        Number of top most variable genes/features to include in the PCA.
+
+    aest : Mapping, optional
+        Aesthetic mapping for color and style. Keys are "color" and "shape" corresponding to coldata columns. (e.g. {"color": "duration.4sU", "shape": "Condition"})
+
+    x : int, default 1
+        Principal component to use for the x-axis (e.g., 1 = PC1).
+
+    y : int, default 2
+        Principal component to use for the y-axis (e.g., 2 = PC2).
+
+    columns : str, Sequence[str], optional
+        Column selection filter: if str, interpreted as a pandas query on coldata;
+        if list, interpreted as a list of sample names to include; if None, all samples.
+
+    do_vst : bool, default True
+        Whether to apply variance-stabilizing transformation on raw counts before PCA
+        (only if mode_slot is 'count').
+
+    show_progress: bool, default False
+        Shows progress for the PCA. (Only for vst = True)
+
+    figsize : tuple[float, float], default (10, 6)
+        Size of the figure (width, height).
+
+    path_for_save : str, optional
+        If given, saves the PCA plot as a PNG in the specified directory.
+
+    save_fig_format: str, default "svg"
+        The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
+
+    show_plot: bool, default True
+        Whether to show the plot.
+    """
     if mode_slot is None:
         mode_slot = data.default_slot
 
@@ -1282,72 +1297,580 @@ def plot_pca(
         plt.close()
 
 
-def plot_gene_old_vs_new(
+def plot_vulcano(
     data: GrandPy,
-    gene: str,
-    slot: Optional[str] = None,
-    columns: Optional[Union[list, str]] = None,
-    log: bool = True,
-    show_ci: bool = False,
-    aest: Optional[dict] = None,
-    size: float = 50,
-    figsize: tuple = (10, 6),
-    path_for_save: Optional[str] | Path = None,
+    analyses: Union[str, int] = None,
+    p_cutoff: float = 0.05,
+    lfc_cutoff: float = 1,
+    annotate_numbers: bool = True,
+    x_lim: tuple[float, float] = None,
+    y_lim: tuple[float, float] = None,
+    remove_outliers: float = 0.0,
+    color_palette: str = "viridis",
+    size: int = 10,
+    figsize: tuple[float, float] = (10, 6),
+    path_for_save: Union[str, Path, None] = None,
     save_fig_format: str = "svg",
     show_plot: bool = True,
 ):
     """
-        Plot old versus new RNA for a single gene, optionally including confidence intervals.
+    Plot a volcano plot of differential expression results from a GrandPy object.
 
-        This function visualizes the ratio of old and new RNA (based on a labeled pulse-chase experiment)
-        for a given gene across samples. Optionally, confidence intervals from credible interval slots
-        can be added as error bars. Supports aesthetic grouping via color/shape, log-scaling, and export
-        of the figure to disk.
+    This function displays log₂ fold changes (LFC) versus –log₁₀ FDR (Q) for one analysis,
+    optionally colors points by 2D density, draws significance cutoffs, and annotates the
+    counts of points in each region (left/middle/right × above/below the FDR threshold).
 
-        Parameters
-        ----------
-        data : GrandPy
-            A GrandPy object containing the data matrix and associated metadata.
-        gene : str
-            The gene to plot.
-        slot : str, optional
-            The data slot to use (default: data.default_slot).
-        columns : str, list, or None, optional
-            Column selection filter: if str, interpreted as pandas query on coldata;
-            if list, interpreted as a list of sample names to include; if None, all samples.
-        log : bool, default=True
-            Whether to use logarithmic axes for plotting.
-        show_ci : bool, default=False
-            If True, adds error bars for credible intervals using slots 'lower' and 'upper'.
-        aest : dict, optional
-            Aesthetic mapping for color and style. Keys are "color" and "shape" corresponding to coldata columns. (e.g. {"color": "duration.4sU", "shape": "Condition"})
-        size : float, default=50
-            Size of scatter points.
-        figsize : tuple[float, float], default=(10, 6)
+    See Also
+    --------
+    GrandPy.plots
+        Get the names of all stored plot functions.
+
+    GrandPy.with_plot
+        Add a plot function.
+
+    GrandPy.with_dropped_plots
+        Remove plots matching a regex.
+
+    GrandPy.plot_global
+        Executes a stored global plot function.
+
+    Parameters
+    ----------
+    data : GrandPy
+        GrandPy object containing expression data and analysis results.
+
+    analyses : str or int, optional
+        Name or index of the analysis to plot. Defaults to the first analysis.
+
+    p_cutoff : float, default 0.05
+        FDR (Q) cutoff for significance. Horizontal line drawn at –log₁₀(p_cutoff).
+
+    lfc_cutoff : float, default 1
+        Fold‑change cutoff (in log₂ units). Vertical lines at ±lfc_cutoff (or at 0 if zero).
+
+    annotate_numbers : bool, default True
+        If True, calculate and draw six labels “n=…” on the plot, one for each region:
+        (left/middle/right) × (above/below) the p_cutoff line.
+
+    x_lim : tuple[float, float], optional
+        Tuple of (xmin, xmax) to set x‑axis limits.
+
+    y_lim : tuple[float, float], optional
+        Tuple of (ymin, ymax) to set y‑axis limits.
+
+    color_palette : str, default "viridis"
+        Density color palette for 2D density.
+
+    size: int, default 10
+        Size of the scatter points.
+
+    figsize : tuple[float, float], default (10, 6)
+        Size of the figure (width, height).
+
+    path_for_save : str or Path, optional
+        Directory path where to save the plot. If provided, saves as
+        “Vulcano.{save_fig_format}” in that folder.
+
+    remove_outliers : float, default 0.0
+        Outlier filter parameter (IQR multiplier). Pass to the internal
+        `_apply_outlier_filter`. A value of 0.0 disables outlier removal.
+
+    save_fig_format : str, default "svg"
+        File format for saving the figure (e.g., "png", "svg").
+
+    show_plot : bool, default True
+        If True, display the figure with `plt.show()`. Otherwise, keep it open.
+    """
+    if analyses is None:
+        analyses = data.analyses[0]
+
+    df = data.get_analysis_table(
+        analyses=analyses,
+        regex=False,
+        columns=["_LFC", "_Q"],
+        with_gene_info=False
+    )
+    df.columns = [col.split('_')[-1] for col in df.columns]
+    df['neg_log10_Q'] = -np.log10(df['Q'])
+
+    x_all = df['LFC'].to_numpy()
+    y_all = df['neg_log10_Q'].to_numpy()
+
+    mask_keep, _, _ = _apply_outlier_filter(x_all, y_all, remove_outlier=remove_outliers)
+    x = x_all[mask_keep]
+    y = y_all[mask_keep]
+
+    fig, ax = plt.subplots(figsize=figsize)
+    try:
+        density = _density2d(x, y, n=100, margin='n')
+    except NameError:
+        density = None
+
+    if density is not None:
+        idx = density.argsort()
+        x, y, density = x[idx], y[idx], density[idx]
+        sc = ax.scatter(x, y, c=density, s=10, cmap=color_palette, alpha=1)
+        fig.colorbar(sc, ax=ax, label="Density")
+    else:
+        ax.scatter(x, y, c='purple', s=size, alpha=0.7)
+
+    y_thr = -np.log10(p_cutoff)
+    ax.axhline(y_thr, linestyle='--', color='grey')
+    if lfc_cutoff != 0:
+        ax.axvline(-lfc_cutoff, linestyle='--', color='grey')
+        ax.axvline( lfc_cutoff, linestyle='--', color='grey')
+    else:
+        ax.axvline(0, linestyle='--', color='grey')
+
+    ax.set_xlabel(r'$\log_2$ Fold Change (LFC)')
+    ax.set_ylabel(r'$-\log_{10}$ FDR (Q)')
+    ax.set_title(analyses)
+
+    if x_lim is not None: ax.set_xlim(x_lim)
+    if y_lim is not None: ax.set_ylim(y_lim)
+
+    if annotate_numbers:
+        bins = [-np.inf, -lfc_cutoff, lfc_cutoff, np.inf]
+        grp = np.digitize(x, bins) - 1
+        sig = y > y_thr
+
+        offset = 0.02
+        counts = []
+        for is_sig in (True, False):
+            for g in (0, 1, 2):
+                counts.append(int(np.sum((grp == g) & (sig == is_sig))))
+
+        x_min, x_max = ax.get_xlim()
+        y_min, y_max = ax.get_ylim()
+
+        dx = (x_max - x_min) * offset
+        dy = (y_max - y_min) * offset
+
+        x_centers = [x_min + dx,
+                     (x_min + x_max) / 2,
+                     x_max - dx]
+        x_pos = x_centers + x_centers
+        y_pos = [y_max - dy] * 3 + [y_min + dy] * 3
+
+        ha = ['left', 'center', 'right'] * 2
+        va = ['bottom'] * 3 + ['top'] * 3
+
+        for x0, y0, c, h, v in zip(x_pos, y_pos, counts, ha, va):
+            ax.text(
+                x0, y0, f"n={c}",
+                ha=h, va=v,
+                bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="black", lw=0.5)
+            )
+
+    plt.tight_layout()
+
+    if path_for_save:
+        fig.savefig(f"{path_for_save}/Vulcano.{save_fig_format}",
+                    format=save_fig_format, dpi=300)
+    if show_plot:
+        plt.show()
+        plt.close()
+
+
+def plot_ma(
+    data: GrandPy,
+    analysis: str = None,
+    p_cutoff: float = 0.05,
+    lfc_cutoff: float = 1.0,
+    annotate_numbers: bool = True,
+    size: int = 10,
+    figsize: tuple[float, float] = (10, 6),
+    path_for_save: str | Path = None,
+    save_fig_format: str = "svg",
+    show_plot: bool = True,
+):
+    """
+    Create an MA plot from a GrandPy analysis result.
+
+    The MA plot shows the log2 fold changes (LFC) versus total expression levels,
+    highlighting genes with significant differential expression.
+
+    See Also
+    --------
+    GrandPy.plots
+        Get the names of all stored plot functions.
+
+    GrandPy.with_plot
+        Add a plot function.
+
+    GrandPy.with_dropped_plots
+        Remove plots matching a regex.
+
+    GrandPy.plot_global
+        Executes a stored global plot function.
+
+    Parameters
+    ----------
+    data : GrandPy
+        The GrandPy object containing analysis results and expression data.
+
+    analysis : str, optional
+        Name of the analysis to use for plotting. Defaults to the first available analysis.
+
+    p_cutoff : float, default 0.05
+        Significance cutoff for adjusted p-values (Q-values). Genes with Q < p_cutoff are highlighted.
+
+    lfc_cutoff : float, default 1.0
+        Fold-change cutoff for highlighting genes with substantial up/down regulation.
+        Horizontal reference lines are drawn at ±lfc_cutoff.
+
+    annotate_numbers : bool, default True
+        Whether to annotate the plot with counts of significantly up- and down-regulated genes.
+
+    size : int, default 10
+        The size of the scatter points.
+
+    figsize : tuple[float, float], default (10, 6)
             Size of the figure (width, height).
-        path_for_save : str or None, optional
-            If provided, saves the resulting plot as a PNG in the given directory.
-        save_fig_format: str, default="svg"
-            The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
-        show_plot: bool, default=True
-            Whether to show the plot.
-        See Also
-        --------
-        GrandPy.plots
-            Get the names of all stored plot functions.
 
-        GrandPy.with_plot
-            Add a plot function.
+    path_for_save : str, optional
+        If specified, saves the plot as a PNG file to this directory.
 
-        GrandPy.with_dropped_plots
-            Remove plots matching a regex.
+    save_fig_format: str, default "svg"
+        The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
 
-        GrandPy.plot_global
-            Executes a stored global plot function.
-        """
+    show_plot: bool, default True
+        Whether to show the plot.
+    """
+    if analysis is None:
+        analysis = data.analyses[0]
+
+    df = data.get_analysis_table(
+        analyses=analysis,
+        regex=False,
+        columns=["M", "LFC", "Q"],
+        with_gene_info=False
+    )
+
+    df.columns = [col.split('_')[-1] for col in df.columns]
+
+    if "Q" not in df.columns:
+        df["Q"] = 1.0
+    df["Q"] = df["Q"].fillna(1.0)
+
+    x_vals = df["M"].to_numpy() + 1
+    y_vals = df["LFC"].to_numpy()
+    q_vals = df["Q"].to_numpy()
+    colors = np.where(q_vals < p_cutoff, "black", "gray")
+
+    fig, ax = plt.subplots(figsize=figsize)
+    ax.scatter(x_vals, y_vals, c=colors, s=size, alpha=0.7)
+
+    ax.set_xscale("log")
+    ax.set_xlabel("Total expression")
+    ax.set_ylabel(r"$\log_2$ Fold Change (LFC)")
+    ax.set_title(analysis)
+
+    if lfc_cutoff != 0:
+        ax.axhline(y=lfc_cutoff, linestyle="--", color="gray")
+        ax.axhline(y=-lfc_cutoff, linestyle="--", color="gray")
+    else:
+        ax.axhline(y=0, linestyle="--", color="gray")
+
+    if annotate_numbers:
+        up = np.sum((y_vals > lfc_cutoff) & (q_vals < p_cutoff))
+        down = np.sum((y_vals < -lfc_cutoff) & (q_vals < p_cutoff))
+        ax.annotate(f"n={up}", xy=(x_vals.max(), y_vals.max()), xycoords="data",
+                    ha="right", va="top")
+        ax.annotate(f"n={down}", xy=(x_vals.max(), y_vals.min()), xycoords="data",
+                    ha="right", va="bottom")
+    plt.tight_layout()
+    if path_for_save:
+        fig.savefig(f"{path_for_save}/MAPlot.{save_fig_format}", format=save_fig_format, dpi=300)
+    if show_plot:
+        plt.show()
+        plt.close()
+
+
+def plot_expression_test(
+    data: GrandPy,
+    w4su: str,
+    no4su: Union[str, int],
+    y_lim: float | tuple[float, float] | None = (-1, 1),
+    hl_quantile: float = 0.8,
+    size: float = 10,
+    figsize: tuple[float, float] = (10, 6),
+    path_for_save: str | Path = None,
+    save_fig_format: str = "svg",
+    show_plot: bool = True,
+):
+    """
+    Generate a scatter plot comparing expression between 4sU-labeled and non-labeled samples.
+
+    The plot shows log2 fold changes (4sU vs no4sU) versus mean log10 expression,
+    colored by point density to visualize expression distribution and fold-change relationships.
+
+    See Also
+    --------
+    GrandPy.plots
+        Get the names of all stored plot functions.
+
+    GrandPy.with_plot
+        Add a plot function.
+
+    GrandPy.with_dropped_plots
+        Remove plots matching a regex.
+
+    GrandPy.plot_global
+        Executes a stored global plot function.
+
+    Parameters
+    ----------
+    data : GrandPy
+        The GrandPy object containing expression data.
+
+    w4su : str
+        Column name or identifier(s) for 4sU-labeled samples.
+
+    no4su : str or int
+        Column name(s) or a constant value representing non-4sU samples.
+        If an int/float, treated as a constant expression value.
+
+    y_lim : tuple of float, default (-1, 1)
+        Y-axis limits for log2 fold change values.
+
+    hl_quantile : float, default 0.8
+        Quantile to determine half-life cutoff. (Currently unused in the plot)
+
+    size : float, default 10
+        Size of scatter points.
+
+    figsize : tuple[float, float], default (10, 6)
+        Size of the figure (width, height).
+
+    path_for_save : str, optional
+        Path to save the plot as PNG, if provided.
+
+    save_fig_format: str, default "svg"
+        The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
+
+    show_plot: bool, default True
+        Whether to show the plot.
+    """
+
+    w = data.get_matrix(mode_slot="count", columns=w4su)
+    if isinstance(no4su, (int, float)):
+        n = np.full_like(w, fill_value=no4su)
+    else:
+        n = data.get_matrix(mode_slot="count", columns=no4su)
+    valid = np.isfinite(w + n)
+    w = w[valid]
+    n = n[valid]
+
+    m = np.vstack([w, n]).T
+    lfc_mat = _transform_logfc(m, reference_columns=[1])
+    lfc = lfc_mat[:, 0]
+    M = (np.log10(w + 1) + np.log10(n + 1)) / 2
+    xy = np.vstack([M, lfc])
+    density = _density2d(M, lfc, n=100, margin='n')
+
+    idx = np.argsort(density)
+    M, lfc, density = M[idx], lfc[idx], density[idx]
+    fig, ax = plt.subplots(figsize=figsize)
+    sc = ax.scatter(M, lfc, c=density, cmap="viridis", s=size, alpha=1)
+    ax.axhline(y=0, color="gray", linestyle="--")
+    ax.set_xlabel("Mean expression (log10)")
+    ax.set_ylabel("log2 FC (4sU / no4sU)")
+    ax.set_ylim(y_lim)
+    fig.colorbar(sc, ax=ax, label="Density")
+    ax.set_title("Expression Test: 4sU vs no4sU")
+    plt.tight_layout()
+    if path_for_save:
+        fig.savefig(f"{path_for_save}/Expression_Test.{save_fig_format}", format=save_fig_format, dpi=300)
+    if show_plot:
+        plt.show()
+        plt.close()
+
+
+def plot_type_distribution(
+    data: GrandPy,
+    mode_slot: Union[str, ModeSlot] = None,
+    relative: bool = False,
+    palette: str = "Dark2",
+    figsize: tuple[float, float] = (10, 6),
+    path_for_save: str | Path = None,
+    save_fig_format: str = "svg",
+    show_plot: bool = True,
+):
+    """
+    Plot the distribution of gene types across conditions.
+
+    Displays a barplot showing the sum (or relative percentage) of expression values
+    for each gene type grouped by condition.
+
+    See Also
+    --------
+    GrandPy.plots
+        Get the names of all stored plot functions.
+
+    GrandPy.with_plot
+        Add a plot function.
+
+    GrandPy.with_dropped_plots
+        Remove plots matching a regex.
+
+    GrandPy.plot_global
+        Executes a stored global plot function.
+
+    Parameters
+    ----------
+    data : GrandPy
+        GrandPy-Object containing expression data and gene information.
+
+    mode_slot: str or ModeSlot
+        The name of the data slot. If None, uses the default slot.
+
+        A mode("new"|"old"|"total") can be specified in the following formats: ModeSlot('<mode>', '<slot>') or '<mode>_<slot>'
+
+    relative : bool, default False
+        If True, plots relative percentages per condition instead of absolute sums.
+
+    palette : str, default "Dark2"
+        Color palette for the gene types.
+
+    figsize : tuple[float, float], default (10, 6)
+        Size of the figure (width, height).
+
+    path_for_save : str, optional
+        If provided, saves the plot as a PNG file to this path.
+
+    save_fig_format: str, default "svg"
+        The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
+
+    show_plot: bool, default True
+        Whether to show the plot.
+    """
+    if mode_slot is None:
+        mode_slot = data.default_slot
+
+    df = data.get_table(mode_slot)
+    gene_types = data.gene_info['Type'].unique()
+
+    sums = pd.DataFrame({
+        t: df.loc[data.gene_info['Type'] == t].sum(axis=0)
+        for t in gene_types
+    })
+
+    sums = sums.loc[:, sums.sum(axis=0) > 0]
+
+    if relative:
+        sums = sums.div(sums.sum(axis=1), axis=0) * 100
+        mode_slot = f"{mode_slot} [%]"
+
+    df_long = sums.reset_index().melt(id_vars='index', var_name='Type', value_name='value')
+    df_long.rename(columns={'index': 'Condition'}, inplace=True)
+
+    fig, ax = plt.subplots(figsize=figsize)
+    sns.barplot(data=df_long, x='Condition', y='value', hue='Type', palette=palette, ax=ax)
+    ax.set_xlabel('')
+    ax.set_ylabel(mode_slot)
+    ax.tick_params(axis='x', rotation=90)
+    if relative:
+        ax.legend(
+            bbox_to_anchor=(1.02, 1),
+            loc='upper left',
+            borderaxespad=0,
+            title="Type"
+        )
+        plt.subplots_adjust(right=0.75)
+    else:
+        ax.legend(title="Type")
+        plt.tight_layout()
+    if path_for_save:
+        fig.savefig(f"{path_for_save}/Type_Distribution.{save_fig_format}", format=save_fig_format, dpi=300)
+    if show_plot:
+        plt.show()
+        plt.close()
+
+
+
+# --- Gene plots ---
+def plot_gene_old_vs_new(
+    data: GrandPy,
+    gene: str | int,
+    slot: str = None,
+    columns: str | Sequence[str] = None,
+    log: bool = True,
+    show_ci: bool = False,
+    aest: Mapping = None,
+    size: float = 50,
+    figsize: tuple = (10, 6),
+    path_for_save: str | Path = None,
+    save_fig_format: str = "svg",
+    show_plot: bool = True,
+):
+    """
+    Plot old versus new RNA for a single gene, optionally including confidence intervals.
+
+    This function visualizes the ratio of old and new RNA (based on a labeled pulse-chase experiment)
+    for a given gene across samples. Optionally, confidence intervals from credible interval slots
+    can be added as error bars. Supports aesthetic grouping via color/shape, log-scaling, and export
+    of the figure to disk.
+
+    See Also
+    --------
+    GrandPy.plots
+        Get the names of all stored plot functions.
+
+    GrandPy.with_plot
+        Add a plot function.
+
+    GrandPy.with_dropped_plots
+        Remove plots matching a regex.
+
+    GrandPy.plot_gene
+        Executes a stored gene plot function.
+
+    GrandPy.compute_ntr_ci
+        Compute slots 'upper' and 'lower'. Necessary for `show_ci`v
+
+    Parameters
+    ----------
+    data : GrandPy
+        A GrandPy object containing the data matrix and associated metadata.
+
+    gene : Union[str, int]
+        The gene to plot.
+
+    slot : str, optional
+        The data slot to use (default: data.default_slot).
+
+    columns : str or Sequence[str], optional
+        Column selection filter: if str, interpreted as pandas query on coldata;
+        if list, interpreted as a list of sample names to include; if None, all samples.
+
+    log : bool, default True
+        Whether to use logarithmic axes for plotting.
+
+    show_ci : bool, default False
+        If True, adds error bars for credible intervals.
+        Requires pre-computed 'lower' and 'upper' slots (e.g., via GrandPy.compute_ntr_ci()).
+
+    aest : Mapping, optional
+        Aesthetic mapping for color and style. Keys are "color" and "shape" corresponding to coldata columns. (e.g. {"color": "duration.4sU", "shape": "Condition"})
+
+    size : float, default 50
+        Size of scatter points.
+
+    figsize : tuple[float, float], default (10, 6)
+        Size of the figure (width, height).
+
+    path_for_save : str or None, optional
+        If provided, saves the resulting plot as a PNG in the given directory.
+
+    save_fig_format: str, default "svg"
+        The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
+
+    show_plot: bool, default True
+        Whether to show the plot.
+    """
     if slot is None:
         slot = data.default_slot
-
 
     if columns is None:
         selected_columns = data.columns
@@ -1474,66 +1997,82 @@ def plot_gene_old_vs_new(
 
 def plot_gene_total_vs_ntr(
     data: GrandPy,
-    gene: str,
-    slot: Optional[str] = None,
-    columns: Optional[Union[list, str]] = None,
+    gene: str | int,
+    slot: str = None,
+    columns: str | Sequence[str] = None,
     log: bool = True,
     show_ci: bool = False,
-    aest: Optional[dict] = None,
+    aest: Mapping = None,
     size: float = 50,
     figsize: tuple[float, float] = (10, 6),
-    path_for_save: Optional[str] | Path = None,
+    path_for_save: str | Path = None,
     save_fig_format: str = "svg",
     show_plot: bool = True,
 ):
     """
-        Plot total RNA versus newly transcribed RNA ratio (NTR) for a single gene.
+    Plot total RNA versus newly transcribed RNA ratio (NTR) for a single gene.
 
-        This function visualizes, for a specified gene, the total RNA abundance against its
-        NTR (newly transcribed RNA ratio) across samples, with optional confidence intervals.
-        Supports aesthetic grouping by color and shape, log-scaling, and saving the figure.
+    This function visualizes, for a specified gene, the total RNA abundance against its
+    NTR (newly transcribed RNA ratio) across samples, with optional confidence intervals.
+    Supports aesthetic grouping by color and shape, log-scaling, and saving the figure.
 
-        Parameters
-        ----------
-        data : GrandPy
-            A GrandPy object containing the data matrix and sample metadata.
-        gene : str
-            The gene to plot.
-        slot : str, optional
-            Data slot to use for the total RNA (default: data.default_slot).
-        columns : str, list, or None, optional
-            Column selection filter: if str, interpreted as pandas query on coldata;
-            if list, interpreted as sample names to include; if None, all samples.
-        log : bool, default=True
-            Whether to use logarithmic scaling for the x-axis.
-        show_ci : bool, default=False
-            If True, adds error bars using the `lower` and `upper` credible interval slots.
-        aest : dict, optional
-            Aesthetic mapping for color and style. Keys are "color" and "shape" corresponding to coldata columns. (e.g. {"color": "duration.4sU", "shape": "Condition"})
-        size : float, default=50
-            Size of scatter points.
-        figsize : tuple[float, float], default=(10, 6)
-            Size of the figure (width, height).
-        path_for_save : str or None, optional
-            If provided, saves the resulting plot as a PNG in the given directory.
-        save_fig_format: str, default="svg"
-            The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
-        show_plot: bool, default=True
-            Whether to show the plot.
-        See Also
-        --------
-        GrandPy.plots
-            Get the names of all stored plot functions.
+    See Also
+    --------
+    GrandPy.plots
+        Get the names of all stored plot functions.
 
-        GrandPy.with_plot
-            Add a plot function.
+    GrandPy.with_plot
+        Add a plot function.
 
-        GrandPy.with_dropped_plots
-            Remove plots matching a regex.
+    GrandPy.with_dropped_plots
+        Remove plots matching a regex.
 
-        GrandPy.plot_global
-            Executes a stored global plot function.
-        """
+    GrandPy.plot_gene
+        Executes a stored gene plot function.
+
+    GrandPy.compute_ntr_ci
+        Compute slots 'upper' and 'lower'. Necessary for `show_ci`
+
+    Parameters
+    ----------
+    data : GrandPy
+        A GrandPy object containing the data matrix and sample metadata.
+
+    gene : str or int
+        The gene to plot.
+
+    slot : str, optional
+        Data slot to use for the total RNA (default: data.default_slot).
+
+    columns : str or list[str], optional
+        Column selection filter: if str, interpreted as pandas query on coldata;
+        if list, interpreted as sample names to include; if None, all samples.
+
+    log : bool, default True
+        Whether to use logarithmic scaling for the x-axis.
+
+    show_ci : bool, default False
+        If True, adds error bars using the credible interval slots.
+        Requires pre-computed 'lower' and 'upper' slots (e.g., via GrandPy.compute_ntr_ci()).
+
+    aest : dict, optional
+        Aesthetic mapping for color and style. Keys are "color" and "shape" corresponding to coldata columns. (e.g. {"color": "duration.4sU", "shape": "Condition"})
+
+    size : float, default 50
+        Size of scatter points.
+
+    figsize : tuple[float, float], default (10, 6)
+        Size of the figure (width, height).
+
+    path_for_save : str or None, optional
+        If provided, saves the resulting plot as a PNG in the given directory.
+
+    save_fig_format: str, default "svg"
+        The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
+
+    show_plot: bool, default True
+        Whether to show the plot.
+    """
     if slot is None:
         slot = data.default_slot
 
@@ -1649,83 +2188,102 @@ def plot_gene_total_vs_ntr(
 
 def plot_gene_groups_points(
     data: GrandPy,
-    gene: str,
+    gene: str | int,
     group: str = "Condition",
-    mode_slot: Union[str, ModeSlot] = None,
-    columns: Optional[Union[list, str]] = None,
+    mode_slot: str | ModeSlot = None,
+    columns: str | Sequence[str] = None,
     log: bool = True,
     show_ci: bool = False,
-    aest: Optional[dict] = None,
+    aest: dict = None,
     size: float = 50,
     figsize: tuple[float, float] = (10, 6),
-    transform: Optional[callable] = None,
-    dodge: Union[bool, str] = False,
-    path_for_save: Optional[str] | Path = None,
+    transform: Callable = None,
+    dodge: bool | str = False,
+    path_for_save: str | Path = None,
     save_fig_format: str = "svg",
     show_plot: bool = True,
 ):
     """
-        Plot RNA values of a single gene grouped by a specified metadata category.
+    Plot RNA values of a single gene grouped by a specified metadata category.
 
-        This function visualizes RNA values for a chosen gene across groups (e.g. conditions)
-        defined by a metadata column. It supports different RNA “modes”,
-        confidence intervals, replicate dodging, custom aesthetics, and transformation
-        functions for advanced data manipulation.
+    This function visualizes RNA values for a chosen gene across groups (e.g. conditions)
+    defined by a metadata column. It supports different RNA “modes”,
+    confidence intervals, replicate dodging, custom aesthetics, and transformation
+    functions for advanced data manipulation.
+    
+    Notes
+    -----
+    - If `dodge=True`, replicate samples (by `Replicate` column) are slightly shifted
+      to avoid overplotting within the same group.
+    
+    See Also
+    --------
+    GrandPy.plots
+        Get the names of all stored plot functions.
 
-        Parameters
-        ----------
-        data : GrandPy
-            A GrandPy object containing data matrices and metadata.
-        gene : str
-            The gene to plot.
-        group : str, default="Condition"
-            The column name in `coldata` used for grouping samples along the x-axis.
-        mode_slot: str or ModeSlot
-            The name of the data slot. If None, uses the default slot.
+    GrandPy.with_plot
+        Add a plot function.
 
-            A mode("new"|"old"|"total") can be specified in the following formats: ModeSlot('<mode>', '<slot>') or '<mode>_<slot>'
-        columns : str, list, or None, optional
-            Column selection: a pandas query string, a list of sample names, or None to use all samples.
-        log : bool, default=True
-            Whether to use logarithmic scaling for the y-axis.
-        show_ci : bool, default=False
-            If True, displays error bars using the `lower` and `upper` credible interval slots.
-        aest : dict, optional
-            Aesthetic mapping for color and style. Keys are "color" and "shape" corresponding to coldata columns. (e.g. {"color": "duration.4sU", "shape": "Condition"})
-        size : float, default=50
-            Point size for the scatterplot.
-        figsize : tuple[float, float], default=(10, 6)
-            Size of the figure (width, height).
-        transform : callable, optional
-            A function to transform the `plot_df` DataFrame before plotting
-            (e.g., for normalization or filtering).
-        dodge : Union[bool, str], default=False
-            Whether to dodge replicates along the x-axis to reduce overlap. Can be the name of the aest dictionary. (e.g., "duration.4sU")
-        path_for_save : str or None, optional
-            If provided, saves the plot as a PNG file in the specified path.
-        save_fig_format: str, default="svg"
-            The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
-        show_plot: bool, default=True
-            Whether to show the plot.
-        Notes
-        -----
-        - If `show_ci=True`, confidence interval slots (`lower` and `upper`) must be available.
-        - If `dodge=True`, replicate samples (by `Replicate` column) are slightly shifted
-          to avoid overplotting within the same group.
-        See Also
-        --------
-        GrandPy.plots
-            Get the names of all stored plot functions.
+    GrandPy.with_dropped_plots
+        Remove plots matching a regex.
 
-        GrandPy.with_plot
-            Add a plot function.
+    GrandPy.plot_gene
+        Executes a stored gene plot function.
 
-        GrandPy.with_dropped_plots
-            Remove plots matching a regex.
+    GrandPy.compute_ntr_ci
+        Compute slots 'upper' and 'lower'. Necessary for `show_ci`
 
-        GrandPy.plot_global
-            Executes a stored global plot function.
-        """
+    Parameters
+    ----------
+    data : GrandPy
+        A GrandPy object containing data matrices and metadata.
+        
+    gene : str or int
+        The gene to plot.
+        
+    group : str, default "Condition"
+        The column name in `coldata` used for grouping samples along the x-axis.
+        
+    mode_slot: str or ModeSlot
+        The name of the data slot. If None, uses the default slot.
+
+        A mode("new"|"old"|"total") can be specified in the following formats: ModeSlot('<mode>', '<slot>') or '<mode>_<slot>'
+        
+    columns : str or Sequence[str], optional
+        Column selection: a pandas query string, a list of sample names, or None to use all samples.
+        
+    log : bool, default True
+        Whether to use logarithmic scaling for the y-axis.
+        
+    show_ci : bool, default False
+        If True, displays error bars using the credible interval slots.
+        Requires pre-computed 'lower' and 'upper' slots (e.g., via GrandPy.compute_ntr_ci()).
+        
+    aest : Mapping, optional
+        Aesthetic mapping for color and style. Keys are "color" and "shape" corresponding to coldata columns. (e.g. {"color": "duration.4sU", "shape": "Condition"})
+    
+    size : float, default 50
+        Point size for the scatterplot.
+        
+    figsize : tuple[float, float], default (10, 6)
+        Size of the figure (width, height).
+        
+    transform : Callable, optional
+        A function to transform the `plot_df` DataFrame before plotting
+        (e.g., for normalization or filtering).
+        
+    dodge : Union[bool, str], default False
+        Whether to dodge replicates along the x-axis to reduce overlap. Can be the name of the aest dictionary. (e.g., "duration.4sU")
+   
+    path_for_save : str or None, optional
+        If provided, saves the plot as a PNG file in the specified path.
+   
+    save_fig_format: str, default "svg"
+        The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
+    
+    show_plot: bool, default True
+        Whether to show the plot.
+    """
     if mode_slot is None:
         mode_slot = data.default_slot
 
@@ -1910,69 +2468,83 @@ def plot_gene_groups_points(
 
 def plot_gene_groups_bars(
     data: GrandPy,
-    gene: str,
-    slot: Optional[str] = None,
-    columns: Optional[Union[str, list]] = None,
+    gene: str | int,
+    slot: str = None,
+    columns: str | Sequence[str] = None,
     show_ci: bool = False,
-    x_labels: Optional[Union[str, list]] = None,
-    transform: Optional[callable] = None,
+    x_labels: str | Sequence[str] = None,
+    transform: Callable | str = None,
     figsize: tuple[float, float] = (10, 6),
-    path_for_save: Optional[str] | Path = None,
+    path_for_save: str | Path = None,
     save_fig_format: str = "svg",
     show_plot: bool = True,
 ):
     """
-        Plot stacked bar plots of “new” vs. “old” RNA fractions for a single gene across groups.
+    Plot stacked bar plots of “new” vs. “old” RNA fractions for a single gene across groups.
 
-        This function visualizes how the total RNA of a gene is composed of “new” and “old” fractions
-        across samples or groups, based on the specified slot. Optionally, confidence intervals
-        can be drawn, and user-defined transformations applied.
+    This function visualizes how the total RNA of a gene is composed of “new” and “old” fractions
+    across samples or groups, based on the specified slot. Optionally, confidence intervals
+    can be drawn, and user-defined transformations applied.
+    
+    See Also
+    --------
+    GrandPy.plots
+        Get the names of all stored plot functions.
 
-        Parameters
-        ----------
-        data : GrandPy
-            A GrandPy object containing data matrices and metadata.
-        gene : str
-            The gene to plot.
-        slot : str, optional
-            The GrandPy slot from which to take expression values. If None, uses `data.default_slot`.
-        columns : str, list, or None, optional
-            Which samples to include: a pandas query string, a list of sample names,
-            or None to use all samples.
-        show_ci : bool, default=False
-            If True, shows confidence intervals based on slots `lower` and `upper`.
-        x_labels : str, list, or None, optional
-            Custom x-axis labels. If a string, it will be evaluated as a Python expression
-            within the sample metadata. If a list, directly used as labels.
-        transform : callable or str, optional
-            Transformation to apply to the data before plotting:
-            * `'z'` for z-score
-            * `'vst'` for variance-stabilizing transform
-            * `'logfc'` for log fold change
-            * `'none'` for no transform
-            or a custom Python function for advanced users.
-        figsize : tuple[float, float], default=(10, 6)
-            Size of the figure (width, height).
-        path_for_save : str or None, optional
-            If provided, saves the plot as PNG in the given path.
-        save_fig_format: str, default="svg"
-            The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
-        show_plot : bool, default=True
-            Whether to show the plot or not.
-        See Also
-        --------
-        GrandPy.plots
-            Get the names of all stored plot functions.
+    GrandPy.with_plot
+        Add a plot function.
 
-        GrandPy.with_plot
-            Add a plot function.
+    GrandPy.with_dropped_plots
+        Remove plots matching a regex.
 
-        GrandPy.with_dropped_plots
-            Remove plots matching a regex.
+    GrandPy.plot_gene
+        Executes a stored gene plot function.
 
-        GrandPy.plot_global
-            Executes a stored global plot function.
-        """
+    GrandPy.compute_ntr_ci
+        Compute slots 'upper' and 'lower'. Necessary for `show_ci`
+
+    Parameters
+    ----------
+    data : GrandPy
+        A GrandPy object containing data matrices and metadata.
+        
+    gene : str or int
+        The gene to plot.
+    
+    slot : str, optional
+        The GrandPy slot from which to take expression values. If None, uses `data.default_slot`.
+    
+    columns : str or Sequence[str], optional
+        Which samples to include: a pandas query string, a list of sample names,
+        or None to use all samples.
+    
+    show_ci : bool, default False
+        If True, shows confidence intervals. Requires pre-computed 'lower' and 'upper' slots (e.g., via GrandPy.compute_ntr_ci()).
+   
+    x_labels : str or Sequence[str], optional
+        Custom x-axis labels. If a string, it will be evaluated as a Python expression
+        within the sample metadata. If a list, directly used as labels.
+    
+    transform : Callable or str, optional
+        Transformation to apply to the data before plotting:
+        * `'z'` for z-score
+        * `'vst'` for variance-stabilizing transform
+        * `'logfc'` for log fold change
+        * `'none'` for no transform
+        or a custom Python function for advanced users.
+    
+    figsize : tuple[float, float], default (10, 6)
+        Size of the figure (width, height).
+    
+    path_for_save : str, optional
+        If provided, saves the plot as PNG in the given path.
+    
+    save_fig_format: str, default "svg"
+        The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
+    
+    show_plot : bool, default True
+        Whether to show the plot or not.
+    """
     if slot is None:
         slot = data.default_slot
 
@@ -2062,83 +2634,102 @@ def plot_gene_groups_bars(
 
 def plot_gene_snapshot_timecourse(
     data: GrandPy,
-    gene: str,
+    gene: str | int,
     time: str = "duration.4sU",
-    mode_slot: Union[str, ModeSlot, None] = None,
-    columns: Optional[Union[str, list]] = None,
+    mode_slot: str | ModeSlot = None,
+    columns: str | Sequence[str] = None,
     average_lines: bool = True,
     exact_tics: bool = True,
     log: bool = True,
     show_ci: bool = False,
-    aest: Optional[dict] = None,
+    aest: Mapping = None,
     size: float = 50,
     figsize: tuple[float, float] = (10, 6),
     dodge: bool = False,
-    path_for_save: Optional[str] | Path = None,
+    path_for_save: str | Path = None,
     save_fig_format: str = "svg",
     show_plot: bool = True,
 ):
     """
-        Plot timecourse snapshot of gene expression for specified mode and samples.
+    Plot timecourse snapshot of gene expression for specified mode and samples.
 
-        Visualizes the expression of a single gene over time, optionally showing confidence
-        intervals, applying log-scale, and grouping by metadata variables. Supports jittering
-        points to avoid overlap (dodge), averaging replicates, and custom aesthetics.
+    Visualizes the expression of a single gene over time, optionally showing confidence
+    intervals, applying log-scale, and grouping by metadata variables. Supports jittering
+    points to avoid overlap (dodge), averaging replicates, and custom aesthetics.
+    
+    See Also
+    --------
+    GrandPy.plots
+        Get the names of all stored plot functions.
 
-        Parameters
-        ----------
-        data : GrandPy
-            GrandPy object containing gene expression data and sample metadata.
-        gene : str
-            Gene symbol/name to plot.
-        time : str, default='Time.original'
-            Column name in sample metadata used as the time variable.
-        mode_slot: str or ModeSlot
-            The name of the data slot. If None, uses the default slot.
+    GrandPy.with_plot
+        Add a plot function.
 
-            A mode("new"|"old"|"total") can be specified in the following formats: ModeSlot('<mode>', '<slot>') or '<mode>_<slot>'
-        columns : str, list or None, optional
-            Which samples to include. Can be:
-            - None: all samples
-            - string: pandas query to select samples by metadata
-            - list: explicit list of sample names
-        average_lines : bool, default=True
-            Whether to add lines showing mean expression per group.
-        exact_tics : bool, default=True
-            Whether to use exact numeric time ticks or approximate categorical breaks.
-        log : bool, default=True
-            Whether to apply log-scale to y-axis (disabled if slot is "ntr").
-        show_ci : bool, default=False
-            Whether to plot confidence intervals. Requires precomputed slots 'lower' and 'upper'.
-        aest : dict or None, optional
-            Aesthetic mapping for color and style. Keys are "color" and "shape"
-            corresponding to coldata columns. (e.g. {"color": "duration.4sU", "shape": "Condition"})
-        size : float, default=50
-            Marker size for scatter plot points.
-        figsize : tuple[float, float], default=(10, 6)
-            Size of the figure (width, height).
-        dodge : bool, default=False
-            Whether to horizontally jitter points by hue to reduce overlap.
-        path_for_save : str or None, optional
-            Directory path to save the plot image. If None, does not save.
-        save_fig_format: str, default="svg"
-            The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
-        show_plot: bool, default=True
-            Whether to show the plot.
-        See Also
-        --------
-        GrandPy.plots
-            Get the names of all stored plot functions.
+    GrandPy.with_dropped_plots
+        Remove plots matching a regex.
 
-        GrandPy.with_plot
-            Add a plot function.
+    GrandPy.plot_gene
+        Executes a stored gene plot function.
 
-        GrandPy.with_dropped_plots
-            Remove plots matching a regex.
+    GrandPy.compute_ntr_ci
+        Compute slots 'upper' and 'lower'. Necessary for `show_ci`
 
-        GrandPy.plot_global
-            Executes a stored global plot function.
-        """
+    Parameters
+    ----------
+    data : GrandPy
+        GrandPy object containing gene expression data and sample metadata.
+        
+    gene : str | int
+        Gene symbol/name to plot.
+    
+    time : str, default 'Time.original'
+        Column name in sample metadata used as the time variable.
+        
+    mode_slot: str or ModeSlot
+        The name of the data slot. If None, uses the default slot.
+
+        A mode("new"|"old"|"total") can be specified in the following formats: ModeSlot('<mode>', '<slot>') or '<mode>_<slot>'
+    
+    columns : str or Sequence[str], optional
+        Which samples to include. Can be:
+        - None: all samples
+        - string: pandas query to select samples by metadata
+        - list: explicit list of sample names
+        
+    average_lines : bool, default True
+        Whether to add lines showing mean expression per group.
+        
+    exact_tics : bool, default True
+        Whether to use exact numeric time ticks or approximate categorical breaks.
+        
+    log : bool, default True
+        Whether to apply log-scale to y-axis (disabled if slot is "ntr").
+        
+    show_ci : bool, default False
+        Whether to plot confidence intervals. Requires pre-computed 'lower' and 'upper' slots (e.g., via GrandPy.compute_ntr_ci()).
+        
+    aest : Mapping, optional
+        Aesthetic mapping for color and style. Keys are "color" and "shape"
+        corresponding to coldata columns. (e.g. {"color": "duration.4sU", "shape": "Condition"})
+        
+    size : float, default 50
+        Marker size for scatter plot points.
+        
+    figsize : tuple[float, float], default (10, 6)
+        Size of the figure (width, height).
+        
+    dodge : bool, default False
+        Whether to horizontally jitter points by hue to reduce overlap.
+        
+    path_for_save : str, optional
+        Directory path to save the plot image. If None, does not save.
+        
+    save_fig_format: str, default "svg"
+        The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
+        
+    show_plot: bool, default True
+        Whether to show the plot.
+    """
     if mode_slot is None:
         mode_slot = data.default_slot
 
@@ -2350,172 +2941,10 @@ def plot_gene_snapshot_timecourse(
         plt.close()
 
 
-def plot_vulcano(
-    data: GrandPy,
-    analyses=None,
-    p_cutoff: float = 0.05,
-    lfc_cutoff: float = 1,
-    annotate_numbers: bool = True,
-    x_lim: Optional[tuple[float, float]] = None,
-    y_lim: Optional[tuple[float, float]] = None,
-    remove_outliers: float = 0.0,
-    color_palette: str = "viridis",
-    size: int = 10,
-    figsize: tuple[float, float] = (10, 6),
-    path_for_save: Union[str, Path, None] = None,
-    save_fig_format: str = "svg",
-    show_plot: bool = True,
-):
-    """
-        Plot a volcano plot of differential expression results from a GrandPy object.
-
-        This function displays log₂ fold changes (LFC) versus –log₁₀ FDR (Q) for one analysis,
-        optionally colors points by 2D density, draws significance cutoffs, and annotates the
-        counts of points in each region (left/middle/right × above/below the FDR threshold).
-
-        Parameters
-        ----------
-        data : GrandPy
-            GrandPy object containing expression data and analysis results.
-        analyses : str or int, optional
-            Name or index of the analysis to plot. Defaults to the first analysis.
-        p_cutoff : float, default=0.05
-            FDR (Q) cutoff for significance. Horizontal line drawn at –log₁₀(p_cutoff).
-        lfc_cutoff : float, default=1
-            Fold‑change cutoff (in log₂ units). Vertical lines at ±lfc_cutoff (or at 0 if zero).
-        annotate_numbers : bool, default=True
-            If True, calculate and draw six labels “n=…” on the plot, one for each region:
-            (left/middle/right) × (above/below) the p_cutoff line.
-        x_lim : tuple[float, float], optional
-            Tuple of (xmin, xmax) to set x‑axis limits.
-        y_lim : tuple[float, float], optional
-            Tuple of (ymin, ymax) to set y‑axis limits.
-        color_palette : str, default="viridis"
-            Density color palette for 2D density.
-        size: int, default=10
-            Size of the scatter points.
-        figsize : tuple[float, float], default=(10, 6)
-            Size of the figure (width, height).
-        path_for_save : str or Path, optional
-            Directory path where to save the plot. If provided, saves as
-            “Vulcano.{save_fig_format}” in that folder.
-        remove_outliers : float, default=0.0
-            Outlier filter parameter (IQR multiplier). Pass to the internal
-            `_apply_outlier_filter`. A value of 0.0 disables outlier removal.
-        save_fig_format : str, default="svg"
-            File format for saving the figure (e.g., "png", "svg").
-        show_plot : bool, default=True
-            If True, display the figure with `plt.show()`. Otherwise, keep it open.
-
-        See Also
-        --------
-        GrandPy.plots
-         Get the names of all stored plot functions.
-
-        GrandPy.with_plot
-         Add a plot function.
-
-        GrandPy.with_dropped_plots
-         Remove plots matching a regex.
-
-        GrandPy.plot_global
-         Executes a stored global plot function.
-        """
-    if analyses is None:
-        analyses = data.analyses[0]
-
-    df = data.get_analysis_table(
-        analyses=analyses,
-        regex=False,
-        columns=["_LFC", "_Q"],
-        with_gene_info=False
-    )
-    df.columns = [col.split('_')[-1] for col in df.columns]
-    df['neg_log10_Q'] = -np.log10(df['Q'])
-
-    x_all = df['LFC'].to_numpy()
-    y_all = df['neg_log10_Q'].to_numpy()
-
-    mask_keep, _, _ = _apply_outlier_filter(x_all, y_all, remove_outlier=remove_outliers)
-    x = x_all[mask_keep]
-    y = y_all[mask_keep]
-
-    fig, ax = plt.subplots(figsize=figsize)
-    try:
-        density = _density2d(x, y, n=100, margin='n')
-    except NameError:
-        density = None
-
-    if density is not None:
-        idx = density.argsort()
-        x, y, density = x[idx], y[idx], density[idx]
-        sc = ax.scatter(x, y, c=density, s=10, cmap=color_palette, alpha=1)
-        fig.colorbar(sc, ax=ax, label="Density")
-    else:
-        ax.scatter(x, y, c='purple', s=size, alpha=0.7)
-
-    y_thr = -np.log10(p_cutoff)
-    ax.axhline(y_thr, linestyle='--', color='grey')
-    if lfc_cutoff != 0:
-        ax.axvline(-lfc_cutoff, linestyle='--', color='grey')
-        ax.axvline( lfc_cutoff, linestyle='--', color='grey')
-    else:
-        ax.axvline(0, linestyle='--', color='grey')
-
-    ax.set_xlabel(r'$\log_2$ Fold Change (LFC)')
-    ax.set_ylabel(r'$-\log_{10}$ FDR (Q)')
-    ax.set_title(analyses)
-
-    if x_lim is not None: ax.set_xlim(x_lim)
-    if y_lim is not None: ax.set_ylim(y_lim)
-
-    if annotate_numbers:
-        bins = [-np.inf, -lfc_cutoff, lfc_cutoff, np.inf]
-        grp = np.digitize(x, bins) - 1
-        sig = y > y_thr
-
-        offset = 0.02
-        counts = []
-        for is_sig in (True, False):
-            for g in (0, 1, 2):
-                counts.append(int(np.sum((grp == g) & (sig == is_sig))))
-
-        x_min, x_max = ax.get_xlim()
-        y_min, y_max = ax.get_ylim()
-
-        dx = (x_max - x_min) * offset
-        dy = (y_max - y_min) * offset
-
-        x_centers = [x_min + dx,
-                     (x_min + x_max) / 2,
-                     x_max - dx]
-        x_pos = x_centers + x_centers
-        y_pos = [y_max - dy] * 3 + [y_min + dy] * 3
-
-        ha = ['left', 'center', 'right'] * 2
-        va = ['bottom'] * 3 + ['top'] * 3
-
-        for x0, y0, c, h, v in zip(x_pos, y_pos, counts, ha, va):
-            ax.text(
-                x0, y0, f"n={c}",
-                ha=h, va=v,
-                bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="black", lw=0.5)
-            )
-
-    plt.tight_layout()
-
-    if path_for_save:
-        fig.savefig(f"{path_for_save}/Vulcano.{save_fig_format}",
-                    format=save_fig_format, dpi=300)
-    if show_plot:
-        plt.show()
-        plt.close()
-
-
 def plot_gene_progressive_timecourse(
     data: GrandPy,
-    gene: str,
-    slot: Optional[str] = None,
+    gene: str | int,
+    slot: str = None,
     time: str = "duration.4sU",
     fit_type: Literal["nlls", "ntr", "chase"] = "nlls",
     size: float = 25,
@@ -2524,7 +2953,7 @@ def plot_gene_progressive_timecourse(
     rescale: bool = True,
     return_tables: bool = False,
     figsize: tuple[float, float] = (4, 1),
-    path_for_save: Optional[str] | Path = None,
+    path_for_save: str | Path = None,
     save_fig_format: str = "svg",
     show_plot: bool = True,
     **kwargs
@@ -2537,58 +2966,7 @@ def plot_gene_progressive_timecourse(
 
     The plot includes measured expression levels and optionally fitted kinetic models.
     Optionally includes confidence intervals and rescaling based on model fits.
-
-    Parameters
-    ----------
-    data : GrandPy
-        The GrandPy object containing the expression and metadata.
-
-    gene : str
-        Gene name to plot.
-
-    slot : str, optional
-        Data slot to use for expression values. Defaults to the data's default slot.
-
-    time : str, default="duration.4sU"
-        Column name in coldata containing time points for labeling duration.
-
-    fit_type : str, default="nlls"
-        Type of fit to perform. Passed to the kinetics fitting function.
-        Typical options are "nlls", "ntr", or "chase".
-
-    size : float, default=25
-        Marker size for scatter points.
-
-    exact_tics : bool, default=True
-        Whether to use exact original time labels on the x-axis ticks.
-        If True and available, uses original labels from `time.original`.
-
-    show_ci : bool, default=False
-        Whether to include confidence intervals in the plot.
-        Requires pre-computed 'lower' and 'upper' slots (e.g., via ComputeNtrCI).
-
-    rescale : bool, default=True
-        Whether to rescale expression values based on the kinetic fit.
-        Useful for normalizing progressive time courses to fitted models.
-
-    return_tables : bool, default=False
-        If True, prints the underlying DataFrame used for plotting.
-
-    figsize : tuple[float, float], default = (6,1)
-        Size of the figure (height, aspect).
-
-    path_for_save : str or Path, optional
-        Directory path to save the plot file. If None, the plot is not saved.
-
-    save_fig_format : str, default="svg"
-        File format for saving the figure. Supported by matplotlib (e.g., "png", "svg").
-
-    show_plot : bool, default=True
-        Whether to display the plot in the current session.
-
-    **kwargs
-        Additional keyword arguments passed to the kinetics fitting function.
-
+    
     See Also
     --------
     GrandPy.fit_kinetics
@@ -2603,9 +2981,65 @@ def plot_gene_progressive_timecourse(
     GrandPy.with_dropped_plots
         Remove plots matching a regex.
 
-    GrandPy.plot_global
-        Executes a stored global plot function.
+    GrandPy.plot_gene
+        Executes a stored gene plot function.
+        
+    GrandPy.compute_ntr_ci
+        Compute slots 'upper' and 'lower'. Necessary for `show_ci`
+
+    Parameters
+    ----------
+    data : GrandPy
+        The GrandPy object containing the expression and metadata.
+
+    gene : str | int
+        Gene to plot.
+
+    slot : str, optional
+        Data slot to use for expression values. Defaults to the data's default slot.
+
+    time : str, default "duration.4sU"
+        Column name in coldata containing time points for labeling duration.
+
+    fit_type : str, default "nlls"
+        Type of fit to perform. Passed to the kinetics fitting function.
+        Typical options are "nlls", "ntr", or "chase".
+
+    size : float, default 25
+        Marker size for scatter points.
+
+    exact_tics : bool, default True
+        Whether to use exact original time labels on the x-axis ticks.
+        If True and available, uses original labels from `time.original`.
+
+    show_ci : bool, default False
+        Whether to include confidence intervals in the plot.
+        Requires pre-computed 'lower' and 'upper' slots (e.g., via GrandPy.compute_ntr_ci()).
+
+    rescale : bool, default True
+        Whether to rescale expression values based on the kinetic fit.
+        Useful for normalizing progressive time courses to fitted models.
+
+    return_tables : bool, default False
+        If True, prints the underlying DataFrame used for plotting.
+
+    figsize : tuple[float, float], default (6,1)
+        Size of the figure (height, aspect).
+
+    path_for_save : str or Path, optional
+        Directory path to save the plot file. If None, the plot is not saved.
+
+    save_fig_format : str, default "svg"
+        File format for saving the figure. Supported by matplotlib (e.g., "png", "svg").
+
+    show_plot : bool, default True
+        Whether to display the plot in the current session.
+
+    **kwargs
+        Additional keyword arguments passed to the kinetics fitting function.
     """
+    from .utils import _get_kinetics_data
+    
     if slot is None:
         slot = data.default_slot
 
@@ -2644,8 +3078,6 @@ def plot_gene_progressive_timecourse(
         })
 
 
-
-    from .utils import _get_kinetics_data
     fit_results = _get_kinetics_data(
         data,
         genes=gene,
@@ -2875,309 +3307,3 @@ def plot_gene_progressive_timecourse(
     if return_tables:
         print(df)
 
-
-def plot_ma(
-    data: GrandPy,
-    analysis: Optional[str] = None,
-    p_cutoff: float = 0.05,
-    lfc_cutoff: float = 1.0,
-    annotate_numbers: bool = True,
-    size: int = 10,
-    figsize: tuple[float, float] = (10, 6),
-    path_for_save: Optional[str] | Path = None,
-    save_fig_format: str = "svg",
-    show_plot: bool = True,
-):
-    """
-    Create an MA plot from a GrandPy analysis result.
-
-    The MA plot shows the log2 fold changes (LFC) versus total expression levels,
-    highlighting genes with significant differential expression.
-
-    Parameters
-    ----------
-    data : GrandPy
-        The GrandPy object containing analysis results and expression data.
-
-    analysis : str, optional
-        Name of the analysis to use for plotting. Defaults to the first available analysis.
-
-    p_cutoff : float, default=0.05
-        Significance cutoff for adjusted p-values (Q-values). Genes with Q < p_cutoff are highlighted.
-
-    lfc_cutoff : float, default=1.0
-        Fold-change cutoff for highlighting genes with substantial up/down regulation.
-        Horizontal reference lines are drawn at ±lfc_cutoff.
-
-    annotate_numbers : bool, default=True
-        Whether to annotate the plot with counts of significantly up- and down-regulated genes.
-
-    size : int, default=10
-        The size of the scatter points.
-
-    figsize : tuple[float, float], default=(10, 6)
-            Size of the figure (width, height).
-
-    path_for_save : str, optional
-        If specified, saves the plot as a PNG file to this directory.
-    save_fig_format: str, default="svg"
-            The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
-    show_plot: bool, default=True
-        Whether to show the plot.
-    See Also
-        --------
-        GrandPy.plots
-            Get the names of all stored plot functions.
-
-        GrandPy.with_plot
-            Add a plot function.
-
-        GrandPy.with_dropped_plots
-            Remove plots matching a regex.
-
-        GrandPy.plot_global
-            Executes a stored global plot function.
-    """
-    if analysis is None:
-        analysis = data.analyses[0]
-
-    df = data.get_analysis_table(
-        analyses=analysis,
-        regex=False,
-        columns=["M", "LFC", "Q"],
-        with_gene_info=False
-    )
-
-    df.columns = [col.split('_')[-1] for col in df.columns]
-
-    if "Q" not in df.columns:
-        df["Q"] = 1.0
-    df["Q"] = df["Q"].fillna(1.0)
-
-    x_vals = df["M"].to_numpy() + 1
-    y_vals = df["LFC"].to_numpy()
-    q_vals = df["Q"].to_numpy()
-    colors = np.where(q_vals < p_cutoff, "black", "gray")
-
-    fig, ax = plt.subplots(figsize=figsize)
-    ax.scatter(x_vals, y_vals, c=colors, s=size, alpha=0.7)
-
-    ax.set_xscale("log")
-    ax.set_xlabel("Total expression")
-    ax.set_ylabel(r"$\log_2$ Fold Change (LFC)")
-    ax.set_title(analysis)
-
-    if lfc_cutoff != 0:
-        ax.axhline(y=lfc_cutoff, linestyle="--", color="gray")
-        ax.axhline(y=-lfc_cutoff, linestyle="--", color="gray")
-    else:
-        ax.axhline(y=0, linestyle="--", color="gray")
-
-    if annotate_numbers:
-        up = np.sum((y_vals > lfc_cutoff) & (q_vals < p_cutoff))
-        down = np.sum((y_vals < -lfc_cutoff) & (q_vals < p_cutoff))
-        ax.annotate(f"n={up}", xy=(x_vals.max(), y_vals.max()), xycoords="data",
-                    ha="right", va="top")
-        ax.annotate(f"n={down}", xy=(x_vals.max(), y_vals.min()), xycoords="data",
-                    ha="right", va="bottom")
-    plt.tight_layout()
-    if path_for_save:
-        fig.savefig(f"{path_for_save}/MAPlot.{save_fig_format}", format=save_fig_format, dpi=300)
-    if show_plot:
-        plt.show()
-        plt.close()
-
-
-def plot_expression_test(
-    data: GrandPy,
-    w4su: str,
-    no4su: Union[str, int],
-    y_lim: float | tuple[float, float] | None = (-1, 1),
-    hl_quantile: float = 0.8,
-    size: float = 10,
-    figsize: tuple[float, float] = (10, 6),
-    path_for_save: Optional[str] | Path = None,
-    save_fig_format: str = "svg",
-    show_plot: bool = True,
-):
-    """
-        Generate a scatter plot comparing expression between 4sU-labeled and non-labeled samples.
-
-        The plot shows log2 fold changes (4sU vs no4sU) versus mean log10 expression,
-        colored by point density to visualize expression distribution and fold-change relationships.
-
-        Parameters
-        ----------
-        data : GrandPy
-            The GrandPy object containing expression data.
-
-        w4su : str
-            Column name or identifier(s) for 4sU-labeled samples.
-
-        no4su : str or int
-            Column name(s) or a constant value representing non-4sU samples.
-            If an int/float, treated as a constant expression value.
-
-        y_lim : tuple of float, default=(-1, 1)
-            Y-axis limits for log2 fold change values.
-
-        hl_quantile : float, default=0.8
-            Quantile to determine half-life cutoff. (Currently unused in the plot)
-
-        size : float, default=10
-            Size of scatter points.
-
-        figsize : tuple[float, float], default=(10, 6)
-            Size of the figure (width, height).
-
-        path_for_save : str, optional
-            Path to save the plot as PNG, if provided.
-        save_fig_format: str, default="svg"
-            The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
-        show_plot: bool, default=True
-            Whether to show the plot.
-        See Also
-        --------
-        GrandPy.plots
-            Get the names of all stored plot functions.
-
-        GrandPy.with_plot
-            Add a plot function.
-
-        GrandPy.with_dropped_plots
-            Remove plots matching a regex.
-
-        GrandPy.plot_global
-            Executes a stored global plot function.
-        """
-
-    w = data.get_matrix(mode_slot="count", columns=w4su)
-    if isinstance(no4su, (int, float)):
-        n = np.full_like(w, fill_value=no4su)
-    else:
-        n = data.get_matrix(mode_slot="count", columns=no4su)
-    valid = np.isfinite(w + n)
-    w = w[valid]
-    n = n[valid]
-
-    m = np.vstack([w, n]).T
-    lfc_mat = _transform_logfc(m, reference_columns=[1])
-    lfc = lfc_mat[:, 0]
-    M = (np.log10(w + 1) + np.log10(n + 1)) / 2
-    xy = np.vstack([M, lfc])
-    density = _density2d(M, lfc, n=100, margin='n')
-
-    idx = np.argsort(density)
-    M, lfc, density = M[idx], lfc[idx], density[idx]
-    fig, ax = plt.subplots(figsize=figsize)
-    sc = ax.scatter(M, lfc, c=density, cmap="viridis", s=size, alpha=1)
-    ax.axhline(y=0, color="gray", linestyle="--")
-    ax.set_xlabel("Mean expression (log10)")
-    ax.set_ylabel("log2 FC (4sU / no4sU)")
-    ax.set_ylim(y_lim)
-    fig.colorbar(sc, ax=ax, label="Density")
-    ax.set_title("Expression Test: 4sU vs no4sU")
-    plt.tight_layout()
-    if path_for_save:
-        fig.savefig(f"{path_for_save}/Expression_Test.{save_fig_format}", format=save_fig_format, dpi=300)
-    if show_plot:
-        plt.show()
-        plt.close()
-
-
-def plot_type_distribution(
-    data: GrandPy,
-    mode_slot: Optional[str] = None,
-    relative: bool = False,
-    palette: str = "Dark2",
-    figsize: tuple[float, float] = (10, 6),
-    path_for_save: Optional[str] | Path = None,
-    save_fig_format: str = "svg",
-    show_plot: bool = True,
-):
-    """
-    Plot the distribution of gene types across conditions.
-
-    Displays a barplot showing the sum (or relative percentage) of expression values
-    for each gene type grouped by condition.
-
-    Parameters
-    ----------
-    data : GrandPy
-        GrandPy-Object containing expression data and gene information.
-
-    mode_slot: str or ModeSlot
-            The name of the data slot. If None, uses the default slot.
-
-            A mode("new"|"old"|"total") can be specified in the following formats: ModeSlot('<mode>', '<slot>') or '<mode>_<slot>'
-
-    relative : bool, default=False
-        If True, plots relative percentages per condition instead of absolute sums.
-
-    palette : str, default="Dark2"
-        Color palette for the gene types.
-
-    figsize : tuple[float, float], default=(10, 6)
-            Size of the figure (width, height).
-
-    path_for_save : str, optional
-        If provided, saves the plot as a PNG file to this path.
-    save_fig_format: str, default="svg"
-            The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
-    show_plot: bool, default=True
-        Whether to show the plot.
-    See Also
-    --------
-    GrandPy.plots
-        Get the names of all stored plot functions.
-
-    GrandPy.with_plot
-        Add a plot function.
-
-    GrandPy.with_dropped_plots
-        Remove plots matching a regex.
-
-    GrandPy.plot_global
-        Executes a stored global plot function.
-    """
-    if mode_slot is None:
-        mode_slot = data.default_slot
-
-    df = data.get_table(mode_slot)
-    gene_types = data.gene_info['Type'].unique()
-
-    sums = pd.DataFrame({
-        t: df.loc[data.gene_info['Type'] == t].sum(axis=0)
-        for t in gene_types
-    })
-
-    sums = sums.loc[:, sums.sum(axis=0) > 0]
-
-    if relative:
-        sums = sums.div(sums.sum(axis=1), axis=0) * 100
-        mode_slot = f"{mode_slot} [%]"
-
-    df_long = sums.reset_index().melt(id_vars='index', var_name='Type', value_name='value')
-    df_long.rename(columns={'index': 'Condition'}, inplace=True)
-
-    fig, ax = plt.subplots(figsize=figsize)
-    sns.barplot(data=df_long, x='Condition', y='value', hue='Type', palette=palette, ax=ax)
-    ax.set_xlabel('')
-    ax.set_ylabel(mode_slot)
-    ax.tick_params(axis='x', rotation=90)
-    if relative:
-        ax.legend(
-            bbox_to_anchor=(1.02, 1),
-            loc='upper left',
-            borderaxespad=0,
-            title="Type"
-        )
-        plt.subplots_adjust(right=0.75)
-    else:
-        ax.legend(title="Type")
-        plt.tight_layout()
-    if path_for_save:
-        fig.savefig(f"{path_for_save}/Type_Distribution.{save_fig_format}", format=save_fig_format, dpi=300)
-    if show_plot:
-        plt.show()
-        plt.close()
