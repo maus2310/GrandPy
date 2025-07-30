@@ -41,13 +41,13 @@ With all dependencies available, installation of grandPy typically takes
 First have a look at the [getting started](./docs/notebooks/notebook_00_getting_started.ipynb)
 notebook.
 
-Then, go through [differential expression](./docs/notebooks/notebook_01_differential_expression(snapshot_data).ipynb)
-or [kinetic modeling](./docs/notebooks/notebook_02_kinetic_modeling(progressive_labeling_time_courses).ipynb),
+Then, go through [differential expression](./docs/notebooks/notebook_01_differential_expression.ipynb)
+or [kinetic modeling](./docs/notebooks/notebook_02_kinetic_modeling.ipynb),
 which provide a comprehensive walk-through of the two main settings of nucleotide conversion experiments.
 
 There are also additional notebooks:
 
-- [Loading data and working with GrandPy objects](./doc/notebooks/notebook_03_loading_data_and_working_with_GrandPy_objects.ipynb): Learn more about programming with grandPy
+- [Loading data and working with GrandPy objects](./docs/notebooks/notebook_03_loading_data_and_working_with_grandpy_objects.ipynb): Learn more about programming with grandPy
 - [Working with data matrices and analysis results](./docs/notebooks/notebook_04_working_with_data_matrices_and_analysis_results.ipynb): Learn more about how to retrieve data from grandPy objects
 - [Pulse-chase](./docs/notebooks/notebook_06_fitting_pulse-chase_data.ipynb): Learn how to fit pulse-chase data with grandPy
 

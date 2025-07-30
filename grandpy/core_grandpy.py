@@ -1761,10 +1761,8 @@ class GrandPy:
                 result_df = coldata.reset_index(drop=True).merge(
                     result_df,
                     on="Name",
-                    how="left"
+                    how="right"
                 )
-
-            result_df = result_df.set_index(["Name"])
 
             return result_df
 
@@ -2566,12 +2564,16 @@ class GrandPy:
         --------
         GrandPy.get_analysis_table
             Retrieves stored analyses.
+
         GrandPy.normalize
             Normalizes the expression data.
+
         plot_gene_progressive_timecourse
             Plots the kinetic model of a gene.
+
         GrandPy.calibrate_effective_labeling_time_kinetic_fit
             Calibrates the effective labeling time using kinetic models.
+
         GrandPy.calibrate_effective_labeling_time_match_halflives
             Calibrates the effective labeling time using known halflives from genes.
 
