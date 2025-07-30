@@ -12,18 +12,24 @@ theme:
     - 404.html
 
 plugins:
+  - search
   - mkdocs-jupyter
   - mkdocstrings:
       handlers:
         python:
           options:
-            extra:
-              show_signatur: false
-            merge_init_into_class: true
             docstring_style: numpy
+            merge_init_into_class: true
+            modernize_annotations: true
+            signature_crossrefs: true
             show_source: true
             separate_signature: true
             members_order: source
+            extra:
+              show_signature: false
+            filters:
+              - "!^_"
+
 
 nav:
   - Home: index.md
@@ -38,10 +44,9 @@ nav:
       - Differential Expression: api/diffexp.md
       - Modeling: api/modeling.md
       - Utils: api/utils.md
-      - Tools:
-          - Analysis: api/analysis_tool.md
-          - Plot: api/plot_tool.md
-          - Slot: api/slot_tool.md
+      - Analysis_tool: api/analysis_tool.md
+      - Plot_tool: api/plot_tool.md
+      - Slot_tool: api/slot_tool.md
 
 
 
@@ -55,3 +60,7 @@ extra:
 
 extra_css:
   - css/custom.css
+
+extra_javascript:
+  - https://polyfill.io/v3/polyfill.min.js?features=es6
+  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js

@@ -120,3 +120,65 @@ h1, h2, h3, h4, h5, h6 {
   color: #007654 !important;
   font-weight: bold;
 }
+
+.nav-main__container {
+  display: flex !important;
+  justify-content: space-between !important;
+  align-items: center !important;
+  flex-wrap: nowrap;
+  width: 100%;
+}
+
+
+.nav-main__level {
+  display: flex !important;
+  gap: 1em;
+  align-items: center;
+  margin: 0;
+  padding: 0;
+}
+
+
+.nav-search {
+  display: flex !important;
+  align-items: center;
+  margin: 0 !important;
+}
+
+.form--search {
+  background-color: #007654 !important;
+  border-radius: 6px !important;
+  padding: 0.3em 0.75em !important;
+  margin: 0 !important;
+  display: flex !important;
+  align-items: center;
+}
+
+.form__input {
+  font-size: 1em !important;
+  padding: 0.25em 0.6em !important;
+  border-radius: 4px !important;
+  border: 1px solid #ccc !important;
+  background-color: white !important;
+  color: black !important;
+  width: 14em;
+  outline: none;
+  box-shadow: none;
+}
+
+
+.form__btn-submit {
+  background-color: white !important;
+  color: #007654 !important;
+  border: 1px solid #007654 !important;
+  border-radius: 25px !important;
+  padding: 0.2em 0.8em !important;
+  margin-left: 0.5em !important;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+.form__btn-submit:hover {
+  background-color: #007654 !important;
+  color: white !important;
+}
