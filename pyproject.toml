@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools >= 77.0.3"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "grandpy"
+version = "0.1.0"
+description = "Modul for kinetic RNA-seq analysis, inspired by grandR."
+readme = "README.md"
+#license = { file = "LICENSE.md" }
+authors = [
+  {name = "Marius"},
+  {name = "Kathi"},
+  {name = "Andi"},
+  {name = "Finn"},
+]
+maintainers = [
+  {name = "Erhard"}
+]
+dependencies = [
+    "numpy",
+    "pandas",
+    "scipy",
+    "anndata",
+    "tqdm",
+    "matplotlib",
+    "seaborn",
+]
+requires-python = ">= 3.13.0"
+keywords = ["grandpy", "Grandpy", "GrandPy", "GrandPy", "RNA", "grandR"]
+
+[project.urls]
+Homepage = "beispiel.com"
+Documentation = "beispiel.com"
+Repository = "beispiel.com"
