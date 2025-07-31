@@ -2655,7 +2655,7 @@ class GrandPy:
         Notes
         -----
         This function decides dynamically how many processes to use for `nlls` and `chase`.
-        By default, up to: available CPUs - 1. For more control see the `max_processes` and `exact_processes` parameters.
+        By default, up to: number of CPU cores. For more control see the `max_processes` and `exact_processes` parameters.
 
         See Also
         --------
@@ -2726,7 +2726,7 @@ class GrandPy:
             For `"nlls"`:
                 - max_iter: Maximum number of optimization iterations, by default 250.
                 - steady_state: Whether to use the steady-state model. It can be set for each condition individually by using a dict. By default, True
-                - max_processes: The maximum number of processes this function will use. If None or not provided, it will start up to available cores - 1 processes (e.g. 8 cores -> 7 processes)
+                - max_processes: The maximum number of processes this function will use. If None or not provided, it can start as many as cores are available.
                 - exact_processes: If True, exactly `max_processes` will be used.
 
             For `"ntr"`:
@@ -2736,7 +2736,7 @@ class GrandPy:
 
             For `"chase"`:
                 - max_iter: Maximum number of optimization iterations, by default 250.
-                - max_processes: The maximum number of processes this function will use. If None or not provided, it will start up to available cores - 1 processes (e.g. 8 cores -> 7 processes)
+                - max_processes: The maximum number of processes this function will use. If None or not provided, it can start as many as cores are available.
                 - exact_processes: If True, exactly `max_processes` will be used.
 
         Returns

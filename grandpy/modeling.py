@@ -87,17 +87,15 @@ def get_dynamic_process_count(data_size: int, max_processes: int = None, exact_p
             max_processes = 1
         return max(max_processes, 1)
 
-    available_cores = max(os.cpu_count()-1, 1)
+    available_cores = max(os.cpu_count(), 1)
 
     if max_processes is None:
-        # Arbitrary threshold for amount of processes approximated by testing. (Probably different for other systems)
-        num_processes = min(available_cores, data_size // 1200)
-    else:
-        num_processes = min(max_processes, available_cores)
+        max_processes = available_cores
 
-    num_processes = max(1, num_processes)
+    # Arbitrary threshold for amount of processes approximated by testing. (Probably different for other systems)
+    num_processes = min(max_processes, data_size // 1200)
 
-    return num_processes
+    return max(num_processes, 1)
 
 
 
@@ -158,9 +156,9 @@ def fit_kinetics_nlls(
     # --- Decide on parallelisation ---
     datasize = len(genes_to_fit)
 
-    max_workers = get_dynamic_process_count(datasize, max_processes, exact_processes)
+    num_workers = get_dynamic_process_count(datasize, max_processes, exact_processes)
 
-    if max_workers == 1:
+    if num_workers == 1:
         parallel = False
     else:
         from concurrent.futures import ProcessPoolExecutor
@@ -188,7 +186,7 @@ def fit_kinetics_nlls(
 
         if parallel:
             jobs = []
-            with ProcessPoolExecutor(max_workers=max_workers) as executor:
+            with ProcessPoolExecutor(max_workers=num_workers) as executor:
                 for gene_index, gene in enumerate(genes_to_fit):
                     new_values = new_cond[gene_index, :]
                     old_values = old_cond[gene_index, :]
@@ -277,9 +275,9 @@ def fit_kinetics_chase(
     # --- Decide on parallelisation ---
     datasize = len(genes_to_fit)
 
-    max_workers = get_dynamic_process_count(datasize, max_processes, exact_processes)
+    num_workers = get_dynamic_process_count(datasize, max_processes, exact_processes)
 
-    if max_workers == 1:
+    if num_workers == 1:
         parallel = False
     else:
         from concurrent.futures import ProcessPoolExecutor
@@ -317,7 +315,7 @@ def fit_kinetics_chase(
 
         if parallel:
             jobs = []
-            with ProcessPoolExecutor(max_workers=max_workers) as executor:
+            with ProcessPoolExecutor(max_workers=num_workers) as executor:
                 for gene_index, gene in enumerate(genes_to_fit):
                     new_values = new_cond[gene_index, :]
                     total_value = slot_values_per_gene.get(gene, None)
