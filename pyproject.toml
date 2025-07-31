@@ -33,3 +33,8 @@ keywords = ["grandpy", "Grandpy", "GrandPy", "GrandPy", "RNA", "grandR"]
 Homepage = "beispiel.com"
 Documentation = "beispiel.com"
 Repository = "beispiel.com"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["grandpy*"]
+exclude = ["test*", "data*", "test-datasets*"]
