@@ -1,4 +1,4 @@
 # grandPy.py
 
-::: grandpy.grandPy
+::: grandpy.core_grandpy
     handler: python

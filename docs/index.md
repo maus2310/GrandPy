@@ -29,15 +29,15 @@ With all dependencies available, installation of GrandPy typically takes <span s
 ## Cheatsheet
 
 [<img src="cheatsheet/cheatsheet_preview_Version_1.png" alt="grandPy Cheatsheet" width="600"/>](cheatsheet/grandPy_Cheat_Sheet_Version_1.pdf)
-<span style="color:red">work in progress!</span>
 
 ## How to get started
 First have a look at the [getting started](./notebooks/notebook_00_getting_started.ipynb) notebook.
 
-Then, go through [differential expression](./notebooks/notebook_01_differential_expression.ipynb) or [kinetic modeling](./notebooks/notebook_02_kinetic_modeling(progressive_labeling_time_courses).ipynb), which provide a comprehensive walk-through of the two main settings of nucleotide conversion experiments.
+Then, go through [differential expression](./notebooks/notebook_01_differential_expression.ipynb) or [kinetic modeling](./notebooks/notebook_02_kinetic_modeling.ipynb), which provide a comprehensive walk-through of the two main settings of nucleotide conversion experiments.
 
 There are also additional notebooks:
 
 - [Loading data and working with GrandPy objects](./notebooks/notebook_03_loading_data_and_working_with_grandpy_objects.ipynb): Learn more about programming with GrandPy
 - [Working with data matrices and analysis results](./notebooks/notebook_04_working_with_data_matrices_and_analysis_results.ipynb): Learn more about how to retrieve data from GrandPy objects
+- [Plotting](./notebooks/notebook_05_plotting.ipynb): Learn how to create and store plots with GrandPy
 - [Pulse-chase](./notebooks/notebook_06_fitting_pulse-chase_data.ipynb): Learn how to fit pulse-chase data with GrandPy
