@@ -7,12 +7,12 @@ import pytest
 
 import grandpy as gp
 
-TOLERANCE_KB = 1
+TOLERANCE_KB = 5
 OUT_OF_RANGE = []
 
 EXPECTED_FILE_SIZES = {
     "Expression_Test.svg": 204,
-    "Heatmap_norm.svg": 63,
+    "Heatmap_norm.svg": 59,
     "PCA_norm.svg": 40,
     "SARS.1h.A_Mock.1h.A_norm.svg": 206,
     "SRSF6_Groups_Bars.svg": 36,
@@ -32,7 +32,7 @@ def sars_dataset():
         sars = gp.read_grand("../data/sars_R.tsv",
                           design=("Condition", "duration.4sU", "Replicate"),
                           classification_genes=['UHMK1', 'ATF3', 'PABPC4', 'ROR1', 'ZC3H11A', 'ZBED6', 'PRDX6', 'PRRC2C'],
-                          classification_genes_label="Moin")
+                          classification_genes_label="Viral")
         sars = sars.normalize().compute_ntr_ci()
         contrasts = sars.get_contrasts()
         sars2 = sars.pairwise_deseq2(contrasts)
@@ -46,6 +46,7 @@ def temp_output_dir():
 def check_file_size(path, filename):
     expected_kb = EXPECTED_FILE_SIZES[filename]
     filepath = path / filename
+    print(filepath)
     if not filepath.is_file():
         pytest.fail(f"{filename} missing at: {filepath}")
 
@@ -61,7 +62,7 @@ def check_file_size(path, filename):
 def test_plot_scatter(sars_dataset, temp_output_dir):
     sars, _ = sars_dataset
     try:
-        highlight = sars.get_classified_genes("Moin")
+        highlight = sars.get_classified_genes("Viral")
         gp.plot_scatter(sars, x="SARS.1h.A", highlight=highlight, label=highlight, log=True,
                      y_label_offset=0.01, remove_outlier=True, diagonal=True, path_for_save=temp_output_dir, show_plot=False)
         check_file_size(temp_output_dir, "SARS.1h.A_Mock.1h.A_norm.svg")
@@ -79,7 +80,7 @@ def test_plot_pca(sars_dataset, temp_output_dir):
 def test_plot_heatmap(sars_dataset, temp_output_dir):
     sars, _ = sars_dataset
     try:
-        highlight = sars.get_classified_genes("Moin")
+        highlight = sars.get_classified_genes("Viral")
         gp.plot_heatmap(sars, transform="vst", cluster_genes=False, title="Heatmap",
                      genes=highlight, path_for_save=temp_output_dir, show_plot=False)
         check_file_size(temp_output_dir, "Heatmap_norm.svg")

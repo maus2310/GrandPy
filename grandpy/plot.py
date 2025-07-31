@@ -386,7 +386,6 @@ def _transform_vst(data: GrandPy, selected_columns: list, mode_slot: str | list[
     coldata["condition"] = coldata["Condition"]
 
     slotmat = mat.T.round().astype(int)
-
     slotmat = slotmat.loc[coldata.index]
 
     dds = DeseqDataSet(counts=slotmat, metadata=coldata, design_factors="Condition", low_memory=True, quiet=True)
@@ -595,7 +594,7 @@ def plot_scatter(
     x_limit: tuple[float, float] = None,
     y_limit: tuple[float, float] = None,
     color: str = None,
-    color_palette: str = None,
+    color_palette: str = "viridis",
     cross: bool = None,
     diagonal: bool | float | tuple = None,
     highlight: Union[Sequence[str], Mapping[str, Sequence[str]]] = None,
@@ -1148,10 +1147,10 @@ def plot_heatmap(
     if return_matrix:
         print(df, table)
     if title:
-        plt.title(title, y=1.05)
+        g.ax_heatmap.set_title(title, pad = 30)
     #plt.tight_layout()     # Makes cbar way to big :(
     if path_for_save:
-        g.savefig(f"{path_for_save}/Heatmap_{mode_slot}.{save_fig_format}", format=save_fig_format, dpi=300)
+        g.savefig(f"{path_for_save}/Heatmap_{mode_slot[0]}.{save_fig_format}", format=save_fig_format)
     if show_plot:
         plt.show()
         plt.close()
@@ -1384,9 +1383,11 @@ def plot_vulcano(
     if analyses is None:
         analyses = data.analyses[0]
 
+    print(analyses)
+
     df = data.get_analysis_table(
         analyses=analyses,
-        regex=False,
+        regex=r'_LFC|_Q',
         columns=["_LFC", "_Q"],
         with_gene_info=False
     )
@@ -1542,7 +1543,7 @@ def plot_ma(
 
     df = data.get_analysis_table(
         analyses=analysis,
-        regex=False,
+        regex=r'_LFC|_Q',
         columns=["M", "LFC", "Q"],
         with_gene_info=False
     )

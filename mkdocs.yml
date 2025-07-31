@@ -36,7 +36,7 @@ nav:
   - Getting startet: notebooks/notebook_00_getting_started.ipynb
   - Tutorials: tutorials/tutorials.md
   - API:
-      - GrandPy: api/grandPy.md
+      - GrandPy: api/core_grandpy.md
       - Load: api/load.md
       - Plots: api/plot.md
       - Processing: api/processing.md
