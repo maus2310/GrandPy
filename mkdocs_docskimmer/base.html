@@ -22,7 +22,23 @@
     {%- endfor %}
   {% endblock styles %}
 
+  <script>
+    window.MathJax = {
+      tex: {
+        inlineMath: [['$', '$'], ['\\(', '\\)']],
+        displayMath: [['$$', '$$'], ['\\[', '\\]']],
+        processEscapes: true
+      },
+      options: {
+        skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code'],
+        ignoreHtmlClass: 'no-mathjax',
+        processHtmlClass: 'mathjax'
+      }
+    };
+  </script>
+
     <link rel="shortcut icon" href="{{ 'img/favicon.ico'|url }}">
+    <link rel="icon" href="{{ 'logo/grandPy_hex_logo.ico'|url }}" type="image/x-icon">
 	<link rel="apple-touch-icon" href="{{ 'img/apple-touch-icon.png'|url }}">
 	<link rel="apple-touch-icon" sizes="72x72" href="{{ 'img/apple-touch-icon-72x72.png'|url }}">
 	<link rel="apple-touch-icon" sizes="114x114" href="{{ 'img/apple-touch-icon-114x114.png'|url }}">
