@@ -233,6 +233,9 @@ def _pairwise_DESeq2(
     -----
     Uses fit_type="parametric" for compatibility with pydeseq2.
     pydeseq2 does not currently support fit_type="local" (as in grandR).
+
+    If this Error is raised: ValueError: Illegal intersection of contrasts for joint estimation of variance!
+    Try to set the parameter 'separate=True'.
     """
     try:
         import pydeseq2
@@ -288,7 +291,7 @@ def _pairwise_DESeq2(
             dds = DeseqDataSet(counts=counts_df, metadata=coldata, design_factors="comparison", ref_level=None, quiet=True)
             dds.size_factors = size_factors
             dds.deseq2(fit_type="parametric")
-            stats = DeseqStats(dds)
+            stats = DeseqStats(dds, contrast=["comparison", "A", "B"])
             stats.summary()
 
             result = stats.results_df.set_index(data.gene_info.index)
@@ -493,7 +496,7 @@ def _get_contrasts(
     use_mask = [elem in columns for elem in data.columns]
 
     if name_format is None:
-        name_format = "A vs B" if group is None else "A vs B.GRP"
+        name_format = "$A vs $B" if group is None else "$A vs $B.$GRP"
 
     if not no4su and "no4sU" in coldata.columns:
         use_mask &= ~coldata["no4sU"].fillna(False)

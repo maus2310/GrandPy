@@ -164,11 +164,11 @@ if __name__ == "__main__":
 
     # ---------------------------------------------------------------------------------------------
 
-    # ' sars <- ReadGRAND(system.file("extdata", "sars.tsv.gz", package = "grandR"), design=c(Design$Condition,Design$dur.4sU,Design$Replicate))
-    # ' sars <- subset(sars,Coldata(sars,Design$dur.4sU)==2)
-    # ' sars<-PairwiseDESeq2(sars,mode="total", contrasts=GetContrasts(sars,contrast=c("Condition","Mock")))
-    # ' sars<-PairwiseDESeq2(sars,mode="new",normalization="total", contrasts=GetContrasts(sars,contrast=c("Condition","Mock")))
-    # ' head(GetAnalysisTable(sars,column="Q"))
+    # sars <- ReadGRAND(system.file("extdata", "sars.tsv.gz", package = "grandR"), design=c(Design$Condition,Design$dur.4sU,Design$Replicate))
+    # sars <- subset(sars,Coldata(sars,Design$dur.4sU)==2)
+    # sars<-PairwiseDESeq2(sars,mode="total", contrasts=GetContrasts(sars,contrast=c("Condition","Mock")))
+    # sars<-PairwiseDESeq2(sars,mode="new",normalization="total", contrasts=GetContrasts(sars,contrast=c("Condition","Mock")))
+    # head(GetAnalysisTable(sars,column="Q"))
 
     sars = gp.read_grand("data/sars_R.tsv", design=("Condition", "dur.4sU", "Replicate"))
 
