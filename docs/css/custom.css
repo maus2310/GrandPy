@@ -21,13 +21,21 @@ a:focus-visible {
   color: black !important;
 }
 
+pre {
+    background-color: #f5f5f5;
+    padding: 10px;
+    border-radius: 8px;
+    overflow-x: auto;
+    font-family: "Courier New", Courier, monospace;
+}
+
 /* Base code styling */
 code {
   background: #f5f5f5;
   padding: 0.1em 0.4em;
   border-radius: 4px;
   font-family: monospace;
-  font-size: inherit;
+  font-size: larger;
   color: #333;
   white-space: nowrap;
 }
