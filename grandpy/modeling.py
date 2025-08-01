@@ -233,10 +233,9 @@ def fit_kinetics_nlls(
                     chase=False,
                     total_value=None,
                     steady_state=condition_steady_state,
-                    sample_names=sample_names_cond,
                     **kwargs
                 )
-                series = res.to_series(condition=condition, prefix=name_prefix, fields=return_fields)
+                series = res.to_series(condition=condition, sample_names=sample_names_cond,fields=return_fields)
                 rows.append(series.values)
                 symbols.append(gene)
 
@@ -385,7 +384,6 @@ def fit_kinetics_gene_least_squares(
     chase: bool = False,
     steady_state: bool = True,
     total_value: float = None,
-    sample_names: list[str] = None,
 ) -> "FitResult":
     """
     Fits synthesis and degradation rates for a single gene and condition using non-linear least squares.
@@ -477,7 +475,6 @@ def fit_kinetics_gene_least_squares(
         opt_result=result,
         ci_size=ci_size,
         steady_state=steady_state,
-        sample_names=sample_names
     )
 
 
@@ -511,9 +508,6 @@ class FitResult:
 
     steady_state : bool
         Whether steady-state assumption was used during fitting.
-
-    sample_names : list
-        A List of sample names for naming residuals.
     """
     time: np.ndarray = np.nan
     new_values: np.ndarray = np.nan
@@ -523,7 +517,6 @@ class FitResult:
     opt_result: OptimizeResult = None
     ci_size: float = 0.95
     steady_state: bool = True
-    sample_names: list[str] = None
 
     # --- Core Parameters ---
     @cached_property
@@ -721,17 +714,17 @@ class FitResult:
             for f in fields
         }
 
-    def to_series(self, condition: str = None, prefix: str = "", fields: list[str] = None) -> pd.Series:
+    def to_series(self, fields: list[str] = None, sample_names: list[str] = None, condition: str = None) -> pd.Series:
         data = self.to_dict(fields)
 
         flat = {}
 
         for key, val in data.items():
-            base_key = f"{prefix}{condition}_{key}"
+            base_key = f"{key}"
 
             if key == "residuals":
                 # isolated handling for residuals
-                sample_names = np.concatenate([self.sample_names, self.sample_names])
+                sample_names = np.concatenate([sample_names, sample_names])
 
                 for res_type, values in val.items():
                     n_old = len(self.time)
@@ -739,16 +732,16 @@ class FitResult:
                     for i, v in enumerate(values):
                         if self.chase:
                             kind = "new"
-                            sample_name = sample_names[i].replace(".", "_")
+                            sample_name = sample_names[i].replace(".", "_").replace(f"{condition}_", "")
                         else:
                             if i < n_old:
                                 kind = "old"
-                                sample_name = sample_names[i].replace(".", "_")
+                                sample_name = sample_names[i].replace(".", "_").replace(f"{condition}_", "")
                             else:
                                 kind = "new"
-                                sample_name = sample_names[i].replace(".", "_")
+                                sample_name = sample_names[i].replace(".", "_").replace(f"{condition}_", "")
 
-                        full_key = f"{prefix}{sample_name}_{key}_{res_type}_{kind}"
+                        full_key = f"{sample_name}_{key}_{res_type}_{kind}"
                         flat[full_key] = v
 
             elif isinstance(val, dict):

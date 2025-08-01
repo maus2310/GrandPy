@@ -2102,6 +2102,9 @@ class GrandPy:
         for name in analyses:
             analysis_data = self._anndata.uns["analyses"][name]
 
+            if prefix_by_analyses:
+                analysis_data.columns = [name + "_" + col for col in analysis_data.columns]
+
             if genes is not None:
                 analysis_data = analysis_data.loc[gene_info.index]
 
@@ -2116,9 +2119,9 @@ class GrandPy:
 
             selected_data = analysis_data[matching_columns].copy()
 
-            if not prefix_by_analyses:
-                cond = name.rsplit("_", 1)[-1]
-                selected_data.columns = [col.rsplit(f"{cond}_", 1)[-1] for col in selected_data.columns]
+            # if prefix_by_analyses:
+            #     cond = name.rsplit("_", 1)[-1]
+            #     selected_data.columns = [col.rsplit(f"{cond}_", 1)[-1] for col in selected_data.columns]
 
             if by_rows:
                 selected_data = selected_data.copy()
