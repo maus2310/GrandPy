@@ -81,15 +81,15 @@ class AnalysisTool:
         if not table.index.name == "Symbol":
             raise ValueError(f"Index of 'table' has to be named 'Symbol'. It is currently named: {table.index.name}.")
 
-        new_analyses = self._adata.uns["analyses"].copy()
+        new_analyses = self._adata.uns.get("analyses", {}).copy()
 
-        new_analyses = {} if new_analyses is None else new_analyses
+        new_analyses = {} if new_analyses == {} else new_analyses
 
         if new_analyses.get(name, None) is not None:
             warnings.warn(f"An analysis named {name} already exists! It will be overwritten.")
 
         table.index = _make_unique(pd.Series(table.index), warn=False)
-        table = _reindex_by_index_name(table, self._adata.obs)
+        table = _reindex_by_index_name(table, by=self._adata.obs)
 
         new_analyses[name] = table
 

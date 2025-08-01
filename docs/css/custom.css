@@ -21,13 +21,9 @@ a:focus-visible {
   color: black !important;
 }
 
-pre {
-    background-color: #f5f5f5;
-    padding: 10px;
-    border-radius: 8px;
-    overflow-x: auto;
-    font-family: "Courier New", Courier, monospace;
-}
+/*pre {*/
+/*    */
+/*}*/
 
 /* Base code styling */
 code {
@@ -64,7 +60,7 @@ span > code,
   word-break: break-word !important;
 }
 
-/* Prevent wrapping in code blocks; allow horizontal scrolling */
+/*Prevent wrapping in code blocks; allow horizontal scrolling */
 pre,
 pre > code,
 .highlight pre,
@@ -74,6 +70,10 @@ pre > code,
   overflow-x: auto !important;
   word-break: normal !important;
   overflow-wrap: normal !important;
+  background-color: #f5f5f5; !important;
+  padding: 5px; !important;
+  border-radius: 8px; !important;
+  font-family: "Courier New", Courier, monospace; !important;
 }
 
 /* Set full navigation bar background color */

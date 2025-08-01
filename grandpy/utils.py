@@ -270,9 +270,6 @@ def _reindex_by_index_name(df: pd.DataFrame, by: pd.DataFrame) -> pd.DataFrame:
     pd.DataFrame
         The sorted DataFrame.
     """
-    if df.index.name is None:
-        df.index.name = by.index.name or "index"
-
     colname_to_sort_by = df.index.name
 
     if colname_to_sort_by is None:
@@ -281,7 +278,7 @@ def _reindex_by_index_name(df: pd.DataFrame, by: pd.DataFrame) -> pd.DataFrame:
         sort_by = by.index
 
     else:
-        sort_by = by[colname_to_sort_by]
+        sort_by = by[colname_to_sort_by].values
         sort_by = pd.Index(sort_by)
 
     sorted_df = df.reindex(sort_by)

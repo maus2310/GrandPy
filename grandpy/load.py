@@ -831,7 +831,7 @@ def read_sparse(folder_path,
                  pseudobulk=pseudobulk, targets=targets, estimator=estimator, rename_sample=rename_sample)
 
 
-def read_grand(prefix, pseudobulk=None, targets=None, **kwargs):
+def read_grand(prefix, pseudobulk=None, targets=None, **kwargs) -> GrandPy:
     r"""
     Automatically detects dense vs. sparse GRAND-SLAM output and loads into GrandPy.
 

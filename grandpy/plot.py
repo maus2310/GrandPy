@@ -751,7 +751,7 @@ def plot_scatter(
         If given, save the figure as a PNG to this directory with auto-generated filename.
 
     save_fig_format: str, default "svg"
-        The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
+        The format to save the figure. Can be "png", "svg", or any other format supported by matplotlib.
 
     figsize : tuple[float, float], default (10, 6)
         Size of the figure (width, height).
@@ -1041,7 +1041,7 @@ def plot_heatmap(
         Saves the plot as a PNG to the specified directory
 
     save_fig_format: str, default "svg"
-        The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
+        The format to save the figure. Can be "png", "svg", or any other format supported by matplotlib.
 
     show_plot : bool, default True
         Whether to show the heatmap.
@@ -1233,7 +1233,7 @@ def plot_pca(
         If given, saves the PCA plot as a PNG in the specified directory.
 
     save_fig_format: str, default "svg"
-        The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
+        The format to save the figure. Can be "png", "svg", or any other format supported by matplotlib.
 
     show_plot: bool, default True
         Whether to show the plot.
@@ -1527,13 +1527,13 @@ def plot_ma(
         The size of the scatter points.
 
     figsize : tuple[float, float], default (10, 6)
-            Size of the figure (width, height).
+        Size of the figure (width, height).
 
     path_for_save : str, optional
         If specified, saves the plot as a PNG file to this directory.
 
     save_fig_format: str, default "svg"
-        The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
+        The format to save the figure. Can be "png", "svg", or any other format supported by matplotlib.
 
     show_plot: bool, default True
         Whether to show the plot.
@@ -1543,7 +1543,7 @@ def plot_ma(
 
     df = data.get_analysis_table(
         analyses=analysis,
-        regex=r'_LFC|_Q',
+        regex=True,
         columns=["M", "LFC", "Q"],
         with_gene_info=False
     )
@@ -1648,7 +1648,7 @@ def plot_expression_test(
         Path to save the plot as PNG, if provided.
 
     save_fig_format: str, default "svg"
-        The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
+        The format to save the figure. Can be "png", "svg", or any other format supported by matplotlib.
 
     show_plot: bool, default True
         Whether to show the plot.
@@ -1741,7 +1741,7 @@ def plot_type_distribution(
         If provided, saves the plot as a PNG file to this path.
 
     save_fig_format: str, default "svg"
-        The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
+        The format to save the figure. Can be "png", "svg", or any other format supported by matplotlib.
 
     show_plot: bool, default True
         Whether to show the plot.
@@ -1865,7 +1865,7 @@ def plot_gene_old_vs_new(
         If provided, saves the resulting plot as a PNG in the given directory.
 
     save_fig_format: str, default "svg"
-        The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
+        The format to save the figure. Can be "png", "svg", or any other format supported by matplotlib.
 
     show_plot: bool, default True
         Whether to show the plot.
@@ -2069,7 +2069,7 @@ def plot_gene_total_vs_ntr(
         If provided, saves the resulting plot as a PNG in the given directory.
 
     save_fig_format: str, default "svg"
-        The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
+        The format to save the figure. Can be "png", "svg", or any other format supported by matplotlib.
 
     show_plot: bool, default True
         Whether to show the plot.
@@ -2280,7 +2280,7 @@ def plot_gene_groups_points(
         If provided, saves the plot as a PNG file in the specified path.
    
     save_fig_format: str, default "svg"
-        The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
+        The format to save the figure. Can be "png", "svg", or any other format supported by matplotlib.
     
     show_plot: bool, default True
         Whether to show the plot.
@@ -2363,7 +2363,7 @@ def plot_gene_groups_points(
 
         if dodge_col and dodge_col in plot_df.columns:
             unique_dodge_vals = sorted(plot_df[dodge_col].unique())
-            offset_factor = 0.15
+            offset_factor = 0.10
             val_to_offset = {
                 val: (i - (len(unique_dodge_vals) - 1) / 2) * offset_factor
                 for i, val in enumerate(unique_dodge_vals)
@@ -2541,7 +2541,7 @@ def plot_gene_groups_bars(
         If provided, saves the plot as PNG in the given path.
     
     save_fig_format: str, default "svg"
-        The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
+        The format to save the figure. Can be "png", "svg", or any other format supported by matplotlib.
     
     show_plot : bool, default True
         Whether to show the plot or not.
@@ -2723,10 +2723,10 @@ def plot_gene_snapshot_timecourse(
         Whether to horizontally jitter points by hue to reduce overlap.
         
     path_for_save : str, optional
-        Directory path to save the plot image. If None, does not save.
+        Directory path to save the plot image. If None: does not save.
         
     save_fig_format: str, default "svg"
-        The format ti save the figure. Can be "png", "svg", or any other format supported by matplotlib.
+        The format to save the figure. Can be "png", "svg", or any other format supported by matplotlib.
         
     show_plot: bool, default True
         Whether to show the plot.
