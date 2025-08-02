@@ -700,7 +700,7 @@ def plot_scatter(
         Explicitly set the y-axis limits.
 
     color : str, optional
-        Variable name from DataFrame to color points by. If None, use density-based coloring.
+        The color for the plottet points. If None, use density-based coloring.
 
     color_palette : str, default "viridis"
         Name of the matplotlib colormap to use for coloring.
@@ -842,7 +842,28 @@ def plot_scatter(
     x_vals_trans = np.log10(x_vals_all[mask]) if log_x else x_vals_all[mask]
     y_vals_trans = np.log10(y_vals_all[mask]) if log_y else y_vals_all[mask]
 
-    mask_keep, auto_x_lim, auto_y_lim = _apply_outlier_filter(x_vals_trans, y_vals_trans, remove_outlier)
+    if (x_limit is None) and (y_limit is None) and (limit is None or limit == 0):
+        #IQR-based Outlier
+        mask_keep, auto_x_lim, auto_y_lim = _apply_outlier_filter(y_vals_trans, y_vals_trans, remove_outlier)
+    else:
+        if x_limit is not None:
+            x_lower, x_upper = x_limit
+        elif limit is not None:
+            x_lower, x_upper = np.nanpercentile(x_vals_trans, [100 - limit, limit])
+        else:
+            x_lower, x_upper = np.nanmin(x_vals_trans), np.nanmax(x_vals_trans)
+
+        if y_limit is not None:
+            y_lower, y_upper = y_limit
+        elif limit is not None:
+            y_lower, y_upper = np.nanpercentile(y_vals_trans, [100 - limit, limit])
+        else:
+            y_lower, y_upper = np.nanmin(y_vals_trans), np.nanmax(y_vals_trans)
+
+        mask_keep = (y_vals_trans >= x_lower) & (y_vals_trans <= x_upper) & (y_vals_trans >= y_lower) & (y_vals_trans <= y_upper)
+
+        auto_x_lim = (x_lower, x_upper)
+        auto_y_lim = (y_lower, y_upper)
 
     x_vals = x_vals_trans[mask_keep]
     y_vals = y_vals_trans[mask_keep]
