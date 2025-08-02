@@ -25,6 +25,8 @@ dependencies = [
     "tqdm",
     "matplotlib",
     "seaborn",
+    "pydeseq2",
+    "re"
 ]
 requires-python = ">= 3.13.0"
 keywords = ["grandpy", "Grandpy", "GrandPy", "GrandPy", "RNA", "grandR"]
