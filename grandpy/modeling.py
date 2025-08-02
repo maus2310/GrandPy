@@ -726,14 +726,14 @@ class FitResult:
                     for i, v in enumerate(values):
                         if self.chase:
                             kind = "new"
-                            sample_name = sample_names[i].replace(".", "_").with_replaced_parameters(f"{condition}_", "")
+                            sample_name = sample_names[i].replace(".", "_").replace(f"{condition}_", "")
                         else:
                             if i < n_old:
                                 kind = "old"
-                                sample_name = sample_names[i].replace(".", "_").with_replaced_parameters(f"{condition}_", "")
+                                sample_name = sample_names[i].replace(".", "_").replace(f"{condition}_", "")
                             else:
                                 kind = "new"
-                                sample_name = sample_names[i].replace(".", "_").with_replaced_parameters(f"{condition}_", "")
+                                sample_name = sample_names[i].replace(".", "_").replace(f"{condition}_", "")
 
                         full_key = f"{sample_name}_{key}_{res_type}_{kind}"
                         flat[full_key] = v
