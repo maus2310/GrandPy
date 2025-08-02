@@ -10,6 +10,17 @@ class Plot:
     """
     Used to store a plot function.
 
+    See Also
+    --------
+    GrandPy.with_plot
+        Adds a plot to a GrandPy object.
+
+    GrandPy.plot_global
+        Executes a stored global plot.
+
+    GrandPy.plot_gene
+        Executes a stored gene plot.
+
     Parameters
     ----------
     function: Callable
@@ -41,6 +52,19 @@ class Plot:
 
 
 class PlotTool:
+    """
+    Manages the plots of GrandPy objects.
+
+    See Also
+    --------
+    Plot
+        Represents a plot function.
+
+    Parameters
+    ----------
+    adata: ad.AnnData
+        The AnnData of the current instance.
+    """
     def __init__(self, adata: ad.AnnData):
         self._adata = adata
 
@@ -98,7 +122,10 @@ class PlotTool:
 
         return new_plots
 
-    def drop_plot(self, pattern: str) -> dict[str, dict[str, Plot]]:
+    def with_dropped_plots(self, pattern: str) -> dict[str, dict[str, Plot]]:
+        """
+        For detailed documentation see GrandPy.with_dropped_plots.
+        """
         new_plots = self._adata.uns["plots"].copy()
 
         if pattern is None:

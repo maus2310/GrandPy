@@ -94,7 +94,7 @@ class GrandPy:
         if "count" not in slots:
             raise ValueError("GrandPy object must have a count slot.")
 
-        # obs and var are swapped to allow the data to be gene * sample instead of sample * gene
+        # obs and var are swapped to allow the data to be gene x sample instead of sample x gene
         self._anndata = ad.AnnData(
             X = sp.csr_matrix(np.zeros(slots["count"].shape)),
             obs = gene_info,
@@ -129,8 +129,7 @@ class GrandPy:
     def __ensure_condition_column(self):
         if 'Condition' not in self._anndata.var.columns:
             warnings.warn("No 'Condition' column in coldata, assuming all samples/cells as 'Control'! "
-                          "Consider adding one (see GrandPy.with_condition()) or "
-                          "adjusting the DataFrame if it should already exist. (see GrandPy.replace())")
+                          "Consider adding one. (see GrandPy.with_condition())")
             self._anndata.var["Condition"] = "Control"
 
 
@@ -168,10 +167,9 @@ class GrandPy:
 
 
     # ----- fundamental transformation methods -----
-    def replace(
+    def with_replaced_parameters(
             self,
             *,
-            prefix: str = None,
             gene_info: pd.DataFrame = None,
             coldata: pd.DataFrame = None,
             slots: Mapping[str, Union[np.ndarray, sp.csr_matrix]] = None,
@@ -181,15 +179,17 @@ class GrandPy:
             anndata: ad.AnnData = None
     ) -> "GrandPy":
         """
-        Replaces given parameters in a new GrandPy instance.
+        Replaces the specified parameters.
 
-        This function is useful when you want to modify the GrandPy instance on your own.
+        This function is useful when you want to modify GrandPy objects on your own.
+
+        See Also
+        --------
+        GrandPy.to_anndata
+            Retrieves the internal anndata instance.
 
         Parameters
         ----------
-        prefix: str, optional
-            A new prefix.
-
         gene_info: pd.DataFrame, optional
             A new gene_info DataFrame.
 
@@ -215,10 +215,6 @@ class GrandPy:
             If both `anndata` and any of the other parameters are specified, `anndata` will be replaced first,
             followed by the rest, now in the new instance.
 
-        See Also
-        --------
-        GrandPy.to_anndata: Retrieves the internal anndata instance.
-
         Returns
         -------
         GrandPy
@@ -230,7 +226,7 @@ class GrandPy:
             anndata = anndata.copy()
 
         return self.__class__(
-            prefix = prefix if prefix is not None else anndata.uns.get('prefix'),
+            prefix = anndata.uns.get('prefix'),
             gene_info = gene_info.copy() if gene_info is not None else anndata.obs,
             coldata = coldata.copy() if coldata is not None else anndata.var,
             slots = copy.deepcopy(slots) if slots is not None else anndata.layers,
@@ -252,7 +248,7 @@ class GrandPy:
             anndata: ad.AnnData = None
     ) -> "GrandPy":
         """
-        This function is 'replace' for internal use.
+        This function is 'with_replaced_parameters' for internal use.
 
         This function does not copy provided parameters. Parts can become mutable if not handled correctly!
 
@@ -285,7 +281,7 @@ class GrandPy:
         Returns
         -------
         GrandPy
-            A new GrandPy object with the given parameters replaced.
+            A GrandPy object with the given parameters replaced.
         """
         if anndata is None:
             anndata = self._anndata.copy()
@@ -309,7 +305,7 @@ class GrandPy:
         GrandPy
             A copy of the current instance.
         """
-        return self.replace()
+        return self.with_replaced_parameters()
 
 
     def write_h5ad(self, path: Union[PathLike[str], str], compression: Literal["gzip", "lzf"] = None) -> None:
@@ -894,7 +890,7 @@ class GrandPy:
         GrandPy
             A GrandPy instance with plot names matching the pattern removed.
         """
-        new_plots = self.__plot_tool.drop_plot(pattern)
+        new_plots = self.__plot_tool.with_dropped_plots(pattern)
 
         return self._dev_replace(plots=new_plots)
 
@@ -935,7 +931,7 @@ class GrandPy:
         GrandPy.gene_info
             Get the gene_info DataFrame.
 
-        GrandPy.replace
+        GrandPy.with_replaced_parameters
             Replace whole parts of the instance, such as gene_info.
 
         Parameters
@@ -1333,7 +1329,7 @@ class GrandPy:
         GrandPy.coldata
             Get the coldata DataFrame.
 
-        GrandPy.replace
+        GrandPy.with_replaced_parameters
             Replace whole parts of the instance, such as coldata.
 
         Parameters
@@ -1873,7 +1869,7 @@ class GrandPy:
             name_genes_by: str = "Symbol",
             summarize: pd.DataFrame = None,
             prefix: str = None,
-            ntr_nan: bool = False,
+            ntr_nan: bool = True,
             reorder_columns: bool = False
     ) -> pd.DataFrame:
         """
@@ -1887,7 +1883,7 @@ class GrandPy:
         GrandPy.get_analysis_table:
             Get a DataFrame containing analysis results.
 
-        GrandPy.get_summary_matrix:
+        GrandPy.get_summarize_matrix:
             Get a summarization matrix for averaging or aggregation. Can be provided to get_table via `summarize`.
 
         GrandPy.get_matrix:
@@ -1914,7 +1910,7 @@ class GrandPy:
             Usually either 'Symbol'(Symbols) or 'Gene'(Ensembl IDs).
 
         summarize: pd.DataFrame, default None
-            A summary DataFrame. This can be retrieved via GrandPy.get_summary_matrix().
+            A summary DataFrame. This can be retrieved via GrandPy.get_summarize_matrix().
             `columns` will be ignored if provided.
 
         prefix: str, default None
@@ -2652,7 +2648,7 @@ class GrandPy:
         Notes
         -----
         This function decides dynamically how many processes to use for `nlls` and `chase`.
-        By default, up to: number of CPU cores. For more control, see the `max_processes` and `exact_processes` parameters.
+        By default, up to the number of CPU cores. (see the `max_processes` and `exact_processes` parameters.)
 
         See Also
         --------
@@ -2709,7 +2705,7 @@ class GrandPy:
             - `"residuals"`: Dictionary of raw and relative residuals.
 
         ci_size: float, default 0.95
-            Confidence interval size to use in each fit.
+            The size of confidence intervals.
 
         genes: Union[str or int or Sequence[str or int or bool], optional
             Gene(s) to fit. Uses all by default. Specified either by their index, their symbol, their ensamble id, or a boolean mask.
@@ -2830,7 +2826,7 @@ class GrandPy:
 
 
     # ----- Differential expression methods -----
-    def get_summary_matrix(
+    def get_summarize_matrix(
             self,
             *,
             no4su: bool = False,
@@ -2847,7 +2843,7 @@ class GrandPy:
         See Also
         --------
         GrandPy.get_table
-            Retrieve the data for slots. get_summary_matrix is mainly used as input for get_table.
+            Retrieve the data for slots. get_summarize_matrix is mainly used as input for get_table.
 
         Parameters
         ----------
@@ -2866,9 +2862,9 @@ class GrandPy:
         pd.DataFrame
             A (samples × conditions) matrix indicating group membership (optionally normalized).
         """
-        from .diffexp import _get_summary_matrix
+        from .diffexp import _get_summarize_matrix
 
-        return _get_summary_matrix(data=self, no4su=no4su, columns=columns, average=average)
+        return _get_summarize_matrix(data=self, no4su=no4su, columns=columns, average=average)
 
 
     def get_contrasts(

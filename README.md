@@ -29,7 +29,7 @@ Installing it via `pip` will make sure that the following (standard) packages ar
 
 Additional packages are optional and important for particular functions:
 
-<pre>pydeseq2, scikit-learn, mygene</pre>
+<pre>pydeseq2, scikit-learn, mygene, numdifftools</pre>
 
 ## Cheatsheet
 [<img src="docs/cheatsheet/cheatsheet_preview_Version_1.png" alt="grandPy Cheatsheet" width="600"/>](./docs/cheatsheet/grandPy_Cheat_Sheet_Version_1.pdf)

@@ -323,7 +323,7 @@ def test_get_table(sars):
     assert result.index.name == "Gene"
 
     # --- Test with summarize DataFrame ---
-    summarize = sars.get_summary_matrix()
+    summarize = sars.get_summarize_matrix()
     result = sars.get_table(summarize=summarize)
     assert result.shape == (1045,2)
 
@@ -439,9 +439,8 @@ CAPN2,ENSG00000162909,4130,Cellular"""
     assert (merged.astype(str) == reference.astype(str)).all().all()
 
 
-def test_replace(sars):
+def test_with_replaced_parameters(sars):
     sars_small = sars[0:3, 0:3]
-    new_prefix = "NEW_PREFIX"
     new_gene_info = sars_small.gene_info.copy()
     new_gene_info["extra_column"] = [1, 2, 3]
     new_coldata = sars_small.coldata.copy()
@@ -450,8 +449,7 @@ def test_replace(sars):
     new_metadata = {"default_slot": "count"}
     new_analyses = {"analysis1": "done"}
 
-    replaced = sars_small.replace(
-        prefix=new_prefix,
+    replaced = sars_small.with_replaced_parameters(
         gene_info=new_gene_info,
         coldata=new_coldata,
         slots=new_slots,
@@ -459,7 +457,6 @@ def test_replace(sars):
         analyses=new_analyses,
     )
 
-    assert replaced.title == new_prefix
     assert "extra_column" in replaced.gene_info.columns
     assert "new_column" in replaced.coldata.columns
     assert np.array_equal(replaced.get_matrix(), np.ones((3, 3)))
@@ -471,7 +468,7 @@ def test_replace(sars):
     assert list(replaced.gene_info.index) == list(sars_small.gene_info.index)
 
     with pytest.raises(ValueError):
-        sars[0:3].replace(slots={"count": np.ones((5, 5))})  # invalid shape
+        sars[0:3].with_replaced_parameters(slots={"count": np.ones((5, 5))})  # invalid shape
 
 
 

@@ -3,6 +3,7 @@ import warnings
 from collections.abc import Sequence, Mapping
 from dataclasses import dataclass
 from functools import cached_property
+from concurrent.futures import ProcessPoolExecutor
 from typing import Union, Literal, TYPE_CHECKING, Callable
 
 import numpy as np
@@ -161,8 +162,6 @@ def fit_kinetics_nlls(
     if num_workers == 1:
         parallel = False
     else:
-        from concurrent.futures import ProcessPoolExecutor
-
         parallel = True
 
     # --- Map steady_state to each condition ---
@@ -278,8 +277,6 @@ def fit_kinetics_chase(
     if num_workers == 1:
         parallel = False
     else:
-        from concurrent.futures import ProcessPoolExecutor
-
         parallel = True
 
     # --- Retrieve expression matrix ---
@@ -729,14 +726,14 @@ class FitResult:
                     for i, v in enumerate(values):
                         if self.chase:
                             kind = "new"
-                            sample_name = sample_names[i].replace(".", "_").replace(f"{condition}_", "")
+                            sample_name = sample_names[i].replace(".", "_").with_replaced_parameters(f"{condition}_", "")
                         else:
                             if i < n_old:
                                 kind = "old"
-                                sample_name = sample_names[i].replace(".", "_").replace(f"{condition}_", "")
+                                sample_name = sample_names[i].replace(".", "_").with_replaced_parameters(f"{condition}_", "")
                             else:
                                 kind = "new"
-                                sample_name = sample_names[i].replace(".", "_").replace(f"{condition}_", "")
+                                sample_name = sample_names[i].replace(".", "_").with_replaced_parameters(f"{condition}_", "")
 
                         full_key = f"{sample_name}_{key}_{res_type}_{kind}"
                         flat[full_key] = v
@@ -941,6 +938,8 @@ def fit_kinetics_ntr(
     """
     For detailed documentation, see grandpy.GrandPy.fit_kinetics.
     """
+    # Paralellisation proved superfluous, as even for large datasets (>20000 genes) it showed no improvements in runtime over serialisation.
+
     if not ("alpha" in data.slots and "beta" in data.slots):
         raise ValueError("NTR-basierte Anpassung erfordert alpha-, beta-Slots.")
 
@@ -948,19 +947,6 @@ def fit_kinetics_ntr(
 
     condition_vector = data.coldata["Condition"].values
     unique_conditions = np.unique(condition_vector)
-
-    # Paralellisation proved superfluous, as even for large datasets (>20000 genes) it showed no improvements in runtime over serialisation.
-    # --- Decide on parallelisation ---
-    # datasize = (len(genes_to_fit) * len(unique_conditions)) // 5
-    #
-    # max_workers = get_dynamic_process_count(datasize, max_processes)
-    #
-    # if max_workers == 1:
-    #     parallel = False
-    # else:
-    #     from concurrent.futures import ProcessPoolExecutor
-    #
-    #     parallel = True
 
     # --- Retrieve matrices ---
     alpha = data.get_matrix(mode_slot="alpha", genes=genes_to_fit)
@@ -982,44 +968,6 @@ def fit_kinetics_ntr(
         rows = []
         symbols = []
 
-        # if parallel:
-        #     jobs = []
-        #     with ProcessPoolExecutor(max_workers=max_workers) as executor:
-        #         for gene_index, gene in enumerate(genes_to_fit):
-        #             alpha_values = alpha_cond[gene_index, :]
-        #             beta_values = beta_cond[gene_index, :]
-        #             ntr_values = ntr_cond[gene_index, :]
-        #             total_values = total_cond[gene_index, :]
-        #
-        #             job = executor.submit(
-        #                 fit_kinetics_gene_ntr,
-        #                 alpha = alpha_values,
-        #                 beta = beta_values,
-        #                 time=time_cond,
-        #                 ntr_values=ntr_values,
-        #                 total_values=total_values,
-        #                 ci_size=ci_size,
-        #                 exact_ci=exact_ci,
-        #                 transformed_ntr_map=transformed_ntr_map,
-        #             )
-        #             jobs.append((gene, job))
-        #
-        #         rows = []
-        #         symbols = []
-        #
-        #         if show_progress:
-        #             for gene, future in tqdm(jobs, desc=f"Fitting {condition}", total=len(jobs)):
-        #                 res = future.result()
-        #                 series = res.to_series(condition=condition, prefix=name_prefix, fields=return_fields)
-        #                 rows.append(series.values)
-        #                 symbols.append(gene)
-        #         else:
-        #             for gene, future in jobs:
-        #                 res = future.result()
-        #                 series = res.to_series(condition=condition, prefix=name_prefix, fields=return_fields)
-        #                 rows.append(series.values)
-        #                 symbols.append(gene)
-
         gene_iter = enumerate(genes_to_fit)
         gene_iter = tqdm(gene_iter, total=len(genes_to_fit), desc=f"Fitting {condition}", disable=not show_progress)
 
@@ -1040,11 +988,7 @@ def fit_kinetics_ntr(
                 transformed_ntr_map=transformed_ntr_map,
             )
 
-            series = res.to_series(
-                condition=condition,
-                prefix=prefix,
-                fields=return_fields
-            )
+            series = res.to_series(fields=return_fields)
             rows.append(series.values)
             symbols.append(gene_id)
 
@@ -1312,7 +1256,7 @@ class NTRFitResult:
             for f in fields
         }
 
-    def to_series(self, condition: str = None, prefix: str = "", fields: list[str] = None) -> pd.Series:
+    def to_series(self, fields: list[str] = None) -> pd.Series:
         data = self.to_dict(fields)
 
         flat = {}

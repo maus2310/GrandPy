@@ -17,11 +17,14 @@ except ImportError:
 if TYPE_CHECKING:
     from .core_grandpy import GrandPy
 
-def _get_summary_matrix(
+def _get_summarize_matrix(
         data: "GrandPy",
         no4su: bool = False,
         columns: Union[None, str, list[str]] = None,
         average: bool = True) -> pd.DataFrame:
+    """
+    For detailed documention see GrandPy.get_summarize_matrix.
+    """
     coldata = data.coldata
     sample_names = coldata.index.tolist()
 

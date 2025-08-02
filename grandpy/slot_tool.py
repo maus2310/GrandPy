@@ -88,6 +88,22 @@ def _parse_as_mode_slot(mode_slot: Union[str, ModeSlot]) -> ModeSlot:
 
 
 class SlotTool:
+    """
+    Manages the slots of GrandPy objects.
+
+    See Also
+    --------
+    ModeSlot
+        Represents a mode slot.
+
+    Parameters
+    ----------
+    adata: ad.AnnData
+        The AnnData of the current instance.
+
+    is_sparse: bool
+        The sparse flag from the current instance.
+    """
     def __init__(self, adata: ad.AnnData, is_sparse: bool):
         self._adata = adata
         self._is_sparse = is_sparse
@@ -195,7 +211,7 @@ class SlotTool:
         mode_slot = _parse_as_mode_slot(mode_slot)
 
         if not self._check_slot(mode_slot.slot, allow_ntr=allow_ntr):
-            raise ValueError(f"Slot '{mode_slot.slot}' not found in data slots.")
+            raise ValueError(f"Slot '{mode_slot.slot}' not found in data slots. Available slots are: {self.slots()}.")
 
         slot_total = self._adata.layers[mode_slot.slot].copy()
 

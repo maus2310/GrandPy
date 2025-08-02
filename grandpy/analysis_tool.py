@@ -11,6 +11,14 @@ from .utils import _ensure_list, _make_unique, _reindex_by_index_name
 
 
 class AnalysisTool:
+    """
+    Manages the analyses of GrandPy objects.
+
+    Parameters
+    ----------
+    adata: ad.AnnData
+        The AnnData of the current instance.
+    """
     def __init__(self, adata: ad.AnnData):
         self._adata = adata
 

@@ -370,7 +370,7 @@ def _transform_vst(data: GrandPy, selected_columns: list, mode_slot: str | list[
     Perform variance stabilizing transformation (VST) on selected gene expression data.
 
     Parameters:
-        data: GrandPy-like object with `get_table` and `coldata`.
+        data: GrandPy object.
         selected_columns (list): Columns to select from the data.
         mode_slot (str): Mode slot, e.g., "count" or others.
         genes (list): Genes to include in the transformation.
@@ -378,7 +378,7 @@ def _transform_vst(data: GrandPy, selected_columns: list, mode_slot: str | list[
     Returns:
         pd.DataFrame: VST-transformed data frame (samples x genes).
     """
-    mat = data.get_table(mode_slot=mode_slot, columns=selected_columns, genes=genes)
+    mat = data.get_table(mode_slot=mode_slot, columns=selected_columns, genes=genes, ntr_nan=False)
     mat = mat.loc[:, mat.notna().any(axis=0)]
 
 
@@ -780,7 +780,7 @@ def plot_scatter(
     if analysis:
         df = data.get_analysis_table(genes=genes, with_gene_info=False)
     else:
-        df = data.get_table(mode_slot=mode_slot, genes=genes)
+        df = data.get_table(mode_slot=mode_slot, genes=genes, ntr_nan=False)
 
     if filter is not None:
         if isinstance(filter, (tuple, slice)):
@@ -1092,7 +1092,7 @@ def plot_heatmap(
         if len(mode_slots) > 1 and x_labels is not None:
             raise ValueError("Cannot use 'xlabels' with multiple slots")
 
-        table = data.get_table(mode_slot=mode_slots, genes=genes, columns=selected_columns, summarize=summarize)
+        table = data.get_table(mode_slot=mode_slots, genes=genes, columns=selected_columns, summarize=summarize, ntr_nan=False)
     else:
         table = data.get_analysis_table(genes=genes)
         table = table[selected_columns]
@@ -1269,7 +1269,7 @@ def plot_pca(
     else:
         selected_columns = data.get_columns(columns)
 
-    mat = data.get_table(mode_slot=mode_slot, columns=selected_columns)
+    mat = data.get_table(mode_slot=mode_slot, columns=selected_columns, ntr_nan=False)
     coldata = data.coldata.loc[selected_columns]
 
     mat = mat.loc[:, mat.notna().any(axis=0)]
@@ -1770,7 +1770,7 @@ def plot_type_distribution(
     if mode_slot is None:
         mode_slot = data.default_slot
 
-    df = data.get_table(mode_slot)
+    df = data.get_table(mode_slot, ntr_nan=False)
     gene_types = data.gene_info['Type'].unique()
 
     sums = pd.DataFrame({

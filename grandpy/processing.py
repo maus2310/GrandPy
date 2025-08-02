@@ -286,7 +286,7 @@ def _filter_genes(
     if use is None:
         aggregation_matrix = None
         if min_condition is not None:
-            aggregation_matrix = data.get_summary_matrix(no4su=True, average=False)
+            aggregation_matrix = data.get_summarize_matrix(no4su=True, average=False)
             min_columns = min_condition
 
         matrix = data.get_table(mode_slot=mode_slot, summarize=aggregation_matrix)

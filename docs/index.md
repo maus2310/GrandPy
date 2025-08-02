@@ -27,7 +27,7 @@ Installing it via `pip` will make sure that the following (standard) packages ar
 
 Additional packages are optional and important for particular functions:
 
-<pre>pydeseq2, scikit-learn, mygene</pre>
+<pre>pydeseq2, scikit-learn, mygene, numdifftools</pre>
 
 ## Cheatsheet
 
