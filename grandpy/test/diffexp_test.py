@@ -178,8 +178,8 @@ if __name__ == "__main__":
 
     contrasts = sars.get_contrasts(contrast=("Condition", "Mock"))
 
-    sars = sars.pairwise_DESeq2(mode_slot="count", contrasts=contrasts, name_prefix="total")
-    sars = sars.pairwise_DESeq2(mode_slot="new_count", normalization="total", contrasts=contrasts, name_prefix="new")
+    sars = sars.pairwise_deseq2(mode_slot="count", contrasts=contrasts)
+    sars = sars.pairwise_deseq2(mode_slot="new_count", normalization="total", contrasts=contrasts)
 
     df = sars.get_analysis_table(columns="Q", with_gene_info=True)
     print(df)

@@ -3,6 +3,9 @@ from typing import Union, TYPE_CHECKING, Callable, Sequence
 
 import numpy as np
 import pandas as pd
+import contextlib
+import io
+
 from pydeseq2.preprocessing import deseq2_norm
 
 from .lfc import psi_lfc, center_median
@@ -139,11 +142,11 @@ def _compute_lfc(
         lfc_vals = result[0] if isinstance(result, tuple) else result
 
         # create named columns
-        lfc_col = f"{prefix}_{contrast}_LFC"
+        lfc_col = "LFC"
         table = pd.DataFrame({lfc_col: lfc_vals}, index=pd.Index(gene_list, name="Symbol"))
         if compute_m:
             M_vals = 10 ** (0.5 * (np.log10(A_counts + 0.5) + np.log10(B_counts + 0.5)))
-            m_col = f"{prefix}_{contrast}_M"
+            m_col = "M"
             table[m_col] = M_vals
 
             if verbose:
@@ -223,7 +226,8 @@ def _pairwise_deseq2(
             dds.size_factors = size_factors
             dds.deseq2(fit_type="parametric")
             stats = DeseqStats(dds, contrast=["comparison", "A", "B"])
-            stats.summary()
+            with contextlib.redirect_stdout(io.StringIO()):
+                stats.summary()
 
             result = stats.results_df.set_index(data.gene_info.index)
             base_columns = ["M", "S", "P", "Q", "LFC"]
@@ -240,7 +244,7 @@ def _pairwise_deseq2(
                 contrast_readable = contrast_name
 
             analysis_name = f"{mode_slot.mode}_{contrast_readable}" if prefix is None else f"{prefix}_{contrast_readable}"
-            result_df.columns = format_column_names(analysis_name, result_df.columns)
+            result_df.columns = base_columns
 
             data = data.with_analysis(analysis_name, result_df)
 
@@ -297,7 +301,8 @@ def _pairwise_deseq2(
 
     for contrast_name, A_group, B_group in dds_contrasts:
         stats = DeseqStats(dds, contrast=("comparison", A_group, B_group))
-        stats.summary()
+        with contextlib.redirect_stdout(io.StringIO()):
+            stats.summary()
 
         result = stats.results_df.set_index(data.gene_info.index)
         base_columns = ["M", "S", "P", "Q", "LFC"]
@@ -314,7 +319,7 @@ def _pairwise_deseq2(
             contrast_readable = contrast_name
 
         analysis_name = f"{mode_slot.mode}_{contrast_readable}" if prefix is None else f"{prefix}_{contrast_readable}"
-        result_df.columns = format_column_names(analysis_name, result_df.columns)
+        result_df.columns = base_columns
 
         data = data.with_analysis(analysis_name, result_df)
 
