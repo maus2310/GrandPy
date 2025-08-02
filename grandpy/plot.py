@@ -3126,9 +3126,9 @@ def plot_gene_progressive_timecourse(
                 fac.append(1.0)
                 continue
 
-            f0 = fit.loc[gene, f"{cond}_f0"]
-            ks = fit.loc[gene, f"{cond}_Synthesis"]
-            kd = fit.loc[gene, f"{cond}_Degradation"]
+            f0 = fit.loc[gene, "f0"]
+            ks = fit.loc[gene, "Synthesis"]
+            kd = fit.loc[gene, "Degradation"]
             model_total = _f_old_nonequi(t, f0, ks, kd) + _f_new(t, ks, kd)
             measured_total = df["total"].iloc[i]
 
@@ -3160,9 +3160,9 @@ def plot_gene_progressive_timecourse(
         fit = fit_results.get(f"kinetics_{cond}")
         if fit is None:
             continue
-        f0 = fit.loc[gene, f"{cond}_f0"]
-        ks = fit.loc[gene, f"{cond}_Synthesis"]
-        kd = fit.loc[gene, f"{cond}_Degradation"]
+        f0 = fit.loc[gene, "f0"]
+        ks = fit.loc[gene, "Synthesis"]
+        kd = fit.loc[gene, "Degradation"]
 
         if fit_type == "chase":
             expr_old = ks / kd - _f_old_equi(tt, ks, kd)

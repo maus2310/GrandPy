@@ -2008,30 +2008,30 @@ class GrandPy:
         --------
         Perform any analysis on the GrandPy instance 'sars'.
 
-        >>> sars = sars.fit_kinetics()
+        >>> sars = sars.fit_kinetics(return_fields="Synthesis")
         >>> sars.analyses
         ['kinetics_Mock', 'kinetics_SARS']
 
         Retrieve all analyses.
 
         >>> sars.get_analysis_table(with_gene_info=False)
-                Mock_Synthesis  Mock_Half-life  SARS_Synthesis  SARS_Half-life
+                        kinetics_Mock_Synthesis  kinetics_SARS_Synthesis
         Symbol
-        UHMK1       175.303203        7.509571    3.123868e+02        2.813804
-        ATF3         34.018585        0.943541    4.843992e+02        0.932378
-        ...                ...             ...             ...             ...
-        ORF1ab      792.905313        1.241805    1.546125e+06        1.270006
-        S           522.247609        1.068520    9.717529e+05        1.262822
+        UHMK1                175.303203             3.123868e+02
+        ATF3                  34.018585             4.843992e+02
+        ...                         ...                      ...
+        ORF1ab               792.905313             1.546125e+06
+        S                    522.247609             9.717529e+05
 
         Only retrieve specific results for the first three genes.
 
         >>> sars.get_analysis_table(analyses="kinetics_Mock", columns="Synthesis",
-        ...                         genes=[0,1,2], with_gene_info=False)
-                Mock_Synthesis
+        ...                         genes=[0,1,2], prefix_by_analyses=False, with_gene_info=False)
+                 Synthesis
         Symbol
-        UHMK1       146.375312
-        ATF3         26.020881
-        PABPC4      220.606945
+        UHMK1   175.303203
+        ATF3     34.018585
+        PABPC4  213.387547
 
         See Also
         --------
@@ -2071,8 +2071,7 @@ class GrandPy:
             This will be ignored if `by_rows` is True.
 
         prefix_by_analyses: bool, default True
-            If True, the columns in the result will be prefixed with the given prefix and the name of the condition.
-            Otherwise, they will only be named after the respective analysis.
+            If True, the columns in the result will be prefixed by the name of their analysis.
 
             This will be set to False if `by_rows` is True
 
@@ -2100,7 +2099,7 @@ class GrandPy:
         result_rows = []
 
         for name in analyses:
-            analysis_data = self._anndata.uns["analyses"][name]
+            analysis_data = self._anndata.uns["analyses"][name].copy()
 
             if prefix_by_analyses:
                 analysis_data.columns = [name + "_" + col for col in analysis_data.columns]
@@ -2118,10 +2117,6 @@ class GrandPy:
                 matching_columns = analysis_data.columns
 
             selected_data = analysis_data[matching_columns].copy()
-
-            # if prefix_by_analyses:
-            #     cond = name.rsplit("_", 1)[-1]
-            #     selected_data.columns = [col.rsplit(f"{cond}_", 1)[-1] for col in selected_data.columns]
 
             if by_rows:
                 selected_data = selected_data.copy()
@@ -2309,7 +2304,7 @@ class GrandPy:
 
         analysis_prefixes: tuple(str, str), optional
             The prefixes added to the analyses of each instance. Has to have length of 2.
-            By default 'dataset0', 'dataset1'.
+            By default: 'dataset0', 'dataset1'.
 
             To disable this behavior, set to ("", "").
             Then analyses of the object coming first will be kept in case of a name collision.
@@ -2358,18 +2353,6 @@ class GrandPy:
         Extracts an Anndata instance from GrandPy.
 
         In the unstructured data (uns), `analyses`, `metadata` and the `prefix` are stored.
-        Can also be a ModeSlot
-
-        Parameters
-        ----------
-        x: str or ModeSlot, optional
-            The name of the slot to be set as the main data matrix X; by default `default_slot`.
-            Can also be a `ModeSlot`.
-
-        original: bool, default False
-            If False, AnnData will be returned scanpy compatible.
-
-            Otherwise, AnnData will be returned as stored internally.
 
         Notes
         -----
@@ -2381,6 +2364,17 @@ class GrandPy:
         --------
         anndata_to_grandpy
             Returns a GrandPy instance from a given AnnData.
+
+        Parameters
+        ----------
+        x: str or ModeSlot, optional
+            The name of the slot to be set as the main data matrix X; by default `default_slot`.
+            Can also be a `ModeSlot`.
+
+        original: bool, default False
+            If False, AnnData will be returned scanpy compatible.
+
+            Otherwise, AnnData will be returned as stored internally.
 
         Returns
         -------
@@ -2639,7 +2633,7 @@ class GrandPy:
             *,
             slot: str = None,
             time: Union[str, np.ndarray, pd.Series, Sequence] = "duration.4sU",
-            name_prefix: Union[str, None] = None,
+            prefix: Union[str, None] = "kinetics",
             return_fields: Union[str, Sequence[str]] = None,
             ci_size: float = 0.95,
             genes: Union[str, Sequence[str]] = None,
@@ -2658,7 +2652,7 @@ class GrandPy:
         Notes
         -----
         This function decides dynamically how many processes to use for `nlls` and `chase`.
-        By default, up to: number of CPU cores. For more control see the `max_processes` and `exact_processes` parameters.
+        By default, up to: number of CPU cores. For more control, see the `max_processes` and `exact_processes` parameters.
 
         See Also
         --------
@@ -2692,7 +2686,7 @@ class GrandPy:
         time: str or np.ndarray or pd.Series or Sequence, default "duration.4sU"
             Either a column name in `coldata` or something array-like containing timepoints.
 
-        name_prefix: str, optional
+        prefix: str, default "kinetics"
             Prefix added to the name of the fit result.
 
         return_fields: str or Sequence[str], default ["Synthesis", "Half-life"]
@@ -2750,7 +2744,7 @@ class GrandPy:
         from .modeling import _fit_kinetics
 
         kinetics = _fit_kinetics(data=self, fit_type=fit_type, slot=slot, return_fields=return_fields,
-                                 name_prefix=name_prefix, time=time, ci_size=ci_size, genes=genes,
+                                 prefix=prefix, time=time, ci_size=ci_size, genes=genes,
                                  show_progress=show_progress, **kwargs)
 
         new_gp = self
@@ -2926,9 +2920,9 @@ class GrandPy:
 
     def compute_lfc(
             self,
-            name_prefix: str = None,
             contrasts: pd.DataFrame = None,
             mode_slot: Union[str, ModeSlot] = "count",
+            prefix: str = None,
             lfc_function: Callable = psi_lfc,
             normalization: Union[str, Sequence[float]] = None,
             compute_m: bool = True,
@@ -2941,24 +2935,38 @@ class GrandPy:
 
         See Also
         --------
-        GrandPy.get_analysis_table: Retrieves stored analyses.
-        GrandPy.pairwise: Combined log2 fold change and Wald test differential expression analysis.
-        GrandPy.pairwise_deseq2: Run DESeq2 for each contrast defined in the contrast matrix.
+        GrandPy.get_contrasts
+            Get a contrast matrix.
+
+        GrandPy.get_analysis_table
+            Retrieves stored analyses.
+
+        GrandPy.pairwise
+            Combined log2 fold change and Wald test differential expression analysis.
+
+        GrandPy.pairwise_deseq2
+            Run PyDESeq2 for each contrast defined in the contrast matrix.
+
+        psi_lfc
+            Computes the optimal effect size estimate and credible intervals if needed.
+
+        norm_lfc
+            Computes the standard, normalized log2 fold change with given pseudocounts.
 
         Parameters
         ----------
-        name_prefix : str, optional
-            The prefix for the new analysis name; e.g. 'total' or 'new'.
-
         contrasts : pd.DataFrame, optional
-            Contrast matrix defining comparisons (samples x contrasts; values 1, -1).
+            Contrast matrix defining comparisons (samples x contrasts; values 1, -1). Obtained via `get_contrasts`.
 
         mode_slot: str or ModeSlot, default "count"
             The name of the data slot to take data from. Usually 'count', optionally with a mode.
             A mode("new"|"old"|"total") can be specified in the following formats: ModeSlot('<mode>', '<slot>') or '<mode>_<slot>'.
 
+        prefix : str, optional
+            Prefix added to the name of the analyses.
+
         lfc_function : Callable, default psi_lfc
-            Function to compute the log2 fold changes.
+            Function to compute the log2 fold changes. Implemented: psi_lfc, norm_lfc.
 
         normalization : str or Sequence[str], optional
             - If str: name of normalization slot (e.g. "total")
@@ -2974,18 +2982,17 @@ class GrandPy:
             If True, status updates will be printed.
 
         **kwargs
-            Passed to LFC_fun.
+            Passed to `lfc_function`.
 
         Returns
         -------
         GrandPy
             A GrandPy instance with one analysis per contrast. Each analysis
-            adds two columns named "{prefix}_{contrast}_LFC" and
-            "{prefix}_{contrast}_M".
+            has two columns named "LFC" and "M".
         """
         from .diffexp import _compute_lfc
 
-        new_gp = _compute_lfc(data=self, name_prefix=name_prefix, contrasts=contrasts, mode_slot=mode_slot, lfc_function=lfc_function,
+        new_gp = _compute_lfc(data=self, prefix=prefix, contrasts=contrasts, mode_slot=mode_slot, lfc_function=lfc_function,
                               normalization=normalization, compute_m=compute_m, genes=genes, verbose=verbose, **kwargs)
 
         return new_gp
@@ -2993,7 +3000,7 @@ class GrandPy:
     def pairwise_deseq2(
         self,
         contrasts: pd.DataFrame,
-        name_prefix: str = None,
+        prefix: str = None,
         separate: bool = False,
         mode_slot: Union[str, ModeSlot] = "count",
         normalization: Union[str, Sequence[float]] = None,
@@ -3001,26 +3008,37 @@ class GrandPy:
         verbose: bool = False
     ) -> "GrandPy":
         """
-        Run DESeq2 (via pydeseq2) for each contrast defined in the contrast matrix.
+        Run PyDESeq2 for each contrast defined in the contrast matrix.
 
         Notes
         -----
         Uses fit_type="mean" for compatibility with pydeseq2.
         pydeseq2 does not currently support fit_type="local".
 
+        If the following Error is raised, try setting `seperate` to True.
+        `"ValueError: Illegal intersection of contrasts for joint estimation of variance!"`
+
         See Also
         --------
-        GrandPy.get_analysis_table: Retrieves stored analyses.
-        GrandPy.pairwise: Combined log2 fold change and Wald test differential expression analysis.
-        GrandPy.compute_lfc: Estimate log2 fold changes and optional M values for each contrast.
+        GrandPy.get_contrasts
+            Get a contrast matrix.
+
+        GrandPy.get_analysis_table
+            Retrieves stored analyses.
+
+        GrandPy.pairwise
+            Combined log2 fold change and Wald test differential expression analysis.
+
+        GrandPy.compute_lfc
+            Estimate log2 fold changes and optional M values for each contrast.
 
         Parameters
         ----------
         contrasts : pd.DataFrame
-            Matrix defining pairwise comparisons (samples x contrasts; 1/-1 values).
+            Matrix defining pairwise comparisons (samples x contrasts; 1/-1 values). Obtained via `get_contrasts`.
 
-        name_prefix : str, optional
-            Prefix for naming the output columns.
+        prefix : str, optional
+            Prefix added to the name of the analyses.
 
         separate : bool, default False
             If True, run DESeq2 separately for each contrast (two-group comparisons).
@@ -3043,9 +3061,9 @@ class GrandPy:
         GrandPy
             A GrandPy instance containing analysis results.
         """
-        from .diffexp import _pairwise_DESeq2
+        from .diffexp import _pairwise_deseq2
 
-        new_gp = _pairwise_DESeq2(data=self, contrasts=contrasts, name_prefix=name_prefix, separate=separate,
+        new_gp = _pairwise_deseq2(data=self, contrasts=contrasts, prefix=prefix, separate=separate,
                                   mode_slot=mode_slot, normalization=normalization, genes=genes, verbose=verbose)
 
         return new_gp
@@ -3053,32 +3071,46 @@ class GrandPy:
     def pairwise(
         self,
         contrasts: pd.DataFrame,
-        name_prefix: str = None,
+        prefix: str = None,
         lfc_function: Callable = psi_lfc,
         mode_slot: Union[str, ModeSlot] = "count",
         normalization: Union[str, Sequence[float]] = None,
+        separate: bool = False,
         genes: Union[str, int, Sequence[Union[str, int, bool]]] = None,
         verbose: bool = False,
         **kwargs
     ) -> "GrandPy":
         """
         Combined log2 fold change and Wald test differential expression analysis.
-        This function performs both the LFC computation (via compute_lfc) and DESeq2 testing
-        (via pairwise_DESeq2). Only valid contrasts with both -1 and 1 are used.
+        This function performs both the LFC computation (via `compute_lfc`) and DESeq2 testing
+        (via `pairwise_deseq2`).
+
+        Notes
+        -----
+        If the following Error is raised, try setting `seperate` to True.
+        `"ValueError: Illegal intersection of contrasts for joint estimation of variance!"`
 
         See Also
         --------
-        GrandPy.get_analysis_table: Retrieves stored analyses.
-        GrandPy.compute_lfc: Estimate log2 fold changes and optional M values for each contrast.
-        GrandPy.pairwise_deseq2: Run DESeq2 for each contrast defined in the contrast matrix.
+        GrandPy.get_contrasts
+            Get a contrast matrix.
+
+        GrandPy.get_analysis_table
+            Retrieves stored analyses.
+
+        GrandPy.compute_lfc
+            Estimate log2 fold changes and optional M values for each contrast.
+
+        GrandPy.pairwise_deseq2
+            Run DESeq2 for each contrast defined in the contrast matrix.
 
         Parameters
         ----------
         contrasts : pd.DataFrame
-            Contrast matrix defining comparisons (samples x contrasts; values 1, -1).
+            Contrast matrix defining comparisons (samples x contrasts; values 1, -1). Obtained via `get_contrasts`.
 
-        name_prefix : str, optional
-            Prefix for naming the output analysis tables.
+        prefix : str, optional
+            Prefix added to the name of the analyses.
 
         lfc_function : Callable, default psi_lfc
             Function to compute the log2 fold changes. Implemented: psi_lfc, norm_lfc.
@@ -3089,6 +3121,9 @@ class GrandPy:
 
         normalization : str or sequence, optional
             Normalization strategy; name of slot or numeric vector.
+
+        separate : bool, default False
+            If True, run `pairwise_deseq2` separately for each contrast (two-group comparisons).
 
         genes : str or int or Sequence[str or int or bool], optional
             Restrict computation to this subset of genes. Either by their index, their symbol, their ensemble ID, or a boolean mask.
@@ -3106,12 +3141,10 @@ class GrandPy:
         """
         from .diffexp import _pairwise
 
-        new_gp = _pairwise(data=self, contrasts=contrasts, name_prefix=name_prefix, lfc_function=lfc_function,
-                           mode_slot=mode_slot, normalization=normalization, genes=genes, verbose=verbose, **kwargs)
+        new_gp = _pairwise(data=self, contrasts=contrasts, prefix=prefix, lfc_function=lfc_function,
+                           mode_slot=mode_slot, normalization=normalization, separate=separate,genes=genes,
+                           verbose=verbose, **kwargs)
 
         return new_gp
-
-
-
 
 

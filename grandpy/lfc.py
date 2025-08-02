@@ -93,7 +93,7 @@ def center_median(l: np.ndarray) -> np.ndarray:
 def norm_lfc(A: np.ndarray,
             B: np.ndarray,
             pseudo: tuple[float, float] = (1.0, 1.0),
-            normalize_fun: Callable[[np.ndarray], np.ndarray] = center_median
+            normalize_fun: Callable = center_median
              ) -> np.ndarray:
     """
     Computes the standard, normalized log2 fold change with given pseudocounts.
@@ -102,17 +102,19 @@ def norm_lfc(A: np.ndarray,
     ----------
     A : np.ndarray
         Vector A of counts from condition A.
+
     B : np.ndarray
         Vector B of counts from condition B.
+
     pseudo : tuple[float, float]
         Vector of length 2 of the pseudo counts.
-    normalize_fun : Callable[[np.ndarray], np.ndarray]
+
+    normalize_fun : Callable, default center_median
         Function to normalize the obtained effect sizes.
 
     Returns
     -------
         Normalized LFCs.
-
     """
 
     lfc = np.log2(A + pseudo[0]) - np.log2(B + pseudo[1])
@@ -123,7 +125,7 @@ def norm_lfc(A: np.ndarray,
 def psi_lfc(A: np.ndarray,
             B: np.ndarray,
             prior: tuple[float, float] = None,
-            normalize_fun: Callable[[np.ndarray], np.ndarray] = center_median,
+            normalize_fun: Callable = center_median,
             cre: Union[bool, list[float]] = False,
             verbose: bool = False) -> Union[np.ndarray, tuple[np.ndarray, np.ndarray]]:
     """
@@ -140,7 +142,7 @@ def psi_lfc(A: np.ndarray,
     prior : tuple[float, float], optional
         Prior pseudocounts (a, b). If None, estimated via empirical_bayes_prior(A, B).
 
-    normalize_fun : callable, optional
+    normalize_fun : Callable, default center_median
         Function to normalize raw LFCs (default: median centering).
 
     cre : bool, default False

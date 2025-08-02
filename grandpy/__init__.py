@@ -20,6 +20,7 @@ from .plot import (
 from .utils import concat, read_h5ad, anndata_to_grandpy
 from .slot_tool import ModeSlot
 from .plot_tool import Plot
+from .lfc import psi_lfc, norm_lfc
 
 __all__ = [
     "GrandPy",
@@ -48,4 +49,6 @@ __all__ = [
     "concat",
     "ModeSlot",
     "Plot",
+    "psi_lfc",
+    "norm_lfc",
 ]

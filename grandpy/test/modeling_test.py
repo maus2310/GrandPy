@@ -417,6 +417,7 @@ def test_fit_kinetics_nlls_steady(nlls_ntr_dataset):
             "conf_lower", "conf_upper", "rmse",
             "rmse_old", "rmse_new"
         ],
+        prefix=None,
         show_progress=False,
         steady_state=True
     )
@@ -442,6 +443,7 @@ def test_fit_kinetics_nlls_nonsteady(nlls_ntr_dataset):
             "conf_lower", "conf_upper", "rmse",
             "rmse_old", "rmse_new"
         ],
+        prefix=None,
         show_progress=False,
         steady_state=False
     )
@@ -465,6 +467,7 @@ def test_fit_kinetics_ntr(nlls_ntr_dataset):
             "log_likelihood", "f0", "total",
             "conf_lower", "conf_upper", "rmse"
         ],
+        prefix=None,
         exact_ci=False,
         show_progress=False
     )
@@ -484,6 +487,7 @@ def test_fit_kinetics_ntr_exact_ci(nlls_ntr_dataset):
         fit_type="ntr",
         genes=["UHMK1", "ATF3", "PABPC4"],
         return_fields=["conf_lower", "conf_upper"],
+        prefix=None,
         exact_ci=True,
         show_progress=False
     )
@@ -507,6 +511,7 @@ def test_fit_kinetics_chase(chase_dataset):
             "log_likelihood", "f0", "total",
             "conf_lower", "conf_upper", "rmse"
         ],
+        prefix=None,
         show_progress=False
     )
 

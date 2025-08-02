@@ -67,7 +67,7 @@ def _get_summary_matrix(
 
 def _compute_lfc(
     data: "GrandPy",
-    name_prefix: str = None,
+    prefix: str = None,
     contrasts: pd.DataFrame = None,
     mode_slot: Union[str, ModeSlot] = "count",
     lfc_function: Callable = psi_lfc,
@@ -77,44 +77,12 @@ def _compute_lfc(
     verbose: bool = False,
     **kwargs) -> "GrandPy":
     """
-    Estimate log2 fold changes and optional M values for each contrast and store analyses.
-
-    Parameters
-    ----------
-    data : GrandPy
-        The grandPy object. Must contain a 'Condition' column in its coldata.
-    name_prefix : str, optional
-        The prefix for the new analysis name; e.g. 'total' or 'new'.
-    contrasts : pd.DataFrame, optional
-        Contrast matrix defining comparisons (samples x contrasts; values 1, -1).
-    mode_slot: str or ModeSlot, default "count"
-        The name of the data slot to take data from. Usually 'count', optionally with a mode.
-        A mode("new"|"old"|"total") can be specified in the following formats: ModeSlot('<mode>', '<slot>') or '<mode>_<slot>'.
-    lfc_function : Callable, default psi_lfc
-        Function to compute the log2 fold changes.
-    normalization : str or sequence, optional
-        If str: name of normalization slot (e.g. "total");
-        if sequence: size factors per sample.
-    compute_m: bool, default True
-        If True, include the "M" column (base mean) for each contrast.
-    genes : str or int or Sequence[str or int or bool], optional
-        Restrict computation to this subset of genes. Either by their index, their symbol, their ensemble ID, or a boolean mask.
-    verbose : bool, default False
-        If True, status updates are printed.
-    **kwargs
-        Passed to `lfc_function`.
-
-    Returns
-    -------
-    GrandPy
-        A GrandPy instance containing an analysis for each contrast. Each analysis
-        has two columns named "{prefix}_{contrast}_LFC" and
-        "{prefix}_{contrast}_M".
+    For a detailed documention, see GrandPy.compute_lfc.
     """
     mode_slot_obj = _parse_as_mode_slot(mode_slot)
 
-    if name_prefix is None:
-        name_prefix = mode_slot_obj.mode
+    if prefix is None:
+        prefix = mode_slot_obj.mode
 
     # prepare contrasts
     if contrasts is None:
@@ -168,74 +136,34 @@ def _compute_lfc(
         lfc_vals = result[0] if isinstance(result, tuple) else result
 
         # create named columns
-        lfc_col = f"{name_prefix}_{contrast}_LFC"
+        lfc_col = f"{prefix}_{contrast}_LFC"
         table = pd.DataFrame({lfc_col: lfc_vals}, index=pd.Index(gene_list, name="Symbol"))
         if compute_m:
             M_vals = 10 ** (0.5 * (np.log10(A_counts + 0.5) + np.log10(B_counts + 0.5)))
-            m_col = f"{name_prefix}_{contrast}_M"
+            m_col = f"{prefix}_{contrast}_M"
             table[m_col] = M_vals
 
             if verbose:
                 print(f"M-value for '{contrast}': {M_vals.mean():.2f}")
 
         # append analysis to object
-        name = f"{name_prefix}_{contrast}"
+        name = f"{prefix}_{contrast}"
         new_data = new_data.with_analysis(name, table)
 
     return new_data
 
 
-def _pairwise_DESeq2(
+def _pairwise_deseq2(
     data: "GrandPy",
     contrasts: pd.DataFrame,
-    name_prefix: str = None,
+    prefix: str = None,
     separate: bool = False,
     mode_slot: Union[str, ModeSlot] = "count",
     normalization: Union[str, Sequence[float]] = None,
     genes: Union[str, int, Sequence[Union[str, int, bool]]] = None,
     verbose: bool = False) -> "GrandPy":
     """
-    Run DESeq2 (via pydeseq2) for each contrast defined in the contrast matrix.
-
-    Parameters
-    ----------
-    data : GrandPy
-        The GrandPy object containing expression data and metadata.
-
-    contrasts : pd.DataFrame
-        Matrix defining pairwise comparisons (samples x contrasts; 1/-1 values).
-
-    name_prefix : str, optional
-        Prefix for naming the output columns.
-
-    separate : bool, default False
-        If True, run DESeq2 separately for each contrast (two-group comparisons).
-
-    mode_slot: str or ModeSlot, default "count"
-        The name of the data slot to take data from. Usually 'count', optionally with a mode.
-        A mode("new"|"old"|"total") can be specified in the following formats: ModeSlot('<mode>', '<slot>') or '<mode>_<slot>'.
-
-    normalization : str or sequence, optional
-        Either slot name or size factors for normalization.
-
-    genes : str or int or Sequence[str or int or bool], optional
-        Restrict computation to this subset of genes. Either by their index, their symbol, their ensemble ID, or a boolean mask.
-
-    verbose : bool, default False
-        Print progress information.
-
-    Returns
-    -------
-    GrandPy
-        A GrandPy instance containing pydeseq2 analysis results.
-
-    Notes
-    -----
-    Uses fit_type="parametric" for compatibility with pydeseq2.
-    pydeseq2 does not currently support fit_type="local" (as in grandR).
-
-    If this Error is raised: ValueError: Illegal intersection of contrasts for joint estimation of variance!
-    Try to set the parameter 'separate=True'.
+    For a detailed documentation, see GrandPy.pairwise_deseq2.
     """
     try:
         import pydeseq2
@@ -308,7 +236,7 @@ def _pairwise_DESeq2(
             else:
                 contrast_readable = contrast_name
 
-            analysis_name = f"{mode_slot.mode}_{contrast_readable}" if name_prefix is None else f"{name_prefix}_{contrast_readable}"
+            analysis_name = f"{mode_slot.mode}_{contrast_readable}" if prefix is None else f"{prefix}_{contrast_readable}"
             result_df.columns = format_column_names(analysis_name, result_df.columns)
 
             data = data.with_analysis(analysis_name, result_df)
@@ -382,7 +310,7 @@ def _pairwise_DESeq2(
         else:
             contrast_readable = contrast_name
 
-        analysis_name = f"{mode_slot.mode}_{contrast_readable}" if name_prefix is None else f"{name_prefix}_{contrast_readable}"
+        analysis_name = f"{mode_slot.mode}_{contrast_readable}" if prefix is None else f"{prefix}_{contrast_readable}"
         result_df.columns = format_column_names(analysis_name, result_df.columns)
 
         data = data.with_analysis(analysis_name, result_df)
@@ -393,53 +321,17 @@ def _pairwise_DESeq2(
 def _pairwise(
     data: "GrandPy",
     contrasts: pd.DataFrame,
-    name_prefix: str = None,
+    prefix: str = None,
     lfc_function=psi_lfc,
     mode_slot: Union[str, ModeSlot] = "count",
     normalization: Union[str, Sequence[float]] = None,
+    separate: bool = False,
     genes: Union[str, int, Sequence[Union[str, int, bool]]] = None,
     verbose: bool = False,
     **kwargs
     ) -> "GrandPy":
     """
-    Combined log2 fold change and Wald test differential expression analysis.
-    This function performs both the LFC computation (via compute_lfc) and DESeq2 testing
-    (via pairwise_DESeq2). Only valid contrasts with both -1 and 1 are used.
-
-    Parameters
-    ----------
-    data : GrandPy
-        The grandPy object containing expression data and metadata.
-
-    contrasts : pd.DataFrame
-        Contrast matrix defining comparisons (samples x contrasts; values 1, -1).
-
-    name_prefix : str, optional
-        Prefix for naming the output analysis tables.
-
-    lfc_function : Callable, optional
-        Function to compute the log2 fold changes (default Psi_LFC).
-
-    mode_slot: str or ModeSlot, default "count"
-        The name of the data slot to take data from. Usually 'count', optionally with a mode.
-        A mode("new"|"old"|"total") can be specified in the following formats: ModeSlot('<mode>', '<slot>') or '<mode>_<slot>'.
-
-    normalization : str or sequence, optional
-        Normalization strategy; name of slot or numeric vector.
-
-    genes : str or int or Sequence[str or int or bool], optional
-        Restrict computation to this subset of genes. Either by their index, their symbol, their ensemble ID, or a boolean mask.
-
-    verbose : bool, default False
-        Whether to print progress messages.
-
-    **kwargs
-        Passed to `lfc_function`.
-
-    Returns
-    -------
-    dict[str, pd.DataFrame]
-        A dictionary with analysis results.
+    For detailed documentation, see GrandPy.pairwise.
     """
     mode_slot = _parse_as_mode_slot(mode_slot)
 
@@ -447,12 +339,12 @@ def _pairwise(
     if valid_contrasts.shape[1] == 0:
         raise ValueError("Contrasts do not define any comparison!")
 
-    if name_prefix is None:
-        name_prefix = mode_slot.mode
+    if prefix is None:
+        prefix = mode_slot.mode
 
     new_gp = _compute_lfc(data,
                           contrasts=valid_contrasts,
-                          name_prefix=name_prefix,
+                          prefix=prefix,
                           lfc_function=lfc_function,
                           mode_slot=mode_slot,
                           normalization=normalization,
@@ -461,13 +353,14 @@ def _pairwise(
                           verbose=verbose,
                           **kwargs)
 
-    new_gp = _pairwise_DESeq2(new_gp,
-                           contrasts=valid_contrasts,
-                           name_prefix=name_prefix,
-                           mode_slot=mode_slot,
-                           normalization=normalization,
-                           genes=genes,
-                           verbose=verbose)
+    new_gp = _pairwise_deseq2(new_gp,
+                              contrasts=valid_contrasts,
+                              prefix=prefix,
+                              mode_slot=mode_slot,
+                              normalization=normalization,
+                              separate=separate,
+                              genes=genes,
+                              verbose=verbose)
 
     return new_gp
 

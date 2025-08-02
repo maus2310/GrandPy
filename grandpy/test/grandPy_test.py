@@ -52,7 +52,7 @@ def test_get_analysis_table(sars):
 
     # Test: Use regex to select analyses
     result_regex = mini_sars.get_analysis_table(analyses="kinetics_.*", regex=True)
-    assert "Mock_Synthesis" in result_regex.columns and "SARS_Synthesis" in result_regex.columns
+    assert "kinetics_Mock_Synthesis" in result_regex.columns and "kinetics_SARS_Half-life" in result_regex.columns
 
     # Test: Prefix columns by analyses
     result_non_prefixed = mini_sars.get_analysis_table(prefix_by_analyses=False)
@@ -82,8 +82,6 @@ def test_analysis_tool(sars):
 
     new_analysis_name = "new_analysis"
     new_analysis_data = pd.DataFrame({
-        "Symbol": ["UHMK1", "ATF3"],
-        "Gene": ["ENSG123", "ENSG456"],
         "Value": [10, 20]
     }, index=pd.Index(["UHMK1", "ATF3"],name="Symbol"))
 
@@ -93,8 +91,8 @@ def test_analysis_tool(sars):
 
     assert new_analysis_name in updated_gp.analyses
 
-    analysis_data = updated_gp.get_analysis_table(new_analysis_name, with_gene_info=False)
-    assert analysis_data.shape == (2, 3)
+    analysis_data = updated_gp.get_analysis_table(new_analysis_name, prefix_by_analyses=False)
+    assert analysis_data.shape == (2, 5)
     assert analysis_data["Symbol"].iloc[0] == "UHMK1"
     assert analysis_data["Value"].iloc[1] == 20
     assert analysis_data.index.name == "Symbol"
@@ -126,7 +124,7 @@ def test_analysis_tool(sars):
     assert len(result) == 1
 
     result = mini_sars.get_analyses(pattern=["new_analysis"], description=True)
-    assert result == {'new_analysis': ['Symbol', 'Gene', 'Value']}
+    assert result == {'new_analysis': ['Value']}
 
 
     # --- Test with_dropped_analyses ---

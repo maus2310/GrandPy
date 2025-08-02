@@ -23,7 +23,7 @@ def _fit_kinetics(
     fit_type: Literal["nlls", "ntr", "chase"] = "nlls",
     *,
     slot: str = None,
-    name_prefix: Union[str, None] = None,
+    prefix: Union[str, None] = "kinetics",
     return_fields: Union[str, Sequence[str]] = None,
     time: Union[str, np.ndarray, pd.Series, list] = "Time",
     ci_size: float = 0.95,
@@ -43,7 +43,7 @@ def _fit_kinetics(
         return_fields = ["Synthesis", "Half-life"]
     return_fields = _ensure_list(return_fields)
 
-    name_prefix = f"{name_prefix}_" if name_prefix else ""
+    prefix = f"{prefix}_" if prefix else ""
 
     if isinstance(time, str):
         time = data.coldata[time]
@@ -59,7 +59,7 @@ def _fit_kinetics(
     if fit_function is None:
         raise ValueError(f"Unknown fit type: {fit_type}. Available functions are: `nlls`, `ntr`, `chase`.")
 
-    kinetics = fit_function(data=data, slot=slot, name_prefix=name_prefix, return_fields=return_fields, time=time,
+    kinetics = fit_function(data=data, slot=slot, prefix=prefix, return_fields=return_fields, time=time,
                             ci_size=ci_size, genes=genes, show_progress=show_progress, **kwargs)
 
     return kinetics
@@ -131,7 +131,7 @@ def fit_kinetics_nlls(
     slot: str,
     *,
     genes: Union[str, int, Sequence[Union[str, int, bool]]] = None,
-    name_prefix: Union[str, None] = None,
+    prefix: Union[str, None] = "kinetics",
     time: Union[np.ndarray, pd.Series, list] = None,
     ci_size: float = 0.95,
     return_fields: Sequence[str] = None,
@@ -142,7 +142,7 @@ def fit_kinetics_nlls(
     **kwargs
 ) -> dict[str, pd.DataFrame]:
     """
-    For a detailed documentation, see GrandPy.fit_kinetics.
+    For detailed documentation, see GrandPy.fit_kinetics.
     """
     genes_to_fit = data.get_genes(genes)
 
@@ -200,7 +200,6 @@ def fit_kinetics_nlls(
                         chase=False,
                         total_value=None,
                         steady_state=condition_steady_state,
-                        sample_names=sample_names_cond,
                         **kwargs
                     )
                     jobs.append((gene, job))
@@ -210,7 +209,7 @@ def fit_kinetics_nlls(
 
                 for gene, future in tqdm(jobs, desc=f"Fitting {condition}", total=len(jobs), disable=not show_progress):
                     res = future.result()
-                    series = res.to_series(condition=condition, prefix=name_prefix, fields=return_fields)
+                    series = res.to_series(fields=return_fields, sample_names=sample_names_cond, condition=condition)
                     rows.append(series.values)
                     symbols.append(gene)
 
@@ -241,7 +240,7 @@ def fit_kinetics_nlls(
 
         df = pd.DataFrame(np.vstack(rows), index=symbols, columns=series.index)
         df.index.name = "Symbol"
-        result[f"{name_prefix}kinetics_{condition}"] = df
+        result[f"{prefix}{condition}"] = df
 
     return result
 
@@ -250,7 +249,7 @@ def fit_kinetics_chase(
     slot: str,
     *,
     genes: Union[str, int, Sequence[Union[str, int, bool]]] = None,
-    name_prefix: Union[str, None] = None,
+    prefix: Union[str, None] = "kinetics",
     time: Union[np.ndarray, pd.Series, list] = None,
     ci_size: float = 0.95,
     return_fields: Sequence[str] = None,
@@ -260,7 +259,7 @@ def fit_kinetics_chase(
     **kwargs
 ) -> dict[str, pd.DataFrame]:
     """
-    For a detailed documentation, see GrandPy.fit_kinetics.
+    For detailed documentation, see GrandPy.fit_kinetics.
     """
     genes_to_fit = data.get_genes(genes)
 
@@ -328,7 +327,6 @@ def fit_kinetics_chase(
                         chase=True,
                         total_value=total_value,
                         steady_state=True,
-                        sample_names=sample_names_cond,
                         **kwargs
                     )
                     jobs.append((gene, job))
@@ -338,7 +336,7 @@ def fit_kinetics_chase(
 
                 for gene, future in tqdm(jobs, desc=f"Fitting {condition}", total=len(jobs), disable= not show_progress):
                     res = future.result()
-                    series = res.to_series(condition=condition, prefix=name_prefix, fields=return_fields)
+                    series = res.to_series(fields=return_fields, sample_names=sample_names_cond, condition=condition)
                     rows.append(series.values)
                     symbols.append(gene)
 
@@ -360,16 +358,15 @@ def fit_kinetics_chase(
                     chase=True,
                     total_value=slot_values_per_gene.get(gene, None),
                     steady_state=True,
-                    sample_names=sample_names_cond,
                     **kwargs
                 )
-                series = res.to_series(condition=condition, prefix=name_prefix, fields=return_fields)
+                series = res.to_series(fields=return_fields, sample_names=sample_names_cond, condition=condition)
                 rows.append(series.values)
                 symbols.append(gene)
 
         df = pd.DataFrame(np.vstack(rows), index=symbols, columns=series.index)
         df.index.name = "Symbol"
-        result[f"{name_prefix}kinetics_{condition}"] = df
+        result[f"{prefix}{condition}"] = df
 
     return result
 
@@ -753,7 +750,6 @@ class FitResult:
                     flat[f"{base_key}_{i}"] = v
             else:
                 flat[base_key] = val
-
         return pd.Series(flat)
 
 
@@ -934,7 +930,7 @@ def fit_kinetics_ntr(
         slot: str,
         *,
         genes: Union[str, int, Sequence[Union[str, int, bool]]] = None,
-        name_prefix: Union[str, None] = None,
+        prefix: Union[str, None] = "kinetics",
         time: Union[np.ndarray, pd.Series, list] = None,
         ci_size: float = 0.95,
         return_fields: Sequence[str] = None,
@@ -1046,7 +1042,7 @@ def fit_kinetics_ntr(
 
             series = res.to_series(
                 condition=condition,
-                prefix=name_prefix,
+                prefix=prefix,
                 fields=return_fields
             )
             rows.append(series.values)
@@ -1054,7 +1050,7 @@ def fit_kinetics_ntr(
 
         df = pd.DataFrame(np.vstack(rows), index=symbols, columns=series.index)
         df.index.name = "Symbol"
-        result[f"{name_prefix}kinetics_{condition}"] = df
+        result[f"{prefix}{condition}"] = df
 
     return result
 
@@ -1322,7 +1318,7 @@ class NTRFitResult:
         flat = {}
 
         for key, val in data.items():
-            base_key = f"{prefix}{condition}_{key}"
+            base_key = f"{key}"
 
             if isinstance(val, dict):
                 for subkey, subval in val.items():
@@ -1428,7 +1424,7 @@ def _calibrate_effective_labeling_time_kinetic_fit(
         def opt_fun(times):
             tt = init_array.copy()
             tt[use_mask_columns] = times
-            kin = _get_kinetics_data(
+            kinetics_data = _get_kinetics_data(
                 subset_data,
                 fit_type="nlls",
                 slot=slot,
@@ -1438,7 +1434,7 @@ def _calibrate_effective_labeling_time_kinetic_fit(
                 **kwargs
             ).get(f"kinetics_{cond}")
 
-            loglik_array = kin[f"{cond}_log_likelihood"].values
+            loglik_array = kinetics_data[f"log_likelihood"].values
             loglik_sum = np.sum(loglik_array)
 
             eval_bar.update(1)

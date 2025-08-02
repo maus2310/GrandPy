@@ -11,6 +11,7 @@ import scipy.sparse as sp
 if TYPE_CHECKING:
     from grandpy import GrandPy
 
+
 # --- Public utility functions ---
 def concat(
         objects: Sequence["GrandPy"],
@@ -114,15 +115,6 @@ def anndata_to_grandpy(anndata: ad.AnnData, transpose: bool = True) -> "GrandPy"
     """
     Create a GrandPy instance from an AnnData instance.
 
-    Parameters
-    ----------
-    anndata: ad.AnnData
-        The AnnData to convert.
-
-    transpose: bool, default True
-        If True, all Matrizes in the AnnData are transposed. (see Notes)
-        Otherwise, they remain in their original form.
-
     Notes
     -----
     The internal AnnData has to be transposed, relative to what you would usually expect.
@@ -132,6 +124,15 @@ def anndata_to_grandpy(anndata: ad.AnnData, transpose: bool = True) -> "GrandPy"
     --------
     GrandPy.to_anndata
         Convert the GrandPy instance to AnnData.
+
+    Parameters
+    ----------
+    anndata: ad.AnnData
+        The AnnData to convert.
+
+    transpose: bool, default True
+        If True, all Matrizes in the AnnData are transposed. (see Notes)
+        Otherwise, they remain in their original form.
 
     Returns
     -------
@@ -337,7 +338,7 @@ def _get_kinetics_data(
     fit_type: Literal["nlls", "ntr", "chase"] = "nlls",
     *,
     slot: str = None,
-    name_prefix: Union[str, None] = None,
+    prefix: Union[str, None] = "kinetics",
     return_fields: Union[str, Sequence[str]] = None,
     time: Union[str, np.ndarray, pd.Series, Sequence] = "duration.4sU",
     ci_size: float = 0.95,
@@ -346,12 +347,12 @@ def _get_kinetics_data(
     **kwargs
 ) -> dict[str, pd.DataFrame]:
     """
-    This function is almost the same as `GrandPy.fit_kinetics`.
+    This function is almost identical to `GrandPy.fit_kinetics`.
     The only difference is that it returns the kinetics data instead of a GrandPy object.
     """
     from .modeling import _fit_kinetics
 
-    kinetics = _fit_kinetics(data=data, fit_type=fit_type, slot=slot, genes=genes, name_prefix=name_prefix, time=time,
+    kinetics = _fit_kinetics(data=data, fit_type=fit_type, slot=slot, genes=genes, prefix=prefix, time=time,
                              ci_size=ci_size, return_fields=return_fields, show_progress=show_progress, **kwargs)
 
     return kinetics
