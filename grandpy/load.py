@@ -646,6 +646,12 @@ def resolve_prefix_path(prefix: str | Path,
         if cand.exists():
             return cand
 
+    if pseudobulk and targets:
+        swapped_path = prefix.parent / f"{prefix.name}.pseudobulk.{pseudobulk}.{targets}"
+        if swapped_path.exists():
+            raise FileNotFoundError(
+                f"No data found for pseudobulk='{pseudobulk}', targets='{targets}'. Are the arguments swapped?")
+
     raise FileNotFoundError(f"No data.tsv(.gz) found for prefix='{prefix}' "
         f"(pseudobulk='{pseudobulk}', targets='{targets}')."
     )
@@ -818,12 +824,20 @@ def read_sparse(folder_path,
     if pseudobulk:
         expected_parts.append(str(pseudobulk))
 
-    for part in expected_parts:
-        if part not in str(base):
+    # new check (pseudobulk and targets are swapped)
+    expected = f".pseudobulk.{targets}.{pseudobulk}" if targets and pseudobulk else None
+    actual = Path(folder_path).name
+
+    if expected and expected not in actual:
+        reversed_expected = f".pseudobulk.{pseudobulk}.{targets}"
+        if reversed_expected in actual:
             raise ValueError(
-                f"The given path '{base}' does not match the existing targets/pseudobulk "
-                f"('{targets}', '{pseudobulk}')."
-            )
+                f"Incompatible pseudobulk/targets combination: expected '.pseudobulk.{targets}.{pseudobulk}' in path, "
+                f"but found '.pseudobulk.{pseudobulk}.{targets}'.")
+        else:
+            raise ValueError(
+                f"The given path '{folder_path}' does not contain expected identifiers "
+                f"(pseudobulk='{pseudobulk}', targets='{targets}').")
 
     return _read(base, sparse=True, default_slot=default_slot, design=design_arg,
                  classification_genes=classification_genes, classification_genes_label=classification_genes_label,
@@ -832,7 +846,7 @@ def read_sparse(folder_path,
 
 
 def read_grand(prefix, pseudobulk=None, targets=None, **kwargs) -> GrandPy:
-    r"""
+    """
     Automatically detects dense vs. sparse GRAND-SLAM output and loads into GrandPy.
 
     This function locates and reads either a TSV-based (dense) or Matrix-Market–
@@ -877,10 +891,9 @@ def read_grand(prefix, pseudobulk=None, targets=None, **kwargs) -> GrandPy:
     -------
     This example renames "0.5h" -> "0_5h"
     gp = read_grand("https://zenodo.org/record/7612564/files/chase_notrescued.tsv.gz?download=1",
-                    design=("Condition", "Time", "Replicate"),
-                    rename_sample=lambda v: re.sub(r"\.chase", "",
-                       re.sub(r"0\.5h", "0_5h",
-                       re.sub(r"\.nos4U", ".no4sU", v))))
+                    design=("Condition", "Time", "Replicate"), rename_sample=lambda v: re.sub(r"\\.chase", "",
+                    re.sub(r"0\\.5h", "0_5h",
+                    re.sub(r"\\.nos4U", ".no4sU", v))))
 
     print(gp.coldata)
     """

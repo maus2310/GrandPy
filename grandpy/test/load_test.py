@@ -217,9 +217,27 @@ def test_read_sparse_rejects_invalid_prefix_combination():
     does not match the targets and pseudobulk values.
     """
     invalid_path = "../test-datasets/test_sparse.targets"  # names consists 'targets'
-    with pytest.raises(ValueError, match="does not match the existing targets/pseudobulk"):
+    with pytest.raises(ValueError, match="does not contain expected identifiers"):
         read_sparse(invalid_path, targets="SOMETHING", pseudobulk="WRONG")
 
+
+def test_read_sparse_rejects_swapped_targets_pseudobulk():
+    """
+    Tests that read_sparse detects and rejects a path with swapped pseudobulk and targets.
+    """
+    swapped_path = "../test-datasets/test_sc.pseudobulk.convoluted.merged"
+    with pytest.raises(ValueError, match=r"Incompatible pseudobulk/targets combination"):
+        read_sparse(swapped_path, targets="merged", pseudobulk="convoluted")
+
+
+def test_read_dense_sets_metadata_tags():
+    """Tests if the pseudobulk and targets arguments are correctly stored in metadata when using read_dense."""
+    obj = read_dense(DATA_DIR / "sars_R.tsv",
+                     design=("Condition", "Time", "Replicate"),
+                     pseudobulk="pb_tag",
+                     targets="tg_tag")
+    assert obj.metadata["pseudobulk"] == "pb_tag"
+    assert obj.metadata["targets"] == "tg_tag"
 
 
 # --- Version tests ---
