@@ -139,7 +139,7 @@ def anndata_to_grandpy(anndata: ad.AnnData, transpose: bool = True) -> "GrandPy"
     GrandPy
         A GrandPy instance built from the AnnData.
     """
-    from core_grandpy import GrandPy
+    from grandpy import GrandPy
 
     if transpose:
         adata = anndata.T

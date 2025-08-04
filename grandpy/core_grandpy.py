@@ -325,12 +325,10 @@ class GrandPy:
         path: PathLike[str] or str
             The path where the file will be saved.
 
-        compression: Literal["gzip" or "lzf"], optional
-            For ['lzf', 'gzip'], see the h5py :ref:`dataset_compression`.
-
-        Returns
-        -------
-        None
+        compression: Literal['gzip' or 'lzf'], optional
+            The compression to be used. If None, no compression is used. Generally 'gzip' compresses more, but 'lzf' is faster.
+            Both of them are lossless. For more information and other compression methods, see h5py documentation.
+            (https://docs.h5py.org/en/stable/high/dataset.html#reading-writing-data)
         """
         anndata = self._anndata.copy()
 
@@ -1603,9 +1601,184 @@ class GrandPy:
 
         return self._apply(swap, col1=column1, col2=column2)
 
+    def get_references(
+            self,
+            reference: Union[str, Callable[[pd.Series], bool]] = None,
+            reference_function: Callable[[pd.Series], Sequence[str]] = None,
+            *,
+            group: Union[str, Sequence[str]] = None,
+            columns: Union[str, Sequence[str]] = None,
+            as_dict: bool = False
+    ) -> Union[pd.DataFrame, dict[str, Sequence[str]]]:
+        """
+        Find reference samples within groups using a condition or custom function.
 
-    def _apply(self, function: Callable = lambda x: x, *, function_gene_info: Callable = None, function_coldata: Callable = None,
-               **kwargs) -> "GrandPy":
+        Examples
+        --------
+        Obtain the corresponding no4sU sample for each sample for the GrandPy instance 'sars'.
+
+        >>> ref = sars.get_references(reference="no4sU")
+        >>> ref.iloc[0:7, 0:7]
+        Name          Mock.no4sU.A  Mock.1h.A  Mock.2h.A  Mock.2h.B  Mock.3h.A  Mock.4h.A  SARS.no4sU.A
+        Name
+        Mock.no4sU.A          True       True       True       True       True       True          True
+        Mock.1h.A            False      False      False      False      False      False         False
+        Mock.2h.A            False      False      False      False      False      False         False
+        Mock.2h.B            False      False      False      False      False      False         False
+        Mock.3h.A            False      False      False      False      False      False         False
+        Mock.4h.A            False      False      False      False      False      False         False
+        SARS.no4sU.A          True       True       True       True       True       True          True
+
+        Obtain the corresponding sample in the 'Mock' condition for each sample.
+
+        >>> ref == sars.get_references(reference="Condition == 'Mock'", group="duration.4sU.original"))
+        >>> ref.iloc[0:7, 0:7]
+        Name          Mock.no4sU.A  Mock.1h.A  Mock.2h.A  Mock.2h.B  Mock.3h.A  Mock.4h.A  SARS.no4sU.A
+        Name
+        Mock.no4sU.A          True      False      False      False      False      False          True
+        Mock.1h.A            False       True      False      False      False      False         False
+        Mock.2h.A            False      False       True       True      False      False         False
+        Mock.2h.B            False      False       True       True      False      False         False
+        Mock.3h.A            False      False      False      False       True      False         False
+        Mock.4h.A            False      False      False      False      False       True         False
+        SARS.no4sU.A         False      False      False      False      False      False         False
+
+        Now we do the same thing again, but pay attention to replicates.
+
+        >>> ref == sars.get_references(reference="Condition == 'Mock'",
+        ...                            group=["duration.4sU.original", "Replicate"])
+        >>> ref.iloc[0:7, 0:7]
+        Name          Mock.no4sU.A  Mock.1h.A  Mock.2h.A  Mock.2h.B  Mock.3h.A  Mock.4h.A  SARS.no4sU.A
+        Name
+        Mock.no4sU.A          True      False      False      False      False      False          True
+        Mock.1h.A            False       True      False      False      False      False         False
+        Mock.2h.A            False      False       True      False      False      False         False
+        Mock.2h.B            False      False      False       True      False      False         False
+        Mock.3h.A            False      False      False      False       True      False         False
+        Mock.4h.A            False      False      False      False      False       True         False
+        SARS.no4sU.A         False      False      False      False      False      False         False
+
+        Parameters
+        ----------
+        reference : str or Callable[[pd.Series], bool], optional
+            A condition to define reference samples. Can be:
+            - a string evaluated against the columns of coldata (via `pandas.query`)
+            - a function taking a row and returning True for reference samples, False otherwise.
+
+        reference_function : Callable[[pd.Series], Sequence[str]], optional
+            A function that returns a list of references for each sample (row-wise).
+            If specified, `reference` is ignored.
+
+        group : str or Sequence[str], optional
+            One or more columns in `coldata` used to group samples before searching for references.
+
+        columns : str or Sequence[str], optional
+            Limit the evaluation to specific columns from `coldata`.
+
+        as_dict : bool, default False
+            If True, return a dictionary mapping each sample to its references.
+            If False, return a DataFrame indicating references. (samples x samples)
+
+        Returns
+        -------
+        Union[pd.DataFrame, dict[str, Sequence[str]]]
+            Either a reference matrix or a dictionary mapping samples to their references.
+
+        Raises
+        ------
+        ValueError
+            When neither `reference` nor `reference_function` is provided; When `reference` is a string and the query on the DataFrame fails.
+
+        TypeError
+            When `reference` is neither a string nor a callable.
+        """
+
+        def map_refs_by_group(df, selected_refs):
+            """
+            Helper to assign found references to their groups.
+            """
+            group_series = df["__group__"]
+            group_to_refs = {}
+            for grp in group_series.unique():
+                refs = [r for r in selected_refs if group_series[r] == grp]
+                group_to_refs[grp] = refs
+            return group_to_refs
+
+        def apply_reference_function(df_subset, group_series):
+            """
+            Applies a reference_function to each row within group.
+            """
+            ref_matrix = pd.DataFrame(False, index=df_subset.index, columns=df_subset.index)
+
+            for grp, gdf in df_subset.groupby(group_series):
+                for idx, row in gdf.iterrows():
+                    try:
+                        references = _ensure_list(reference_function(row))
+                        ref_matrix.loc[references, idx] = True
+                    except Exception as e:
+                        raise ValueError(f"Error in reference_function for sample '{idx}': {e}")
+            return ref_matrix
+
+        def format_ref_output(group_series, group_to_refs, as_list):
+            """
+            Converts grouped references to matrix or dictionary.
+            """
+            samples = group_series.index
+            if as_list:
+                return {sample: group_to_refs.get(group_series[sample], []) for sample in samples}
+
+            matrix = pd.DataFrame(False, index=samples, columns=samples)
+            for sample in samples:
+                refs = group_to_refs.get(group_series[sample], [])
+                matrix.loc[refs, sample] = True
+            return matrix
+
+        df = self.coldata.copy()
+        columns = _ensure_list(columns) if columns is not None else list(df.columns)
+        group_cols = _ensure_list(group) if group is not None else []
+
+        # Add group label column
+        df["__group__"] = (
+            df[group_cols].astype(str).agg("_".join, axis=1) if group_cols else "GROUP"
+        )
+        print(df)
+        df_subset = df[columns].copy()
+
+        if reference_function:
+            return apply_reference_function(df_subset, df["__group__"])
+
+        if reference is None:
+            raise ValueError("Either `reference` or `reference_function` must be provided.")
+
+        if isinstance(reference, str):
+            try:
+                mask_df = df_subset.eval(reference, engine="python")
+                if isinstance(mask_df, pd.Series) and mask_df.dtype == bool:
+                    selected_refs = df_subset.index[mask_df].tolist()
+                else:
+                    raise ValueError("Query did not return a boolean mask.")
+            except Exception as e:
+                raise ValueError(f"Invalid reference query string: {e}")
+            group_to_refs = map_refs_by_group(df, selected_refs)
+        elif callable(reference):
+            group_to_refs = {
+                grp: gdf.index[gdf.apply(reference, axis=1)].tolist()
+                for grp, gdf in df.groupby("__group__")
+            }
+        else:
+            raise TypeError("`reference` must be a string or a callable.")
+
+        return format_ref_output(df["__group__"], group_to_refs, as_dict)
+
+
+    def _apply(
+            self,
+            function: Callable = lambda x: x,
+            *,
+            function_gene_info: Callable = None,
+            function_coldata: Callable = None,
+            **kwargs
+    ) -> "GrandPy":
         """
         Returns a new GrandPy object with the given function applied to each data slot.
         Can also apply a function to the gene_info and coldata DataFrames.
@@ -2138,130 +2311,6 @@ class GrandPy:
         return result_df
 
 
-    # TODO Beispiele für get_references schreiben
-    def get_references(
-            self,
-            reference: Union[str, Callable[[pd.Series], bool]] = None,
-            reference_function: Callable[[pd.Series], Sequence[str]] = None,
-            *,
-            group: Union[str, Sequence[str]] = None,
-            columns: Union[str, Sequence[str]] = None,
-            as_dict: bool = False
-    ) -> Union[pd.DataFrame, dict[str, Sequence[str]]]:
-        """
-        Find reference samples within groups using a condition or custom function.
-
-        Parameters
-        ----------
-        reference : str or Callable[[pd.Series], bool], optional
-            A condition to define reference samples. Can be:
-            - a string (interpreted via `pandas.query`)
-            - a function taking a row and returning True for reference samples, False otherwise.
-
-        reference_function : Callable[[pd.Series], Sequence[str]], optional
-            A function that returns a list of references for each sample (row-wise).
-            If specified, `reference` is ignored.
-
-        group : str or Sequence[str], optional
-            One or more column names in `coldata` used to group samples before applying the condition.
-
-        columns : str or Sequence[str], optional
-            Limit the input to specific columns from `coldata` for evaluation.
-
-        as_dict : bool, default False
-            If True, return a dictionary mapping each sample to its references.
-            If False, return a square boolean DataFrame indicating references.
-
-        Returns
-        -------
-        Union[pd.DataFrame, dict[str, Sequence[str]]]
-            Either a reference matrix or a mapping from sample → list of references.
-
-        Raises
-        ------
-        ValueError
-            When neither `reference` nor `reference_function` is provided; When `reference` is a string and the query on the DataFrame fails.
-
-        TypeError
-            When `reference` is neither a string nor a callable.
-        """
-        def map_refs_by_group(df, selected_refs):
-            """
-            Helper to assign found references to their groups.
-            """
-            group_series = df["__group__"]
-            group_to_refs = {}
-            for grp in group_series.unique():
-                refs = [r for r in selected_refs if group_series[r] == grp]
-                group_to_refs[grp] = refs
-            return group_to_refs
-
-        def apply_reference_function(df_subset, group_series):
-            """
-            Applies a reference_function to each row within group.
-            """
-            ref_matrix = pd.DataFrame(False, index=df_subset.index, columns=df_subset.index)
-
-            for grp, gdf in df_subset.groupby(group_series):
-                for idx, row in gdf.iterrows():
-                    try:
-                        references = _ensure_list(reference_function(row))
-                        ref_matrix.loc[references, idx] = True
-                    except Exception as e:
-                        raise ValueError(f"Error in reference_function for sample '{idx}': {e}")
-            return ref_matrix
-
-        def format_ref_output(group_series, group_to_refs, as_list):
-            """
-            Converts grouped references to matrix or dictionary.
-            """
-            samples = group_series.index
-            if as_list:
-                return {sample: group_to_refs.get(group_series[sample], []) for sample in samples}
-
-            matrix = pd.DataFrame(False, index=samples, columns=samples)
-            for sample in samples:
-                refs = group_to_refs.get(group_series[sample], [])
-                matrix.loc[refs, sample] = True
-            return matrix
-
-        df = self.coldata.copy()
-        columns = _ensure_list(columns) if columns is not None else list(df.columns)
-        group_cols = _ensure_list(group) if group is not None else []
-
-        # Add group label column
-        df["__group__"] = (
-            df[group_cols].astype(str).agg("_".join, axis=1) if group_cols else "GROUP"
-        )
-        df_subset = df[columns].copy()
-
-        if reference_function:
-            return apply_reference_function(df_subset, df["__group__"])
-
-        if reference is None:
-            raise ValueError("Either `reference` or `reference_function` must be provided.")
-
-        if isinstance(reference, str):
-            try:
-                mask_df = df_subset.eval(reference, engine="python")
-                if isinstance(mask_df, pd.Series) and mask_df.dtype == bool:
-                    selected_refs = df_subset.index[mask_df].tolist()
-                else:
-                    raise ValueError("Query did not return a boolean mask.")
-            except Exception as e:
-                raise ValueError(f"Invalid reference query string: {e}")
-            group_to_refs = map_refs_by_group(df, selected_refs)
-        elif callable(reference):
-            group_to_refs = {
-                grp: gdf.index[gdf.apply(reference, axis=1)].tolist()
-                for grp, gdf in df.groupby("__group__")
-            }
-        else:
-            raise TypeError("`reference` must be a string or a callable.")
-
-        return format_ref_output(df["__group__"], group_to_refs, as_dict)
-
-
 
     # ----- Methods on the whole object -----
     def merge(
@@ -2395,27 +2444,53 @@ class GrandPy:
         return adata.T
 
 
-    # ----- Processing methods -----
-    def normalize(self, genes: Sequence[str] = None, name: str = "norm", slot: str = "count",
-                  set_to_default: bool = True, size_factors=None, return_size_factors: bool = False) -> Union["GrandPy",np.ndarray]:
+
+
+    # ----- processing -----
+    def normalize(
+            self,
+            genes: Union[str, int, Sequence[Union[str, int, bool]]] = None,
+            name: str = "norm",
+            slot: str = "count",
+            *,
+            set_to_default: bool = True,
+            size_factors: Union[np.ndarray, Sequence[float]]=None,
+            return_size_factors: bool = False
+    ) -> Union["GrandPy",np.ndarray]:
         """
-        Normalize gene expression values across cells.
+        Normalize gene expression values using size factors.
+
+        This method computes expression values by normalizing raw counts using size factors,
+        which account for differences in sequencing depth and gene composition across samples.
+        It is suitable for comparing gene expression levels across samples with varying number of reads.
+
+        See Also
+        --------
+        GrandPy.normalize_fpkm
+            Normalize data using FPKM.
+
+        GrandPy.normalize_tpm
+            Normalize data using TPM.
+
+        GrandPy.normalize_rpm
+            Normalize data using RPM.
 
         Parameters
         ----------
-        genes : Sequence[str], optional
-            A list of gene names to normalize. If None, all genes are normalized.
+        genes : str or int or Sequence[str or int or bool], optional
+            A subsets of genes for calculation the size factor. All genes will be normalized regardless.
+            Either by gene symbols, names(Ensembl IDs), indices, or a boolean mask.
 
         name : str, default "norm"
-            Name of the layer where the normalized data will be stored.
+            Name of the slots where the normalized data will be stored.
 
         slot : str, default "count"
-            The name of the data slot to normalize (e.g., "count").
+            The name of the slot to normalize.
 
         set_to_default : bool, default True
-            If True, set the normalized layer as the default for downstream analysis.
+            If True, set the normalized slot as the default.
 
-        size_factors : array-like, optional
+        size_factors : np.ndarray or Sequence[float], optional
             Precomputed size factors to use for normalization.
             If None, size factors are computed automatically.
 
@@ -2426,57 +2501,175 @@ class GrandPy:
         -------
         Union[GrandPy, np.ndarray]
             The size factors used for normalization if `return_size_factors` is True.
-            Otherwise, returns a grandPy object.
+            Otherwise, a GrandPy object with the normalized data added as a slot.
         """
         from .processing import _normalize
 
         return _normalize(self, genes=genes, name=name, slot=slot, set_to_default=set_to_default,
                           size_factors=size_factors, return_size_factors=return_size_factors)
 
-    def normalize_fpkm(self, genes=None, name: str = "norm", slot: str = "count", set_to_default=True, total_len=None) -> "GrandPy":
+    def normalize_fpkm(
+            self,
+            genes: Union[str, int, Sequence[Union[str, int, bool]]] = None,
+            name: str = "norm",
+            slot: str = "count",
+            *,
+            set_to_default: bool = True,
+            total_len: Union[str, np.ndarray[int]] = "Length"
+    ) -> "GrandPy":
         """
         Normalize gene expression data using the FPKM method (Fragments Per Kilobase Million).
 
-        This method computes FPKM values by normalizing raw counts by both gene length and
-        total library size. It is suitable for comparing expression levels across genes within
-        the same sample.
+        This method computes FPKM values by normalizing raw counts for both gene length and total number of reads in a sample.
+        It is suitable for comparing expression levels across genes within the same sample.
+
+        See Also
+        --------
+        GrandPy.normalize
+            Normalize data using size factors.
+
+        GrandPy.normalize_tpm
+            Normalize data using TPM.
+
+        GrandPy.normalize_rpm
+            Normalize data using RPM.
 
         Parameters
         ----------
-        genes : list[str], optional
-            A list of gene names to normalize. If None, all genes are included.
+        genes : str or int or Sequence[str or int or bool], optional
+            A subsets of genes for calculation the scaling factor. All genes will be normalized regardless.
+            Either by gene symbols, names(Ensembl IDs), indices, or a boolean mask.
 
         name : str, default "norm"
-            The name of the data layer where the normalized values will be stored.
+            The name of the data slot where the normalized values will be stored.
 
         slot : str, default "count"
-            The name of the data slot containing raw counts to normalize.
+            The name of the slot containing raw counts to normalize.
 
         set_to_default : bool, default True
-            If True, sets the resulting normalized layer as the default for downstream analysis.
+            If True, sets the resulting normalized slot as the default slot.
 
-        total_len : array-like, optional
-            Optional precomputed total transcript lengths per cell. If not provided, gene lengths
-            are inferred internally.
+        total_len : str or np.ndarray or Sequence[int], default "Length"
+            Either the name of a column in the gene_info containing the lengths or the lengths themselves.
 
         Returns
         -------
         GrandPy
-            A grandPy object with added normalize_fpkm slot.
-    """
+            A GrandPy object with the normalized data added as a slot.
+        """
+        from .processing import _normalize_fpkm
 
-    def normalize_tpm(self, genes=None, name: str = "tpm", slot: str = "count", set_to_default=True, total_len=None) -> "GrandPy":
+        return _normalize_fpkm(self, genes=genes, name=name, slot=slot, set_to_default=set_to_default,
+                               total_len=total_len)
+
+    def normalize_tpm(
+            self,
+            genes: Union[str, int, Sequence[Union[str, int, bool]]] = None,
+            name: str = "tpm",
+            slot: str = "count",
+            *,
+            set_to_default: bool = True,
+            total_len=None
+    ) -> "GrandPy":
+        """
+        Normalize gene expression data using the TPM method (Transcripts Per Million).
+
+        This method computes TPM values by normalizing raw counts for both gene length and total number of reads across all samples.
+        It is suitable for comparing gene expression levels across different samples, accounting for varying sequencing depths.
+
+        See Also
+        --------
+        GrandPy.normalize
+            Normalize data using size factors.
+
+        GrandPy.normalize_fpkm
+            Normalize data using FPKM.
+
+        GrandPy.normalize_rpm
+            Normalize data using RPM.
+
+        Parameters
+        ----------
+        genes : str or int or Sequence[str or int or bool], optional
+            A subsets of genes for calculation the scaling factor. All genes will be normalized regardless.
+            Either by gene symbols, names(Ensembl IDs), indices, or a boolean mask.
+
+        name: str, default "tpm"
+            The name of the slot that the tpm-normalization will create.
+
+        slot: str, default "count"
+            The name of the slot containing raw counts to normalize.
+
+        set_to_default: bool, default True
+            Whether to set the new slot as the default.
+
+        total_len: np.ndarray, optional
+            array with the transcript length of the genes
+
+        Returns
+        -------
+        GrandPy
+            A GrandPy object with the normalized data added as a slot.
+        """
         from .processing import _normalize_tpm
 
-        return _normalize_tpm(self, genes=genes, name=name, slot=slot, set_to_default=set_to_default,
-                              total_len=total_len)
+        return _normalize_tpm(self, genes=genes, name=name, slot=slot, set_to_default=set_to_default, total_len=total_len)
 
-    def normalize_rpm(self, genes=None, name: str = "norm", slot: str = "count", set_to_default=True, factor=1e6):
-        pass
+    def normalize_rpm(
+            self,
+            genes: Union[str, int, Sequence[Union[str, int, bool]]] = None,
+            name: str = "rpm",
+            slot: str = "count",
+            *,
+            set_to_default: bool = True,
+            factor: int = 1e6
+    ):
+        """
+        Normalize gene expression data using the RPM method (Reads Per Million).
 
-        # return _normalize_rpm(self, genes=genes, name=name, slot=slot, set_to_default=set_to_default, factor=factor)
+        This method computes RPM values by normalizing raw counts by the total number of reads in a sample, scaled to millions.
+        It is suitable for comparing gene expression levels across samples with varying sequencing depths.
+
+        See Also
+        --------
+        GrandPy.normalize
+            Normalize data using size factors.
+
+        GrandPy.normalize_fpkm
+            Normalize data using FPKM.
+
+        GrandPy.normalize_tpm
+            Normalize data using TPM.
+
+        Parameters
+        ----------
+        genes : str or int or Sequence[str or int or bool], optional
+            A subsets of genes for calculation the scaling factor. All genes will be normalized regardless.
+            Either by gene symbols, names(Ensembl IDs), indices, or a boolean mask.
+
+        name: str, default "rpm"
+            The name of the slot that the tpm-normalization will create.
+
+        slot: str, default "count"
+            The name of the slot containing raw counts to normalize.
+
+        set_to_default: bool, default True
+            Whether to set the new slot as the default.
+
+        factor : int, default 1e6
+            The rpm scaling factor. A million by default.
+
+        Returns
+        -------
+        GrandPy
+            A GrandPy object with the normalized data added as a slot.
+        """
+        from .processing import _normalize_rpm
+
+        return _normalize_rpm(self, genes=genes, name=name, slot=slot, set_to_default=set_to_default, factor=factor)
 
 
+    # TODO: DOC STRINGS für diese 5 methoden
     def compute_ntr_ci(self, ci_size: float = 0.95, name_lower: str = "lower", name_upper: str = "upper")-> "GrandPy":
         from .processing import _compute_ntr_ci
 
@@ -2605,8 +2798,8 @@ class GrandPy:
             Genes to force-keep, regardless of threshold filtering.
 
         use : str or int or Sequence[bool or int or str], optional
-            Only these genes will be kept if provided (boolean mask, indices, or names).
-            Filtering will not be applied to them. (Basically just subsetting)
+            If provided, only genes specified in `use` will be kept. (Basically just subsetting)
+            Filtering will be ignored completely.
 
         return_genes : bool, default False
             If True, return the list of selected gene indices instead of a filtered GrandPy object.
@@ -2614,6 +2807,12 @@ class GrandPy:
         Returns
         -------
         list[str] or GrandPy
+            A filtered GrandPy object or a list of selected genes, depending on the `return_genes` parameter.
+
+        Raises
+        ------
+        ValueError
+            If both `keep` and `use` are specified.
         """
         from .processing import _filter_genes
 
@@ -2622,7 +2821,7 @@ class GrandPy:
 
 
 
-    # ----- modeling methods -----
+    # ----- modeling -----
     def fit_kinetics(
             self,
             fit_type: Literal["nlls", "ntr", "chase"] = "nlls",
@@ -2825,7 +3024,7 @@ class GrandPy:
 
 
 
-    # ----- Differential expression methods -----
+    # ----- diffexp -----
     def get_summarize_matrix(
             self,
             *,
@@ -3142,5 +3341,8 @@ class GrandPy:
                            verbose=verbose, **kwargs)
 
         return new_gp
+
+
+
 
 
