@@ -33,6 +33,7 @@ DESIGN_KEYS = {
 
 
 SEMANTICS = {
+    "dur.4sU" : "time",
     "duration.4sU": "time",
     "Experimental.time": "time",
     "Time": "time",
@@ -71,7 +72,7 @@ def _local_filename_from_url(url: str, default: str = "download") -> str:
     return name or default
 
 
-def infer_suffixes_from_df(df, known_suffixes=None, estimator="Binom", sparse=False) -> dict:
+def _infer_suffixes_from_df(df, known_suffixes=None, estimator="Binom", sparse=False) -> dict:
     """
     Automatically tries to recognize slots (count, ntr, alpha, beta, ...) and their suffixes from column names.
 
@@ -132,7 +133,7 @@ def infer_suffixes_from_df(df, known_suffixes=None, estimator="Binom", sparse=Fa
     return result
 
 
-def remove_suffixes(name, suffixes):
+def _remove_suffixes(name, suffixes):
     """
     Remove specified suffix(es) from a string if present.
 
@@ -163,7 +164,7 @@ def remove_suffixes(name, suffixes):
         return name  # no suffix matched
 
 
-def parse_slots(df, suffixes, sparse):
+def _parse_slots(df, suffixes, sparse):
     """
     Extracts expression matrices from the input DataFrame based on known slot suffixes.
 
@@ -204,7 +205,7 @@ def parse_slots(df, suffixes, sparse):
             mat = _to_sparse(mat)
         slots[slot] = mat
 
-        sample_names_this_slot = [remove_suffixes(c, suffix) for c in cols]
+        sample_names_this_slot = [_remove_suffixes(c, suffix) for c in cols]
         slot_sample_names[slot] = sample_names_this_slot
 
         if sample_names is None:
@@ -213,7 +214,7 @@ def parse_slots(df, suffixes, sparse):
     return slots, sample_names, slot_sample_names
 
 
-def build_gene_info(df, classify_func):
+def _build_gene_info(df, classify_func):
     """
     Extracts gene metadata and assigns a gene type to each entry.
 
@@ -231,7 +232,7 @@ def build_gene_info(df, classify_func):
         Gene annotation DataFrame with columns: Symbol, Gene, Length Type.
     """
 
-    validate_input(df, ["Gene", "Symbol", "Length"], context="gene_info")
+    _validate_input(df, ["Gene", "Symbol", "Length"], context="gene_info")
     gene_info = df[["Gene", "Symbol", "Length"]].copy()
 
     gene_info["Type"] = classify_func(gene_info)
@@ -269,7 +270,7 @@ def parse_time_string(s):
         return None
 
 
-def apply_design_semantics(coldata: pd.DataFrame) -> pd.DataFrame:
+def _design_semantics(coldata: pd.DataFrame) -> pd.DataFrame:
     """
     Add semantic hints to coldata (time, concentration, ...).
 
@@ -315,11 +316,11 @@ def semantics_time(values, name):
     df = pd.DataFrame({name: values})
     df[f"{name}.original"] = df[name]
     df[name] = df[name].map(parse_time_string)
-    df = apply_design_semantics(df)
+    df = _design_semantics(df)
     return df
 
 
-def build_coldata(names, design=None):
+def build_coldata(names, design=None, semantics: Optional[dict[str, Callable]] = None):
     """
     Builds sample metadata (coldata) from sample names and an optional experimental design.
 
@@ -351,7 +352,7 @@ def build_coldata(names, design=None):
         if "no4sU" not in df.columns:
             df["no4sU"] = False
 
-        return apply_design_semantics(df)
+        return _design_semantics(df)
 
     if callable(design):
         return design(names)
@@ -378,6 +379,17 @@ def build_coldata(names, design=None):
             coldata[col] = coldata[col].map(parse_time_string)
             time_cols.append(orig)
 
+    if semantics:
+        for key, func in semantics.items():
+            if key in coldata.columns:
+                sem_df = func(coldata[f"{key}.original"] if f"{key}.original" in coldata.columns else coldata[key], key)
+                for col in sem_df.columns:
+                    if col != key and col not in coldata.columns:
+                        coldata[col] = sem_df[col]
+                if "_semantics" in sem_df.attrs:
+                    coldata.attrs.setdefault("_semantics", {}).update(sem_df.attrs["_semantics"])
+
+
     if "has.4sU" in coldata.columns:
         coldata["no4sU"] = coldata["has.4sU"].astype(str).str.lower() == "no4su"
     elif "no4sU" not in coldata.columns:
@@ -393,12 +405,13 @@ def build_coldata(names, design=None):
             pairs.append(orig)
 
     ordered = ["Name"] + pairs + ["no4sU"]
-    coldata = coldata[ordered]
+    extra = [c for c in coldata.columns if c not in ordered and c != "Name"]
+    coldata = coldata[ordered + extra]
 
-    return apply_design_semantics(coldata)
+    return _design_semantics(coldata)
 
 
-def pad_slots(slots, sparse, coldata, slot_sample_names) -> dict:
+def _pad_slots(slots, sparse, coldata, slot_sample_names) -> dict:
     """
     Pads all slot matrices to have the same columns (samples), based on coldata["Name"].
 
@@ -447,14 +460,9 @@ def pad_slots(slots, sparse, coldata, slot_sample_names) -> dict:
                 else:
                     col = col.ravel()
             else:
-                # Sample fehlt im Slot - hier muss dann 'gepadded' werden
-                if "no4sU" in coldata.columns:
-                    try:
-                        is_no4su = bool(coldata.loc[sample, "no4sU"])
-                    except KeyError:
-                        pass
-
+                # Sample fehlt im Slot
                 col = np.zeros(n_genes)
+
             # Hinzufügen der Spalte
             new_matrix.append(col)
 
@@ -471,7 +479,7 @@ def pad_slots(slots, sparse, coldata, slot_sample_names) -> dict:
     return slots
 
 
-def validate_input(df, required_columns: list[str], context: str = "", warn_only: bool = False):
+def _validate_input(df, required_columns: list[str], context: str = "", warn_only: bool = False):
     """
     Validates that required columns exist in the given DataFrame.
 
@@ -559,7 +567,7 @@ def classify_genes(gene_info: pd.DataFrame,
     return gene_type.astype("category")
 
 
-def resolve_prefix_path(prefix: str | Path,
+def _resolve_prefix_path(prefix: str | Path,
                         pseudobulk: Optional[str] = None,
                         targets: Optional[str] = None) -> Path:
     """
@@ -624,10 +632,6 @@ def resolve_prefix_path(prefix: str | Path,
         hit = _try(base.parent / f"{base.name}.pseudobulk.targets.{pseudobulk}")
         if hit:
             return hit
-        # hit = _try(base.parent / f"{base.name}.pseudobulk.{pseudobulk}")
-        # if hit:
-        #     return hit
-        # This case is never reached with Grand3 defaults (targets="targets")
 
     # 6.
     if targets:
@@ -657,7 +661,7 @@ def resolve_prefix_path(prefix: str | Path,
     )
 
 
-def is_sparse_file(path) -> bool:
+def _is_sparse_file(path) -> bool:
     """
     Determines whether the input represents a sparse GRAND-SLAM file by checking for the presence of a 'data.tsv' (or 'data.tsv.gz') file.
 
@@ -687,10 +691,11 @@ def is_sparse_file(path) -> bool:
     return has_matrix and has_barcodes and has_features
 
 
-def read_dense(file_path: str,
+def _read_dense(file_path: str,
     default_slot: str = "count",
     design=None,
     *,
+    semantics=None,
     classification_genes=None,
     classification_genes_label: str = "Unknown",
     classify_genes_func=None,
@@ -712,6 +717,10 @@ def read_dense(file_path: str,
 
     design : tuple[str] or DataFrame or callable, optional
         Design variables or DataFrame for sample metadata.
+
+    semantics : dict[str, Callable], optional
+        Map of column -> function for derived metadata (e.g. time).
+        See notebook 03 for an example.
 
     classification_genes : list[str], optional
         Gene symbols to assign the special label.
@@ -741,23 +750,30 @@ def read_dense(file_path: str,
         A GrandPy object containing dense slot arrays.
     """
 
-    if callable(design):
-        design_arg = design
-    if isinstance(design, pd.DataFrame):
+    if callable(design) or isinstance(design, pd.DataFrame):
         design_arg = design
     elif design is not None:
+        if not isinstance(design, (list, tuple)):
+            raise TypeError("design must be a tuple/list of strings, a DataFrame, or a callable")
         design_arg = tuple(DESIGN_KEYS.get(d, d) for d in design)
     else:
         design_arg = None
+
     return _read(file_path, sparse=False, default_slot=default_slot, design=design_arg,
-                 classification_genes=classification_genes, classification_genes_label=classification_genes_label,
-                 classify_genes_func=classify_genes_func, estimator=estimator, rename_sample=rename_sample,
-                 pseudobulk=pseudobulk, targets=targets)
+                 semantics=semantics,
+                 classification_genes=classification_genes,
+                 classification_genes_label=classification_genes_label,
+                 classify_genes_func=classify_genes_func,
+                 estimator=estimator,
+                 rename_sample=rename_sample,
+                 pseudobulk=pseudobulk,
+                 targets=targets)
 
 
-def read_sparse(folder_path,
+def _read_sparse(folder_path,
     default_slot: str = "count",
     design=None,
+    semantics=None,
     classification_genes=None,
     classification_genes_label: str = "Unknown",
     classify_genes_func=None,
@@ -779,6 +795,10 @@ def read_sparse(folder_path,
 
     design :or DataFrame or callable, optional
         Design variables or DataFrame for sample metadata.
+
+    semantics : dict[str, Callable], optional
+        Map of column -> function for derived metadata (e.g. time).
+        See notebook 03 for an example.
 
     classification_genes : list[str], optional
         Gene symbols to assign the special label.
@@ -818,13 +838,7 @@ def read_sparse(folder_path,
         design_arg = None
 
     base = Path(folder_path).resolve()
-    expected_parts = []
-    if targets:
-        expected_parts.append(str(targets))
-    if pseudobulk:
-        expected_parts.append(str(pseudobulk))
 
-    # new check (pseudobulk and targets are swapped)
     expected = f".pseudobulk.{targets}.{pseudobulk}" if targets and pseudobulk else None
     actual = Path(folder_path).name
 
@@ -840,9 +854,13 @@ def read_sparse(folder_path,
                 f"(pseudobulk='{pseudobulk}', targets='{targets}').")
 
     return _read(base, sparse=True, default_slot=default_slot, design=design_arg,
-                 classification_genes=classification_genes, classification_genes_label=classification_genes_label,
+                 semantics=semantics,
+                 classification_genes=classification_genes,
+                 classification_genes_label=classification_genes_label,
                  classify_genes_func=classify_genes_func,
-                 pseudobulk=pseudobulk, targets=targets, estimator=estimator, rename_sample=rename_sample)
+                 pseudobulk=pseudobulk, targets=targets,
+                 estimator=estimator,
+                 rename_sample=rename_sample)
 
 
 def read_grand(prefix, pseudobulk=None, targets=None, **kwargs) -> GrandPy:
@@ -870,6 +888,9 @@ def read_grand(prefix, pseudobulk=None, targets=None, **kwargs) -> GrandPy:
             Slot to set as default (e.g. "count").
         - design : tuple[str] | DataFrame | callable
             Design-Variables or DataFrame for sample metadata.
+        - semantics : dict[str, Callable], optional
+            Map of column -> function for derived metadata (e.g. time).
+            See notebook 03 for an example.
         - classification_genes : list[str], optional
             List of gene symbols to assign the special label.
         - classification_genes_label : str
@@ -913,27 +934,27 @@ def read_grand(prefix, pseudobulk=None, targets=None, **kwargs) -> GrandPy:
 
         path = Path(prefix)
 
-        sparse = is_sparse_file(path)
+        sparse = _is_sparse_file(path)
         if sparse:
             print("Detected sparse format -> using sparse reader")
-            return read_sparse(path, pseudobulk=pseudobulk, targets=targets, **kwargs)
+            return _read_sparse(path, pseudobulk=pseudobulk, targets=targets, **kwargs)
 
         else:
-            file_path = resolve_prefix_path(prefix, pseudobulk=pseudobulk, targets=targets)
+            file_path = _resolve_prefix_path(prefix, pseudobulk=pseudobulk, targets=targets)
             print("Detected dense format -> using dense reader")
-            return read_dense(str(file_path), **kwargs)
+            return _read_dense(str(file_path), **kwargs)
 
-    except ValueError as e:
-        raise e
+    except ValueError:
+        raise
 
-    except FileNotFoundError as e:
-        raise e
+    except FileNotFoundError:
+        raise
 
-    except Exception as e:
-        raise e
+    except Exception:
+        raise
 
 
-def find_existing_file(path: Path, base_name: str, extensions=(".gz", "", ".tsv", ".tsv.gz")) -> Path:
+def _find_existing_file(path: Path, base_name: str, extensions=(".gz", "", ".tsv", ".tsv.gz")) -> Path:
     """
     Search path for base_name with any of the given extensions.
 
@@ -962,7 +983,8 @@ def find_existing_file(path: Path, base_name: str, extensions=(".gz", "", ".tsv"
 def _read(file_path, sparse, default_slot, design,
           classification_genes, classification_genes_label,
           classify_genes_func=None, pseudobulk=None, targets=None, estimator="Binom",
-          rename_sample: Optional [Callable[[str], str]] = None) -> GrandPy:
+          rename_sample: Optional [Callable[[str], str]] = None,
+          semantics=None) -> GrandPy:
     """
     Internal loader for GRAND-SLAM TSV or Matrix Market data.
 
@@ -1015,8 +1037,8 @@ def _read(file_path, sparse, default_slot, design,
         base = path
 
         # matrix_path = find_existing_file(base, "matrix.mtx", (".gz", ""))
-        features_path = find_existing_file(base, "features", (".tsv.gz", ".tsv", ""))
-        barcodes_path = find_existing_file(base, "barcodes", (".tsv.gz", ".tsv", ""))
+        features_path = _find_existing_file(base, "features", (".tsv.gz", ".tsv", ""))
+        barcodes_path = _find_existing_file(base, "barcodes", (".tsv.gz", ".tsv", ""))
 
         features = pd.read_csv(features_path, sep="\t", header=None, compression="infer")
         features.iloc[:, 0] = features.iloc[:, 0].astype(str)
@@ -1044,7 +1066,7 @@ def _read(file_path, sparse, default_slot, design,
         gene_info["Type"] = classify_genes_func(gene_info)
         gene_info.index = _make_unique(gene_info["Symbol"])
 
-        coldata = build_coldata(barcodes, design)
+        coldata = build_coldata(barcodes, design, semantics=semantics)
 
         slots = {}
         slot_sample_names = {}
@@ -1081,7 +1103,7 @@ def _read(file_path, sparse, default_slot, design,
                 raise ValueError("Default slot not specified and 'count' slot not found in data.")
             default_slot = "count"
 
-        slots = pad_slots(slots, sparse=True, coldata=coldata, slot_sample_names=slot_sample_names)
+        slots = _pad_slots(slots, sparse=True, coldata=coldata, slot_sample_names=slot_sample_names)
 
         version = 3
         runtime_path = base / "runtime"
@@ -1117,8 +1139,8 @@ def _read(file_path, sparse, default_slot, design,
         df = pd.read_csv(file_path, sep="\t", compression="infer")
         prefix = str(Path(file_path).resolve())
 
-        slot_suffixes = infer_suffixes_from_df(df, estimator=estimator, sparse=False)
-        slots, sample_names, slot_sample_names = parse_slots(df, slot_suffixes, sparse)
+        slot_suffixes = _infer_suffixes_from_df(df, estimator=estimator, sparse=False)
+        slots, sample_names, slot_sample_names = _parse_slots(df, slot_suffixes, sparse)
 
         if rename_sample is not None:
             slot_sample_names = {
@@ -1159,9 +1181,9 @@ def _read(file_path, sparse, default_slot, design,
                 custom = {}
             classify_genes_func = lambda gene_info: classify_genes(gene_info, custom_classes=custom, use_default=True)
 
-        gene_info = build_gene_info(df, classify_genes_func)
-        coldata = build_coldata(sample_names, design)
-        slots = pad_slots(slots, sparse, coldata, slot_sample_names)
+        gene_info = _build_gene_info(df, classify_genes_func)
+        coldata = build_coldata(sample_names, design, semantics=semantics)
+        slots = _pad_slots(slots, sparse, coldata, slot_sample_names)
 
         version = 2
         dense_indicators = ("umi", "cell", "replicate")

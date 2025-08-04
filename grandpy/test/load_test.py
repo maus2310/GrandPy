@@ -2,6 +2,17 @@ import pytest
 from scipy import sparse
 
 from grandpy.load import *
+from grandpy.load import (
+    _infer_suffixes_from_df,
+    _validate_input,
+    _remove_suffixes,
+    _parse_slots,
+    _pad_slots,
+    _build_gene_info,
+    _design_semantics,
+    _resolve_prefix_path,
+    _read_dense,
+    _read_sparse,)
 
 CURRENT_FILE = Path(__file__).resolve()
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -25,7 +36,7 @@ def mock_df():
 # --- Tests for infer / suffixes ---
 
 def test_infer_suffixes_from_df(mock_df):
-    result = infer_suffixes_from_df(mock_df)
+    result = _infer_suffixes_from_df(mock_df)
     assert result["alpha"] == " alpha"
     assert result["beta"] == " beta"
     assert result["ntr"] == " MAP"
@@ -38,19 +49,19 @@ def test_infer_suffixes_multiple_slots():
         "Sample.1 beta": [3],
         "Sample.2 beta": [4]
     })
-    result = infer_suffixes_from_df(df)
+    result = _infer_suffixes_from_df(df)
     assert result["alpha"] == " alpha"
     assert result["beta"] == " beta"
 
 
 def test_remove_suffixes_single():
     name = "Sample.1 alpha"
-    assert remove_suffixes(name, " alpha") == "Sample.1"
+    assert _remove_suffixes(name, " alpha") == "Sample.1"
 
 
 def test_remove_suffixes_tuple():
     name = "Sample.1 MAP"
-    assert remove_suffixes(name, (" alpha", " MAP")) == "Sample.1"
+    assert _remove_suffixes(name, (" alpha", " MAP")) == "Sample.1"
 
 
 def test_infer_suffixes_readcount_variants():
@@ -61,7 +72,7 @@ def test_infer_suffixes_readcount_variants():
         "Symbol": ["S1"],
         "Length": [1000]
     })
-    result = infer_suffixes_from_df(df)
+    result = _infer_suffixes_from_df(df)
     assert result["count"] == " Readcount"
 
 
@@ -74,7 +85,7 @@ def test_parse_slots(mock_df):
         "beta": " beta",
         "ntr": " MAP"
     }
-    slots, sample_names, slot_sample_names = parse_slots(mock_df, suffixes, sparse=False)
+    slots, sample_names, slot_sample_names = _parse_slots(mock_df, suffixes, sparse=False)
     assert "alpha" in slots
     assert sample_names == ["Sample.1"]
     assert slot_sample_names["alpha"] == ["Sample.1"]
@@ -89,7 +100,7 @@ def test_parse_slots_allows_duplicate_sample_names():
         "Length": [100]
     })
     suffixes = {"count": " Readcount", "alpha": " alpha"}
-    slots, sample_names, slot_sample_names = parse_slots(df, suffixes, sparse=False)
+    slots, sample_names, slot_sample_names = _parse_slots(df, suffixes, sparse=False)
     assert "count" in slots and "alpha" in slots
     assert sample_names == ["Sample.A"]
 
@@ -105,7 +116,7 @@ def test_pad_slots_dense():
     coldata["Name"] = coldata.index
 
     slot_sample_names = {"count": ["A", "B"]}
-    padded = pad_slots(slots, sparse=False, coldata=coldata, slot_sample_names=slot_sample_names)
+    padded = _pad_slots(slots, sparse=False, coldata=coldata, slot_sample_names=slot_sample_names)
     assert padded["count"].shape == (1, 3)
 
 
@@ -118,7 +129,7 @@ def test_pad_slots_sparse():
     }).set_index("Name")
     coldata["Name"] = coldata.index
     slot_sample_names = {"count": ["A", "B"]}
-    padded = pad_slots(slots, sparse=True, coldata=coldata, slot_sample_names=slot_sample_names)
+    padded = _pad_slots(slots, sparse=True, coldata=coldata, slot_sample_names=slot_sample_names)
     assert padded["count"].shape == (1, 3)
 
 
@@ -126,7 +137,7 @@ def test_pad_slots_sparse():
 # --- Tests for gene info / classification ---
 
 def test_build_gene_info(mock_df):
-    result = build_gene_info(mock_df, classify_genes)
+    result = _build_gene_info(mock_df, classify_genes)
     assert "Type" in result.columns
     assert result.loc["GENE1", "Type"] == "Cellular"
 
@@ -137,7 +148,7 @@ def test_build_gene_info_classification():
         "Symbol": ["G1", "ERCC-00001", "MT-CO1", "GENE4"],
         "Length": [1000, 500, 800, 700]
     })
-    info = build_gene_info(df, classify_func=classify_genes)
+    info = _build_gene_info(df, classify_func=classify_genes)
     assert set(info["Type"]) == {"Cellular", "ERCC", "mito", "Unknown"}
 
 
@@ -164,7 +175,7 @@ def test_parse_time_string_various(value, expected):
 def test_apply_design_semantics_sets_semantics():
     df = pd.DataFrame({"Time": [1, 2, 3], "Name": ["A", "B", "C"]})
     df.attrs.clear()
-    df = apply_design_semantics(df)
+    df = _design_semantics(df)
     assert "_semantics" in df.attrs
     assert df.attrs["_semantics"]["Time"] == "time"
 
@@ -174,7 +185,7 @@ def test_apply_design_semantics_sets_semantics():
 
 def test_resolve_prefix_path_not_found():
     with pytest.raises(FileNotFoundError):
-        resolve_prefix_path("nonexistent_path")
+        _resolve_prefix_path("nonexistent_path")
 
 
 
@@ -208,7 +219,7 @@ def test_read_grand_url():
 def test_validate_input_raises_on_missing_columns():
     df = pd.DataFrame({"A": [1], "B": [2]})
     with pytest.raises(ValueError):
-        validate_input(df, ["A", "C"], context="mock")
+        _validate_input(df, ["A", "C"], context="mock")
 
 
 def test_read_sparse_rejects_invalid_prefix_combination():
@@ -218,7 +229,7 @@ def test_read_sparse_rejects_invalid_prefix_combination():
     """
     invalid_path = "../test-datasets/test_sparse.targets"  # names consists 'targets'
     with pytest.raises(ValueError, match="does not contain expected identifiers"):
-        read_sparse(invalid_path, targets="SOMETHING", pseudobulk="WRONG")
+        _read_sparse(invalid_path, pseudobulk="WRONG", targets="SOMETHING")
 
 
 def test_read_sparse_rejects_swapped_targets_pseudobulk():
@@ -227,15 +238,13 @@ def test_read_sparse_rejects_swapped_targets_pseudobulk():
     """
     swapped_path = "../test-datasets/test_sc.pseudobulk.convoluted.merged"
     with pytest.raises(ValueError, match=r"Incompatible pseudobulk/targets combination"):
-        read_sparse(swapped_path, targets="merged", pseudobulk="convoluted")
+        _read_sparse(swapped_path, pseudobulk="convoluted", targets="merged")
 
 
 def test_read_dense_sets_metadata_tags():
     """Tests if the pseudobulk and targets arguments are correctly stored in metadata when using read_dense."""
-    obj = read_dense(DATA_DIR / "sars_R.tsv",
-                     design=("Condition", "Time", "Replicate"),
-                     pseudobulk="pb_tag",
-                     targets="tg_tag")
+    obj = _read_dense(DATA_DIR / "sars_R.tsv", design=("Condition", "Time", "Replicate"), pseudobulk="pb_tag",
+                      targets="tg_tag")
     assert obj.metadata["pseudobulk"] == "pb_tag"
     assert obj.metadata["targets"] == "tg_tag"
 
@@ -257,7 +266,7 @@ def test_dense_version_is_2():
         with gzip.open(path, "wt") as f:
             df.to_csv(f, sep="\t", index=False)
 
-        gp = read_dense(path, design=("Condition", "Time"))
+        gp = _read_dense(path, design=("Condition", "Time"))
         assert gp.metadata["Version"] == 2, "Dense input must set Version=2"
 
 
@@ -269,7 +278,7 @@ def test_sparse_version_from_runtime():
         (path / "matrix.mtx").write_text("%%MatrixMarket matrix coordinate integer general\n2 2 2\n1 1 100\n2 2 200\n")
         (path / "runtime").write_text("version 3\nother things\n")
 
-        gp = read_sparse(path, design=("Condition", "Time"))
+        gp = _read_sparse(path, design=("Condition", "Time"))
         assert gp.metadata["Version"] == 3, "Sparse input must detect Version=3 from runtime"
 
 
@@ -280,7 +289,7 @@ def test_sparse_version_fallback():
         (path / "features.tsv").write_text("gene1\tG1\t0\tcoding\t1000\ngene2\tG2\t0\tcoding\t900\n")
         (path / "matrix.mtx").write_text("%%MatrixMarket matrix coordinate integer general\n2 2 2\n1 1 100\n2 2 200\n")
 
-        gp = read_sparse(path, design=("Condition", "Time"))
+        gp = _read_sparse(path, design=("Condition", "Time"))
         assert gp.metadata["Version"] == 3, "Sparse fallback must be Version=3 if runtime file is missing"
 
 

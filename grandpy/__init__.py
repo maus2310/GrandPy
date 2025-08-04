@@ -1,5 +1,5 @@
 from .core_grandpy import GrandPy
-from .load import DESIGN_KEYS, semantics_time, build_coldata, read_grand, classify_genes, parse_time_string
+from .load import DESIGN_KEYS, semantics_time, read_grand, classify_genes, parse_time_string
 from .plot import (
     plot_scatter,
     plot_heatmap,
@@ -28,10 +28,9 @@ __all__ = [
     "read_h5ad",
     "classify_genes",
     "semantics_time",
-    "parse_time_string",
     "DESIGN_KEYS",
-    "build_coldata",
     "read_grand",
+    "parse_time_string",
     "plot_scatter",
     "plot_heatmap",
     "plot_pca",
