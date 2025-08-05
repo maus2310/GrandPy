@@ -12,7 +12,7 @@ OUT_OF_RANGE = []
 
 EXPECTED_FILE_SIZES = {
     "Expression_Test.svg": 204,
-    "Heatmap_norm.svg": 59,
+    "Heatmap_norm.svg": 55,
     "PCA_norm.svg": 40,
     "SARS.1h.A_Mock.1h.A_norm.svg": 206,
     "SRSF6_Groups_Bars.svg": 36,

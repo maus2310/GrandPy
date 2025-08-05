@@ -12,9 +12,13 @@ import seaborn as sns
 import matplotlib.ticker
 import matplotlib.pyplot as plt
 import matplotlib.colors as matplot_colors
+from matplotlib.colors import LinearSegmentedColormap
+from matplotlib.colors import Normalize
 from matplotlib import cm
 from pydeseq2.dds import DeseqDataSet
 from scipy.stats import gaussian_kde, pearsonr, spearmanr, kendalltau
+from scipy.spatial.distance import pdist
+from scipy.cluster.hierarchy import linkage, leaves_list
 from sklearn.decomposition import PCA
 
 from .core_grandpy import GrandPy
@@ -22,7 +26,7 @@ from .slot_tool import ModeSlot, _parse_as_mode_slot
 from .utils import _ensure_list
 
 
-#TODO outlier bei scatter bei limit falsch
+#TODO restliche plots fehlt noch matplot_ax parameter :)
 
 
 # ----- Private helper functions -----
@@ -589,8 +593,8 @@ def plot_scatter(
     axis_x: bool = False,
     axis_y: bool = False,
     mode_slot: str | ModeSlot = None,
-    remove_outlier: bool = True,
-    show_outlier: float = 1.5,
+    remove_outlier: bool | float = 1.5,
+    show_outlier: bool = True,
     size: float = 5,
     limit: tuple[float, float] = None,
     x_limit: tuple[float, float] = None,
@@ -601,6 +605,7 @@ def plot_scatter(
     diagonal: bool | float | tuple = None,
     highlight: Union[Sequence[str], Mapping[str, Sequence[str]]] = None,
     highlight_size: float = 3,
+    title: str = None,
     x_axis_label: str = None,
     y_axis_label: str = None,
     label: Union[Sequence[int], Sequence[str]] = None,
@@ -610,10 +615,12 @@ def plot_scatter(
     density_margin: str = "n",
     density_n: int = 100,
     correlation: Callable[[np.ndarray, np.ndarray], str] = None,
+    colorbar: bool = True,
     path_for_save: str | Path = None,
     save_fig_format: str = "svg",
     figsize: tuple[float, float] = (10, 6),
     show_plot: bool = True,
+    matplot_ax = None
 ):
     """
     Plot a scatter plot of expression values from a GrandPy object.
@@ -689,12 +696,16 @@ def plot_scatter(
 
         A mode("new"|"old"|"total") can be specified in the following formats: ModeSlot('<mode>', '<slot>') or '<mode>_<slot>'
 
-    remove_outlier : bool, default True
+    remove_outlier : bool | float default 1.5
         Whether to detect and remove outliers using IQR-based filtering.
-        (If limit, x_limit or limit_y are set, this parameter is ignored and every point beyond x/y-axis is set as an outlier.)
 
-    show_outlier : float, float, default 1.5
-        Parameter for IQR-based filtering.
+        If:
+            - limit is set: No IQR-based filtering.
+            - x_limit and no y_limit: Only IQR-based filtering fo y.
+            - y_limit and no x_limit: Only IQR-based filtering fo x.
+
+    show_outlier : bool, default True
+        Whether to show outliers.
 
     size : float, default 5
         Size of each point in the scatter plot.
@@ -733,6 +744,9 @@ def plot_scatter(
     highlight_size : float, default 3
         Size of highlighted points (multiplied with base size).
 
+    title : str, optional
+        Title of the plot.
+
     x_axis_label : str, optional
         Label on the x-axis.
 
@@ -760,6 +774,9 @@ def plot_scatter(
     correlation : Callable[[np.ndarray, np.ndarray], str], optional
         A correlation function that takes two arrays as input and returns a scalar. For example: format_correlation(method="spearman")
 
+    colorbar: bool, default True
+        Enables or disables colorbar.
+
     path_for_save : str, optional
         If given, save the figure as a PNG to this directory with auto-generated filename.
 
@@ -771,11 +788,12 @@ def plot_scatter(
 
     show_plot : bool, default=True
         Show the plot.
+
+    matplot_ax: None
+        Useful to combine plots by using matplotlib.subplots.
     """
     if mode_slot is None:
         mode_slot = data.default_slot
-
-    names = None
 
     if analysis is None:
         try:
@@ -800,7 +818,6 @@ def plot_scatter(
             if x not in names or y not in names:
                 raise ValueError(f"`x` or `y` not found in analysis '{analysis}'.")
             df = data.get_analysis_table(genes=genes, with_gene_info=False)
-            print(df)
     else:
         names = data.get_analysis_table(with_gene_info=False).keys().tolist()
         x = x or names[0]
@@ -810,7 +827,6 @@ def plot_scatter(
         if y not in names:
             raise ValueError(f"`y` is not a valid expression in analysis '{analysis}'.")
         df = data.get_analysis_table(genes=genes, with_gene_info=False)
-
     if filter is not None:
         if isinstance(filter, (tuple, slice)):
             df = df.iloc[slice(*filter) if isinstance(filter, tuple) else filter]
@@ -832,7 +848,7 @@ def plot_scatter(
             raise TypeError("Invalid filter type")
 
     if analysis:
-        x_vals_all = df.T.iloc[0].to_numpy()
+        x_vals_all = df[x].to_numpy()
     elif x in df.columns:
         x_vals_all = df[x].to_numpy()
     else:
@@ -840,7 +856,7 @@ def plot_scatter(
         x_vals_all = data.get_matrix(mode_slot, columns=col_index, force_numpy=True)
 
     if analysis:
-        y_vals_all = df.T.iloc[1].to_numpy()
+        y_vals_all = df[y].to_numpy()
     elif y in df.columns:
         y_vals_all = df[y].to_numpy()
     else:
@@ -850,7 +866,6 @@ def plot_scatter(
         raise ValueError(f"All Values for '{x}' in slot '{mode_slot}' are NaN. - Plot not possible!")
     if np.all(np.isnan(y_vals_all)):
         raise ValueError(f"All Values for '{x}' in slot '{mode_slot}' are NaN. - Plot not possible!")
-
     if log:
         log_x = True
         log_y = True
@@ -945,7 +960,11 @@ def plot_scatter(
     else:
         color = color
 
-    fig, ax = plt.subplots(figsize=figsize)
+    if matplot_ax is None:
+        fig, ax = plt.subplots(figsize=figsize)
+    else:
+        ax = matplot_ax
+        fig = ax.figure
 
     # Plot outliers
     if remove_outlier and show_outlier:
@@ -956,17 +975,21 @@ def plot_scatter(
 
     # Main scatter
     scatter = ax.scatter(x_vals, y_vals, c=color, s=size, cmap=color_palette, alpha=1, rasterized=rasterized, antialiased=True)
-    fig.colorbar(scatter, ax=ax, label="Density")
+    if colorbar:
+        fig.colorbar(scatter, ax=ax, label="Density")
 
     # Axis labels and title
     ax.set_xlabel(x)
     ax.set_ylabel(y)
-    ax.set_title(f"{x} vs {y} ({mode_slot})")
+    if title:
+        ax.set_title(title)
+    else:
+        ax.set_title(f"{x} vs {y} ({mode_slot})")
 
     if x_axis_label is not None:
-        plt.xlabel(x_axis_label)
+        ax.set_xlabel(x_axis_label)
     if y_axis_label is not None:
-        plt.ylabel(y_axis_label)
+        ax.set_ylabel(y_axis_label)
 
     if x_limit:
         ax.set_xlim(x_limit)
@@ -1015,12 +1038,17 @@ def plot_scatter(
         ax.set_yticklabels([])
         ax.spines["left"].set_visible(False)
         ax.spines["right"].set_visible(False)
-    plt.tight_layout()
-    if path_for_save:
-        fig.savefig(f"{path_for_save}/{x}_{y}_{mode_slot}.{save_fig_format}", format=save_fig_format, dpi=300)
-    if show_plot:
-        plt.show()
-        plt.close()
+
+    if matplot_ax is None:
+        plt.tight_layout()
+        if path_for_save:
+            fig.savefig(f"{path_for_save}/{x}_{y}_{mode_slot}.{save_fig_format}", format=save_fig_format, dpi=300)
+        if show_plot:
+            plt.show()
+            plt.close()
+    else:
+        if path_for_save:
+            fig.savefig(f"{path_for_save}/{x}_{y}_{mode_slot}.{save_fig_format}", format=save_fig_format, dpi=300)
 
 
 def plot_heatmap(
@@ -1032,6 +1060,8 @@ def plot_heatmap(
     transform: Union[str, Callable] = "Z",
     cluster_genes: bool = True,
     cluster_columns: bool = False,
+    clustering_distance: str = "euclidean",
+    clustering_method: str = "complete",
     label_genes: bool = None,
     x_labels: Sequence[str] = None,
     breaks: Sequence[int] = None,
@@ -1043,6 +1073,7 @@ def plot_heatmap(
     path_for_save: str | Path = None,
     save_fig_format: str = "svg",
     show_plot: bool = True,
+    matplot_ax: Any = None,
 ):
     """
     Create heatmaps from GrandPy objects.
@@ -1097,6 +1128,12 @@ def plot_heatmap(
     cluster_columns : bool, default False
         Whether to cluster samples/cells (columns) hierarchically.
 
+    clustering_distance : str, default "euclidean"
+        The distance metric to use for clustering. (See scipy.spatial.distance.pdist for all metrics)
+
+    clustering_method : str, default "complete
+        The method to use for clustering. (See scipy.cluster.hierarchy.linkage for all methods)
+
     label_genes : bool, optional
         Whether to show gene names on the y-axis. Defaults to True if number
         of genes is <=50, otherwise False.
@@ -1130,6 +1167,9 @@ def plot_heatmap(
 
     show_plot : bool, default True
         Whether to show the heatmap.
+
+    matplot_ax: None
+        Useful to combine plots by using matplotlib.subplots.
     """
     if mode_slot is None:
         mode_slot = data.default_slot
@@ -1209,34 +1249,53 @@ def plot_heatmap(
     scaled_breaks = [(b - min_break) / (max_break - min_break) for b in breaks]
     color_list = list(zip(scaled_breaks, colors))
 
-    from matplotlib.colors import LinearSegmentedColormap
-    from matplotlib.colors import Normalize
     cmap = LinearSegmentedColormap.from_list("custom", color_list)
     norm = Normalize(vmin=min_break, vmax=max_break)
 
-    g = sns.clustermap(
+    clustering_distance = clustering_distance
+    clustering_method = clustering_method
+
+    if cluster_genes:
+        row_dist = pdist(df.values, metric=clustering_distance)
+        row_linkage = linkage(row_dist, method=clustering_method)
+        row_order = leaves_list(row_linkage)
+        df = df.iloc[row_order, :]
+
+    if cluster_columns:
+        col_dist = pdist(df.values.T, metric=clustering_distance)
+        col_linkage = linkage(col_dist, method=clustering_method)
+        col_order = leaves_list(col_linkage)
+        df = df.iloc[:, col_order]
+
+    if matplot_ax is None:
+        fig, ax = plt.subplots(figsize=figsize)
+    else:
+        ax = matplot_ax
+
+    sns.heatmap(
         df,
-        figsize=figsize,
         cmap=cmap,
-        norm = norm,
-        row_cluster=cluster_genes,
-        col_cluster=cluster_columns,
+        norm=norm,
+        ax=ax,
         yticklabels=label_genes,
         xticklabels=True,
-        cbar_kws={"label": label},
-        cbar_pos=(0.000002, 0.08, 0.02, 0.84),
+        cbar_kws={"label": label} if matplot_ax else None,
     )
-    # Write the number of genes on the y-axis
-    g.ax_heatmap.set_ylabel(f"n = {df.shape[0]}")
 
-    if return_matrix:
-        print(df, table)
+    ax.set_ylabel(f"n = {df.shape[0]}")
     if title:
-        g.ax_heatmap.set_title(title, pad = 30)
-    #plt.tight_layout()     # Makes cbar way to big :(
+        ax.set_title(title, pad=30)
+
+    if matplot_ax:
+        plt.tight_layout()
+
     if path_for_save:
-        g.savefig(f"{path_for_save}/Heatmap_{mode_slot[0]}.{save_fig_format}", format=save_fig_format)
-    if show_plot:
+        if matplot_ax:
+            fig.savefig(f"{path_for_save}/Heatmap_{mode_slot[0]}.{save_fig_format}", format=save_fig_format)
+        else:
+            ax.figure.savefig(f"{path_for_save}/Heatmap_{mode_slot[0]}.{save_fig_format}", format=save_fig_format)
+
+    if show_plot and matplot_ax:
         plt.show()
         plt.close()
 
