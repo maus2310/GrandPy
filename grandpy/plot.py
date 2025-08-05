@@ -583,6 +583,8 @@ def plot_scatter(
     log: bool = False,
     log_x: bool = False,
     log_y: bool = False,
+    neg_log_x: bool = False,
+    neg_log_y: bool = False,
     axis: bool = False,
     axis_x: bool = False,
     axis_y: bool = False,
@@ -667,6 +669,12 @@ def plot_scatter(
     log_y : bool, default False
         If True, apply log10 transform to y-axis values.
 
+    neg_log_x: bool, default False
+        If true, apply -log10 transform to x-axis values.
+
+    neg_log_y: bool, default False
+        If true, apply -log10 transform to y-axis values.
+
     axis : bool, default False
         If True, remove both axes (ticks, labels, spines).
 
@@ -681,23 +689,28 @@ def plot_scatter(
 
         A mode("new"|"old"|"total") can be specified in the following formats: ModeSlot('<mode>', '<slot>') or '<mode>_<slot>'
 
-    remove_outlier : float, default 1.5
+    remove_outlier : bool, default True
         Whether to detect and remove outliers using IQR-based filtering.
+        (If limit, x_limit or limit_y are set, this parameter is ignored and every point beyond x/y-axis is set as an outlier.)
 
-    show_outlier : bool, default True
-        If True, plot filtered outliers in gray behind the main scatter plot.
+    show_outlier : float, float, default 1.5
+        Parameter for IQR-based filtering.
 
     size : float, default 5
         Size of each point in the scatter plot.
 
     limit : tuple[float, float], optional
-        Sets both x and y limits to the same value, unless x_limit or y_limit are specified.
+        Sets both x- and y-axis limits to the same (low, high) range.
+        Cannot be combined with `x_limit` or `y_limit`. If either `x_limit` or `y_limit` is provided,
+        use the corresponding other limit instead of `limit` to mix manual and automatic filtering.
 
     x_limit : tuple[float, float], optional
-        Explicitly set the x-axis limits.
+        Explicitly set the x-axis limits. If `y_limit` is not provided, it will be inferred
+        automatically using an IQR-based outlier filter. Cannot be combined with `limit`.
 
     y_limit : tuple[float, float], optional
-        Explicitly set the y-axis limits.
+        Explicitly set the y-axis limits. If `x_limit` is not provided, it will be inferred
+        automatically using an IQR-based outlier filter. Cannot be combined with `limit`.
 
     color : str, optional
         The color for the plottet points. If None, use density-based coloring.
@@ -759,28 +772,44 @@ def plot_scatter(
     show_plot : bool, default=True
         Show the plot.
     """
-    if data.analyses:
-        if analysis is None:
-            analysis = data.analyses[0]
-        else:
-            analysis = analysis
-        names = data.get_analysis_table(with_gene_info=False).keys().tolist()
-    else:
-        names = data.columns
-    x = x or names[0]
-    y = y or names[1]
-    if x not in names:
-        raise ValueError(f"x is not a valid expression.")
-    if y not in names:
-        raise ValueError(f"y is not a valid expression.")
-
     if mode_slot is None:
         mode_slot = data.default_slot
 
-    if analysis:
-        df = data.get_analysis_table(genes=genes, with_gene_info=False)
+    names = None
+
+    if analysis is None:
+        try:
+            names = data.columns
+            x = x or names[0]
+            y = y or names[1]
+            if x in names and y in names:
+                df = data.get_table(mode_slot=mode_slot, genes=genes, ntr_nan=False)
+            else:
+                raise KeyError  # fallback to analysis
+        except Exception:
+            if not analysis:
+                warnings.warn(
+                    f"`x` or `y` not found in raw data (slot '{mode_slot}'). "
+                    f"If you want to plot analyses, ignore this warning or set the `analysis` parameter explicitly.",
+                    UserWarning
+                )
+            if not data.analyses:
+                raise ValueError("No analysis available and x/y not found in raw data.")
+            analysis = data.analyses[0]
+            names = data.get_analysis_table(with_gene_info=False).keys().tolist()
+            if x not in names or y not in names:
+                raise ValueError(f"`x` or `y` not found in analysis '{analysis}'.")
+            df = data.get_analysis_table(genes=genes, with_gene_info=False)
+            print(df)
     else:
-        df = data.get_table(mode_slot=mode_slot, genes=genes, ntr_nan=False)
+        names = data.get_analysis_table(with_gene_info=False).keys().tolist()
+        x = x or names[0]
+        y = y or names[1]
+        if x not in names:
+            raise ValueError(f"`x` is not a valid expression in analysis '{analysis}'.")
+        if y not in names:
+            raise ValueError(f"`y` is not a valid expression in analysis '{analysis}'.")
+        df = data.get_analysis_table(genes=genes, with_gene_info=False)
 
     if filter is not None:
         if isinstance(filter, (tuple, slice)):
@@ -802,18 +831,18 @@ def plot_scatter(
         else:
             raise TypeError("Invalid filter type")
 
-    if x in df.columns:
-        x_vals_all = df[x].to_numpy()
-    elif analysis:
+    if analysis:
         x_vals_all = df.T.iloc[0].to_numpy()
+    elif x in df.columns:
+        x_vals_all = df[x].to_numpy()
     else:
         col_index = list(data.coldata["Name"]).index(x)
         x_vals_all = data.get_matrix(mode_slot, columns=col_index, force_numpy=True)
 
-    if y in df.columns:
-        y_vals_all = df[y].to_numpy()
-    elif analysis:
+    if analysis:
         y_vals_all = df.T.iloc[1].to_numpy()
+    elif y in df.columns:
+        y_vals_all = df[y].to_numpy()
     else:
         col_index = list(data.coldata["Name"]).index(y)
         y_vals_all = data.get_matrix(mode_slot, columns=col_index, force_numpy=True)
@@ -822,48 +851,83 @@ def plot_scatter(
     if np.all(np.isnan(y_vals_all)):
         raise ValueError(f"All Values for '{x}' in slot '{mode_slot}' are NaN. - Plot not possible!")
 
-    if limit:
-        x_limit = x_limit or limit
-        y_limit = y_limit or limit
-
     if log:
         log_x = True
         log_y = True
 
     mask = np.ones_like(x_vals_all, dtype=bool)
-    if log_x:
+    if log_x or neg_log_x:
         mask &= x_vals_all > 0
-    if log_y:
+    if log_y or neg_log_y:
         mask &= y_vals_all > 0
 
     if not np.any(mask):
         raise ValueError("No positive values for selected log transform. Log transform not possible!")
 
-    x_vals_trans = np.log10(x_vals_all[mask]) if log_x else x_vals_all[mask]
-    y_vals_trans = np.log10(y_vals_all[mask]) if log_y else y_vals_all[mask]
-
-    if (x_limit is None) and (y_limit is None) and (limit is None or limit == 0):
-        #IQR-based Outlier
-        mask_keep, auto_x_lim, auto_y_lim = _apply_outlier_filter(y_vals_trans, y_vals_trans, remove_outlier)
+    if log_x:
+        x_vals_trans = np.log10(x_vals_all[mask])
+    elif neg_log_x:
+        x_vals_trans = -np.log10(x_vals_all[mask])
     else:
+        x_vals_trans = x_vals_all[mask]
+
+    if log_y:
+        y_vals_trans = np.log10(y_vals_all[mask])
+    elif neg_log_y:
+        y_vals_trans = -np.log10(y_vals_all[mask])
+    else:
+        y_vals_trans = y_vals_all[mask]
+
+    # Error handling for inconsistent limit combinations
+    if limit is not None:
         if x_limit is not None:
+            raise ValueError(
+                "`limit` and `x_limit` cannot be used together. Set `y_limit` instead of `limit` to combine IQR-based X filtering with manual Y.")
+        if y_limit is not None:
+            raise ValueError(
+                "`limit` and `y_limit` cannot be used together. Set `x_limit` instead of `limit` to combine IQR-based Y filtering with manual X.")
+
+    # No manual limits and no global limit -> IQR-based outlier filtering
+    if (x_limit is None) and (y_limit is None) and (limit is None or limit == 0) and remove_outlier:
+        mask_keep, auto_x_lim, auto_y_lim = _apply_outlier_filter(x_vals_trans, y_vals_trans, remove_outlier)
+        x_lower, x_upper = auto_x_lim
+        y_lower, y_upper = auto_y_lim
+    else:
+        # Manual x_limit only -> apply IQR on y
+        if x_limit is not None and y_limit is None and remove_outlier:
+            _, _, iqr_y_lim = _apply_outlier_filter(x_vals_trans, y_vals_trans, remove_outlier)
             x_lower, x_upper = x_limit
-        elif limit is not None:
-            x_lower, x_upper = np.nanpercentile(x_vals_trans, [100 - limit, limit])
+            y_lower, y_upper = iqr_y_lim
+
+        # Manual y_limit only -> apply IQR on x
+        elif y_limit is not None and x_limit is None and remove_outlier:
+            _, iqr_x_lim, _ = _apply_outlier_filter(x_vals_trans, y_vals_trans, remove_outlier)
+            x_lower, x_upper = iqr_x_lim
+            y_lower, y_upper = y_limit
+
+        # Global `limit` percentile-based filtering on both axes
+        elif limit is not None and remove_outlier:
+            x_lower, x_upper = limit
+            y_lower, y_upper = limit
+
+        # Manual x and y limits, no limit set
+        elif x_limit is not None and y_limit is not None and remove_outlier:
+            x_lower, x_upper = x_limit
+            y_lower, y_upper = y_limit
+
+        # Fallback to full range
         else:
             x_lower, x_upper = np.nanmin(x_vals_trans), np.nanmax(x_vals_trans)
-
-        if y_limit is not None:
-            y_lower, y_upper = y_limit
-        elif limit is not None:
-            y_lower, y_upper = np.nanpercentile(y_vals_trans, [100 - limit, limit])
-        else:
             y_lower, y_upper = np.nanmin(y_vals_trans), np.nanmax(y_vals_trans)
 
-        mask_keep = (y_vals_trans >= x_lower) & (y_vals_trans <= x_upper) & (y_vals_trans >= y_lower) & (y_vals_trans <= y_upper)
+    # Build mask for data within the selected limits
+    mask_keep = (
+            (x_vals_trans >= x_lower) & (x_vals_trans <= x_upper) &
+            (y_vals_trans >= y_lower) & (y_vals_trans <= y_upper)
+    )
 
-        auto_x_lim = (x_lower, x_upper)
-        auto_y_lim = (y_lower, y_upper)
+    auto_x_lim = (x_lower, x_upper)
+    auto_y_lim = (y_lower, y_upper)
 
     x_vals = x_vals_trans[mask_keep]
     y_vals = y_vals_trans[mask_keep]
@@ -885,7 +949,7 @@ def plot_scatter(
 
     # Plot outliers
     if remove_outlier and show_outlier:
-        margin = 0.01
+        margin = 0.0001
         clipped_x = np.clip(outlier_x, x_limit[0] + margin, x_limit[1] - margin)
         clipped_y = np.clip(outlier_y, y_limit[0] + margin, y_limit[1] - margin)
         ax.scatter(clipped_x, clipped_y, color="grey", s=size + 10, alpha=1, label="Outliers")

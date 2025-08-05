@@ -9,14 +9,15 @@ description = "Modul for kinetic RNA-seq analysis, inspired by grandR."
 readme = "README.md"
 #license = { file = "LICENSE.md" }
 authors = [
-  {name = "Marius"},
-  {name = "Kathi"},
-  {name = "Andi"},
-  {name = "Finn"},
+  {name = "Marius Preidel"},
+  {name = "Katharina Steinkirchner"},
+  {name = "Andreas Weiß"},
+  {name = "Finn Möller"},
 ]
 maintainers = [
-  {name = "Erhard"}
+  {name = "Florian Erhard"}
 ]
+
 dependencies = [
     "numpy",
     "pandas",
@@ -25,16 +26,16 @@ dependencies = [
     "tqdm",
     "matplotlib",
     "seaborn",
-    "pydeseq2",
-    "re"
+    "pydeseq2"
 ]
+
 requires-python = ">= 3.13.0"
 keywords = ["grandpy", "Grandpy", "GrandPy", "GrandPy", "RNA", "grandR"]
 
-[project.urls]
-Homepage = "beispiel.com"
-Documentation = "beispiel.com"
-Repository = "beispiel.com"
+#TODO Insert right URLs
+#[project.urls]
+#Homepage = "beispiel.com"
+#Repository = "beispiel.com"
 
 [tool.setuptools.packages.find]
 where = ["."]
