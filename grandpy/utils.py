@@ -111,7 +111,7 @@ def concat(
     return objects[0]._dev_replace(anndata=new_adata)
 
 
-def anndata_to_grandpy(anndata: ad.AnnData, transpose: bool = True) -> "GrandPy":
+def anndata_to_grandpy(anndata: ad.AnnData, transpose: bool = False) -> "GrandPy":
     """
     Create a GrandPy instance from an AnnData instance.
 
@@ -119,6 +119,7 @@ def anndata_to_grandpy(anndata: ad.AnnData, transpose: bool = True) -> "GrandPy"
     -----
     The internal AnnData has to be transposed, relative to what you would usually expect.
     Meaning obs has to contain the column metadata (coldata) and var the gene metadata (gene_info).
+    This also applies to analyses.
 
     See Also
     --------
@@ -130,8 +131,8 @@ def anndata_to_grandpy(anndata: ad.AnnData, transpose: bool = True) -> "GrandPy"
     anndata: ad.AnnData
         The AnnData to convert.
 
-    transpose: bool, default True
-        If True, all Matrizes in the AnnData are transposed. (see Notes)
+    transpose: bool, default False
+        If True, all Matrices in the AnnData are transposed. (see Notes)
         Otherwise, they remain in their original form.
 
     Returns

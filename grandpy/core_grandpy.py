@@ -145,7 +145,12 @@ class GrandPy:
         )
 
     def __repr__(self):
-        return f"<GrandPy object: {self._anndata.n_obs} genes x {self._anndata.n_vars} samples>"
+        return (
+            f"GrandPy object: {self._anndata.n_obs} genes, {self._anndata.n_vars} samples/cells\n"
+            f"Available data slots: {self.slots}, default: {self.default_slot}\n"
+            f"Available analyses: {self.analyses}\n"
+            f"Available plots: {self.plots}\n"
+        )
 
     def __len__(self):
         return self._anndata.n_obs
@@ -515,7 +520,7 @@ class GrandPy:
 
         return self._dev_replace(slots=new_slots, metadata=new_metadata)
 
-    def with_slot(self, name: str, new_slot: Union[np.ndarray, pd.DataFrame, sp.csr_matrix, list], *, set_to_default = False) -> "GrandPy":
+    def with_slot(self, name: str, value: Union[np.ndarray, pd.DataFrame, sp.csr_matrix], *, set_to_default = False) -> "GrandPy":
         """
         Returns a GrandPy instance with the new slot added. Will overwrite if the slot already exists and give a warning.
 
@@ -539,7 +544,7 @@ class GrandPy:
         name: str
             Name of the new slot.
 
-        new_slot: np.ndarray or pd.DataFrame or sp.csr_matrix
+        value: np.ndarray or pd.DataFrame or sp.csr_matrix
             The data to be added as a new slot.
 
         set_to_default: bool, default False
@@ -550,7 +555,7 @@ class GrandPy:
         GrandPy
             A GrandPy instance with the new slot added.
         """
-        new_slots, new_metadata = self.__slot_tool.with_slot(name, new_slot, set_to_default=set_to_default)
+        new_slots, new_metadata = self.__slot_tool.with_slot(name, value, set_to_default=set_to_default)
 
         return self._dev_replace(slots=new_slots, metadata=new_metadata)
 
@@ -1299,6 +1304,9 @@ class GrandPy:
         """
         analyses = self.get_analyses(analysis, regex=regex)
         result = self.gene_info
+
+        if analysis not in analyses:
+            raise ValueError(f"analysis '{analysis}' not found. Available analyses are {analyses}")
 
         for name in analyses:
             tab = self.get_analysis_table(
@@ -2441,7 +2449,7 @@ class GrandPy:
 
         return result
 
-    def to_anndata(self, x: Union[str, ModeSlot] = None, original: bool = False) -> ad.AnnData:
+    def to_anndata(self, x: Union[str, ModeSlot] = None, transpose: bool = False) -> ad.AnnData:
         """
         Extracts an Anndata instance from GrandPy.
 
@@ -2449,9 +2457,8 @@ class GrandPy:
 
         Notes
         -----
-        When you want the AnnData instance to be scanpy compatible, use `original` = False.
+        When you want the AnnData instance to be scanpy compatible, use `transpose` = True.
         For this, the internal AnnData is transposed and plots are removed.
-        If this is not desired, use `original` = True.
 
         See Also
         --------
@@ -2464,10 +2471,9 @@ class GrandPy:
             The name of the slot to be set as the main data matrix X; by default `default_slot`.
             Can also be a `ModeSlot`.
 
-        original: bool, default False
-            If False, AnnData will be returned scanpy compatible.
-
-            Otherwise, AnnData will be returned as stored internally.
+        transpose: bool, default False
+            If False, the anndata will be returned as stored internally.
+            Otherwise, it will be transposed to make it scanpy compatible.
 
         Returns
         -------
@@ -2480,7 +2486,7 @@ class GrandPy:
         adata = self._anndata.copy()
         adata.X = self.get_matrix(x, force_numpy=False)
 
-        if original:
+        if not transpose:
             return adata
 
         if self.analyses is not None:

@@ -123,7 +123,7 @@ class SlotTool:
 
         return {k: safe_copy(v) for k, v in self._adata.layers.items()}
 
-    def with_slot(self, name: str, new_slot: Union[np.ndarray, pd.DataFrame, sp.csr_matrix, Sequence], *, set_to_default=False) -> tuple[dict, dict]:
+    def with_slot(self, name: str, value: Union[np.ndarray, pd.DataFrame, sp.csr_matrix], *, set_to_default=False) -> tuple[dict, dict]:
         """
         For detailed documentation see GrandPy.with_slot.
         """
@@ -152,13 +152,13 @@ class SlotTool:
 
             # If dense, but not ndarray → to ndarray
             if not self._is_sparse and not isinstance(matrix, np.ndarray):
-                matrix = np.array(matrix)
+                matrix = np.asarray(matrix)
 
             return matrix
 
-        new_slot = validate_and_convert_new_data(new_slot)
+        value = validate_and_convert_new_data(value)
 
-        new_slots[name] = new_slot
+        new_slots[name] = value
 
         new_metadata = self._adata.uns.get('metadata', {}).copy()
         if set_to_default:

@@ -253,7 +253,7 @@ def _compute_steady_state_half_lives(
     if as_analysis:
         return data.with_analysis(name=name, table=hls)
     else:
-        return data.with_slot(name=name, new_slot=hls)
+        return data.with_slot(name=name, value=hls)
 
 
 def _filter_genes(
@@ -342,7 +342,7 @@ def _normalize(
 
     normalized_matrix = matrix_for_normalization / size_factors
 
-    return data.with_slot(name=name, new_slot=normalized_matrix, set_to_default=set_to_default)
+    return data.with_slot(name=name, value=normalized_matrix, set_to_default=set_to_default)
 
 def _normalize_fpkm(
     data: "GrandPy",
@@ -369,7 +369,7 @@ def _normalize_fpkm(
 
     fpkm = _comp_fpkm(count_matrix=mat, lengths=total_len, subset=subset_indices)
 
-    return data.with_slot(name=name, new_slot=fpkm, set_to_default=set_to_default)
+    return data.with_slot(name=name, value=fpkm, set_to_default=set_to_default)
 
 def _normalize_tpm(
         data: "GrandPy",
@@ -416,7 +416,7 @@ def _normalize_rpm(
 
     rpm = _comp_rpm(count_matrix=mat, subset=subset_indices, factor=factor)
 
-    return data.with_slot(name=name, new_slot=rpm, set_to_default=set_to_default)
+    return data.with_slot(name=name, value=rpm, set_to_default=set_to_default)
 
 
 def _normalize_baseline(

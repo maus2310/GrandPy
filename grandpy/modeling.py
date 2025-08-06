@@ -411,20 +411,11 @@ def fit_kinetics_gene_least_squares(
     total_value : float, optional
         Optional total expression values used to estimate initial concentration in chase mode.
 
-    sample_names: list[str], optional
-        Sample names for naming residuals.
-
     Returns
     -------
     FitResult
-        A container object holding fitted parameters, residuals, confidence intervals, and diagnostics.
-
-    See Also
-    --------
-    FitResult
-        Object encapsulating result and post-fit statistics.
+        A container object holding the computed analyses.
     """
-
     if time.size + time.size == 0:
         return FitResult()
 
@@ -1325,7 +1316,7 @@ def _calibrate_effective_labeling_time_kinetic_fit(
     **kwargs
 ) -> pd.DataFrame:
     """
-    For a detailed description, see grandpy.GrandPy.calibrate_effective_labeling_time_kinetic_fit.
+    For detailed description see GrandPy.calibrate_effective_labeling_time_kinetic_fit.
     """
     if slot is None:
         slot = data.default_slot
