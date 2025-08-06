@@ -176,12 +176,27 @@ class GrandPy:
             metadata: Mapping[str, Any] = None,
             analyses: Mapping[str, Any] = None,
             plots: Mapping[str, Any] = None,
-            anndata: ad.AnnData = None
+            anndata: ad.AnnData = None,
+            **kwargs
     ) -> "GrandPy":
         """
         Replaces the specified parameters.
 
         This function is useful when you want to modify GrandPy objects on your own.
+
+        Notes
+        -----
+        When trying to replace a slot (`slots` or `kwargs`), it has to be a numpy ndarray.
+
+        Examples
+        --------
+        Replace the coldata of the GrandPy instance 'sars'.
+
+        >>> sars = sars.with_replaced_parameters(coldata=new_coldata_dataframe)
+
+        Replace the slot 'count'.
+
+        >>> sars = sars.with_replaced_parameters(count=new_count_ndarray)
 
         See Also
         --------
@@ -215,6 +230,9 @@ class GrandPy:
             If both `anndata` and any of the other parameters are specified, `anndata` will be replaced first,
             followed by the rest, now in the new instance.
 
+        **kwargs: np.ndarray or sp.csr_matrix
+            Replaces a specific slot.
+
         Returns
         -------
         GrandPy
@@ -225,7 +243,7 @@ class GrandPy:
         else:
             anndata = anndata.copy()
 
-        return self.__class__(
+        new_gp = self.__class__(
             prefix = anndata.uns.get('prefix'),
             gene_info = gene_info.copy() if gene_info is not None else anndata.obs,
             coldata = coldata.copy() if coldata is not None else anndata.var,
@@ -234,6 +252,13 @@ class GrandPy:
             analyses = copy.deepcopy(analyses) if analyses is not None else anndata.uns.get("analyses"),
             plots = copy.deepcopy(plots) if plots is not None else anndata.uns.get("plots")
         )
+        for param_name, param_value in kwargs.items():
+            if param_name in new_gp.slots:
+                new_gp._anndata.layers[param_name] = copy.deepcopy(param_value)
+            else:
+                warnings.warn(f"Tried to replace a slot with '{param_name}', but the slot was not found. Available slots: {new_gp.slots}")
+
+        return new_gp
 
     def _dev_replace(
             self,
@@ -1220,48 +1245,67 @@ class GrandPy:
         """
         return self.gene_info[self.gene_info["Type"] == classification_label].get("Symbol").tolist()
 
-    # TODO: get_significant_genes testen + doc string verbessern
     def get_significant_genes(
             self,
             analysis = None,
-            regex = True,
             criteria: str = None,
-            as_table: bool = False,
+            *,
+            regex=True,
             use_symbols: bool = True,
-            gene_info: bool = True
+            as_table: bool = False,
+            with_gene_info: bool = True
     ) -> Union[list[str], pd.DataFrame]:
         """
-        Return significantly regulated genes based on analysis results.
+        Return significant genes based on analysis results.
+
+        Examples
+        --------
+        Perform an analysis on the GrandPy instance 'sars'.
+
+        >>> sars = sars.pairwise(sars.get_contrasts())
+        >>> sars.get_analyses(description=True)
+        {'total_Mock vs SARS': ['M', 'S', 'P', 'Q', 'LFC']}
+
+        Get the genes with Q < 0.05 and an LFC >= 1.
+
+        >>> sig_genes = sars.get_significant_genes(criteria="Q < 0.05 & LFC >= 1")
+        >>> print(len(sig_genes))
+        45
 
         Parameters
         ----------
         analysis : str or list[str], optional
             Names of the analysis results to evaluate.
 
-        regex : bool, default True
-            If True, treat `analysis` as a regular expression.
-
         criteria : str, optional
-            String expression to evaluate significance (e.g. "Q < 0.05 and abs(LFC) >= 1").
+            String expression evaluated against `analysis`. By default, 'Q<0.05 & abs(LFC)>=1'.
 
-        as_table : bool, default False
-            If True, return full table instead of a list.
+        regex : bool, default True
+            If True, `analysis` is evaluated as a regular expression.
 
         use_symbols : bool, default True
-            Whether to use gene symbols as rownames.
+            Whether to use gene symbols or ensemble IDs in the result.
 
-        gene_info : bool, default True
-            Whether to include gene info columns in output.
+        as_table : bool, default False
+            If True, return the genes as a DataFrame with their respective significance values.
+
+        with_gene_info : bool, default True
+            Whether to include gene info columns in output. Only relevant if `as_table` is True.
+
+        Returns
+        -------
+        Union[list[str], pd.DataFrame]
+            A list of significant gene symbols or a DataFrame containing the respective significance values.
         """
         analyses = self.get_analyses(analysis, regex=regex)
         result = self.gene_info
-        result.index = result["Symbol"] if use_symbols else result["Gene"]
 
         for name in analyses:
             tab = self.get_analysis_table(
                 analyses=name,
                 regex=False,
-                with_gene_info=False
+                with_gene_info=False,
+                prefix_by_analyses=False
             )
 
             if criteria is None:
@@ -1275,12 +1319,15 @@ class GrandPy:
             use = use.fillna(False)
             result[name] = use
 
+        if not use_symbols:
+            result = result.set_index("Gene", drop=False)
+
         if not as_table:
             result = result.iloc[:, self.gene_info.shape[1]:]
 
             classes = set(result.dtypes)
             if len(classes) != 1:
-                raise ValueError("Output contains mixed data types (logical and numeric).")
+                raise ValueError("The criteria evaluation returned mixed data types. Results should either be numeric or boolean.")
 
             dtype = list(classes)[0]
             if pd.api.types.is_bool_dtype(dtype):
@@ -1292,10 +1339,11 @@ class GrandPy:
                     raise ValueError("Multiple numeric values present, can only return as a table.")
                 return result.sort_values(by=result.columns[0], ascending=False).index.tolist()
 
-        if not gene_info:
+        if not with_gene_info:
             result = result.iloc[:, self.gene_info.shape[1]:]
 
         result = result.sort_values(by=result.columns[-1], ascending=False)
+
         return result
 
 
@@ -2324,7 +2372,7 @@ class GrandPy:
     ) -> "GrandPy":
         """
         Merge the 'other' instance with the current instance along a given axis. Uses 'first' for metadata and plots.
-        Analyses are all kept with an added prefix to avoid collisions
+        Analyses are all kept with an added prefix to avoid collisions.
 
         Parameters
         ----------
@@ -2357,7 +2405,7 @@ class GrandPy:
         Returns
         -------
         GrandPy
-            A new merged GrandPy object.
+            A merged GrandPy object.
         """
         from .utils import concat
 
