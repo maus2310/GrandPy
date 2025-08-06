@@ -1058,6 +1058,7 @@ def plot_heatmap(
     genes: Union[str, int, Sequence[Union[str, int, bool]]] = None,
     summarize: pd.DataFrame = None,
     transform: Union[str, Callable] = "Z",
+    logfc_columns: Sequence[int] = None,
     cluster_genes: bool = True,
     cluster_columns: bool = False,
     clustering_distance: str = "euclidean",
@@ -1121,6 +1122,9 @@ def plot_heatmap(
         Transformation to apply to the data matrix. Possible string values are
         "Z" (z-score per row), "vst" (variance stabilizing transform),
         "logFC" (log2 fold change), or "none".
+
+    logfc_columns : Sequence[str], optional
+        Columns to include in the logFC columns. If None, all columns are included.
 
     cluster_genes : bool, default True
         Whether to cluster genes (rows) hierarchically.
@@ -1190,16 +1194,19 @@ def plot_heatmap(
     elif isinstance(columns, str):
         selected_columns = list(data.coldata.query(columns).index)
     else:
-        selected_columns = data.get_columns(columns)
+        try:
+            selected_columns = data.get_columns(columns)
+        except Exception:
+            selected_columns = columns
+            is_analysis = True
 
-    if is_slot:
+    if is_slot and not is_analysis:
         if len(mode_slots) > 1 and x_labels is not None:
             raise ValueError("Cannot use 'xlabels' with multiple slots")
 
         table = data.get_table(mode_slot=mode_slots, genes=genes, columns=selected_columns, summarize=summarize, ntr_nan=False)
     else:
-        table = data.get_analysis_table(genes=genes)
-        table = table[selected_columns]
+        table = data.get_analysis_table(genes=genes, columns=selected_columns, with_gene_info=False)
     mat = table.to_numpy(dtype=np.float64)
     gene_names = table.index.to_list()
     sample_names = table.columns.to_list()
@@ -1226,7 +1233,7 @@ def plot_heatmap(
         elif transform == "logfc":
             if selected_columns is None or len(selected_columns) == 0:
                 raise ValueError("Need columns=... to compute logFC reference")
-            mat = _transform_logfc(mat)
+            mat = _transform_logfc(mat, reference_columns=logfc_columns)
             label = "log2 FC"
         else:
             raise ValueError(f"Unknown transform: {transform}")
@@ -1234,8 +1241,25 @@ def plot_heatmap(
     if na_to is not None:
         mat = np.where(np.isnan(mat), na_to, mat)
 
-    if x_labels is not None and len(x_labels) == len(sample_names):
-        sample_names = x_labels
+    coldata = data.coldata
+
+    if is_analysis is not None:
+        if isinstance(x_labels, list):
+            x_labels = x_labels
+        elif isinstance(x_labels, str):
+            local_vars = {col.replace(".", "_"): coldata[col].astype(str) for col in coldata.columns}
+            safe_expr = x_labels
+            for col in coldata.columns:
+                safe_expr = safe_expr.replace(col, col.replace(".", "_"))
+            try:
+                x_labels = eval(safe_expr, {}, local_vars).tolist()
+            except Exception as e:
+                raise ValueError(f"xlab expression could not be evaluated: {e}\n" + """Replace "." with "_" and try again.""")
+        else:
+            x_labels = coldata["Name"].tolist()
+    else:
+        x_labels = None
+
     if label_genes is None:
         label_genes = len(gene_names) <= 50
 
@@ -1251,6 +1275,8 @@ def plot_heatmap(
 
     cmap = LinearSegmentedColormap.from_list("custom", color_list)
     norm = Normalize(vmin=min_break, vmax=max_break)
+    if not is_analysis:
+        df.columns = x_labels
 
     clustering_distance = clustering_distance
     clustering_method = clustering_method
@@ -1295,7 +1321,10 @@ def plot_heatmap(
         else:
             ax.figure.savefig(f"{path_for_save}/Heatmap_{mode_slot[0]}.{save_fig_format}", format=save_fig_format)
 
-    if show_plot and matplot_ax:
+    if return_matrix:
+        print(df)
+
+    if show_plot and not matplot_ax:
         plt.show()
         plt.close()
 
