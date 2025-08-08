@@ -1797,7 +1797,6 @@ class GrandPy:
         df["__group__"] = (
             df[group_cols].astype(str).agg("_".join, axis=1) if group_cols else "GROUP"
         )
-        print(df)
         df_subset = df[columns].copy()
 
         if reference_function:
