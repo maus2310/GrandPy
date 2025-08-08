@@ -190,7 +190,7 @@ def _compute_steady_state_half_lives(
     as_analysis=False
 ) -> "GrandPy":
     if time is None:
-        time = data.coldata["Time"]
+        time = data.coldata["duration.4sU"]
 
     if isinstance(time, str):
         time = data.coldata[time]
