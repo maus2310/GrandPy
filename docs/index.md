@@ -23,11 +23,11 @@ depend on the size of your datasets).
 
 Installing it via `pip` will make sure that the following (standard) packages are available:
 
-<pre>numpy, pandas, scipy, anndata, tqdm, matplotlib, seaborn</pre>
+<pre>numpy, pandas, scipy, anndata, tqdm, matplotlib, seaborn, pydeseq2</pre>
 
 Additional packages are optional and important for particular functions:
 
-<pre>pydeseq2, scikit-learn, mygene, numdifftools</pre>
+<pre>scikit-learn, mygene, numdifftools</pre>
 
 ## Cheatsheet
 
