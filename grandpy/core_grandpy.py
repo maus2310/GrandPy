@@ -12,7 +12,7 @@ import pandas as pd
 import scipy.sparse as sp
 
 from grandpy.analysis_tool import AnalysisTool
-from grandpy.lfc import psi_lfc
+from grandpy.lfc import psi_lfc, center_median
 from grandpy.plot_tool import PlotTool, Plot
 from grandpy.slot_tool import SlotTool, ModeSlot
 from grandpy.utils import _ensure_list, _make_unique, _reindex_by_index_name, _subset_dense_or_sparse
@@ -2527,6 +2527,9 @@ class GrandPy:
         GrandPy.normalize_rpm
             Normalize data using RPM.
 
+        GrandPy.normalize_baseline
+            Normalize data to a baseline.
+
         Parameters
         ----------
         genes : str or int or Sequence[str or int or bool], optional
@@ -2586,6 +2589,9 @@ class GrandPy:
         GrandPy.normalize_rpm
             Normalize data using RPM.
 
+        GrandPy.normalize_baseline
+            Normalize data to a baseline.
+
         Parameters
         ----------
         genes : str or int or Sequence[str or int or bool], optional
@@ -2640,6 +2646,9 @@ class GrandPy:
         GrandPy.normalize_rpm
             Normalize data using RPM.
 
+        GrandPy.normalize_baseline
+            Normalize data to a baseline.
+
         Parameters
         ----------
         genes : str or int or Sequence[str or int or bool], optional
@@ -2675,7 +2684,7 @@ class GrandPy:
             *,
             set_to_default: bool = True,
             factor: int = 1e6
-    ):
+    ) -> "GrandPy":
         """
         Normalize gene expression data using the RPM method (Reads Per Million).
 
@@ -2692,6 +2701,9 @@ class GrandPy:
 
         GrandPy.normalize_tpm
             Normalize data using TPM.
+
+        GrandPy.normalize_baseline
+            Normalize data to a baseline.
 
         Parameters
         ----------
@@ -2720,6 +2732,60 @@ class GrandPy:
 
         return _normalize_rpm(self, genes=genes, name=name, slot=slot, set_to_default=set_to_default, factor=factor)
 
+    def normalize_baseline(
+            self,
+            baseline: str = None,
+            name: str = "baseline",
+            slot: str = "count",
+            set_to_default: bool = False,
+            lfc_fun: Callable = psi_lfc,
+            **kwargs
+    ) -> "GrandPy":
+        """
+         Normalize data in a GrandPy object to a baseline, which computes the log2 fold change
+
+        See Also
+        ----------
+        psi_lfc
+            Computes the optimal effect size estimate and credible intervals if needed.
+
+        norm_lfc
+             Computes the standard, normalized log2 fold change with given pseudocounts.
+
+        GrandPy.normalize
+            Normalize data using size factors.
+
+        GrandPy.normalize_fpkm
+            Normalize data using FPKM.
+
+        GrandPy.normalize_rpm
+            Normalize data using RPM.
+
+        GrandPy.normalize_tpm
+            Normalize data using TPM.
+
+        Parameters
+        ----------
+        baseline : str, default None
+
+        name : str, default "baseline"
+            The name of the new slot to be added.
+
+        slot : str, default "count"
+            The slot to be used for the normalization.
+
+        set_to_default : bool, default "False"
+            Whether the newly added slot becomes the default slot or not.
+
+        lfc_fun : Callable, default psi_lfc
+            Whether to use psi_lfc or norm_lfc for the log2 fold normalization.
+
+        kwargs**
+            additional parameters to pass to the `lfc_fun`.
+        """
+        from .processing import _normalize_baseline
+
+        return _normalize_baseline(self, baseline=baseline, name=name, slot=slot, set_to_default=set_to_default, lfc_fun=lfc_fun,**kwargs)
 
     # TODO: DOC STRINGS für diese 5 methoden
     def compute_ntr_ci(self, ci_size: float = 0.95, name_lower: str = "lower", name_upper: str = "upper")-> "GrandPy":
@@ -2732,50 +2798,79 @@ class GrandPy:
 
         return _compute_steady_state_half_lives(self, time, name=name ,columns=columns, max_hl=max_hl, ci_size=ci_size, compute_ci=compute_ci, as_analysis=as_analysis)
 
-    def compute_absolute(self, dilution: float= 4e4, volume: float = 10.0, slot: str = "tpm", name: str = "absolute") -> "GrandPy":
+    def compute_total_expression(self, name: str = "total_expression", genes: Union[str, Sequence[str]] = None, mode_slot: str = None) -> "GrandPy":
         """
-        Estimate absolute molecule counts from TPM data using ERCC spike-ins.
-
-        This function approximates absolute transcript counts per cell by scaling TPM values
-        based on the total ERCC signal. The method is inspired by `monocle::relative2abs`.
+        Computes the total expression of a given GrandPy-object.
 
         Parameters
         ----------
-        self : GrandPy
-            A GrandPy data object containing gene expression matrices and gene annotations.
+        data : GrandPy
+            The GrandPy object containing the expression data.
 
-        dilution : float, default 4e4
-             The dilution factor of the ERCC spike-in mix (molecules/µL).
+        name : str, default: "total_expression"
+            Name of the new column in coldata where the total_expression will be stored.
 
-        volume : float, default 10.0
-             The volume (in µL) of ERCC spike-in solution added to each sample.
+        genes Union[Sequence[str], str], optional
+            List of genes for which to compute expression fraction.
 
-        slot : str, default "tpm"
-             The name of the data slot containing TPM values to be converted to absolute counts.
+        slot : str, optional, default: default_slot
+            Data slot to use for numerator values.
 
-        name : str, default "absolute"
-             The name of the new slot in which to store the computed absolute expression matrix.
+        genes_total : Union[Sequence[str], str], default: all genes, optional
+            List of genes to use for total expression.
+
+        slot_total : str, default: default_slot, optional
+            Data slot to use for total expression.
+
+        percent_to_float : bool, default=True
+            If True, percentages are scaled to [0, 100].
 
         Returns
         -------
         GrandPy
-             A copy of the input `data` object with the new absolute expression matrix added as a slot.
-
-        Raises
-         ------
-        ValueError
-             If no ERCC genes are found in the dataset.
+            The modified GrandPy object with a new column in coldata.
         """
-        from .processing import _compute_absolute
 
-        return _compute_absolute(self, dilution=dilution, volume=volume, slot=slot, name=name)
 
-    def compute_total_expression(self, column: str = "total_expression", genes: Union[str, Sequence[str]] = None, mode_slot: str = None) -> "GrandPy":
         from .processing import _compute_total_expression
 
-        return _compute_total_expression(self, column=column, genes=genes, mode_slot=mode_slot)
+        return _compute_total_expression(self, name=name, genes=genes, mode_slot=mode_slot)
 
-    def compute_expression_percentage(self,name: str, genes: Union[str, Sequence[str]] = None, slot: str = None, genes_total: Union[str, Sequence[str]] = None, slot_total: str = None, float_to_percent: bool = True):
+    def compute_expression_percentage(self,name: str = "percentage", genes: Union[str, Sequence[str]] = None, slot: str = None, genes_total: Union[str, Sequence[str]] = None, slot_total: str = None, float_to_percent: bool = True):
+
+        """
+        Compute the percentage of expression for a set of genes per column and
+        store it in the coldata (sample metadata).
+
+        Parameters
+        ----------
+        data : GrandPy
+            The GrandPy object containing the expression data.
+
+        name : str, default: "percentage"
+            Name of the new column in coldata where the percentage will be stored.
+
+        genes Union[Sequence[str], str], optional
+            List of genes for which to compute expression fraction, defaults to all genes.
+
+        slot : str, optional, default: default_slot
+            Data slot to use for numerator values.
+
+        genes_total : Union[Sequence[str], str], optional
+            List of genes to use for total expression, defaults to all genes.
+
+        slot_total : str, optional
+            Data slot to use for total expression, defaults to the default slot.
+
+        percent_to_float : bool, default = True
+            If True, values are returned as floats instead of percentages.
+
+        Returns
+        -------
+        GrandPy
+            The modified GrandPy object with a new column in coldata.
+        """
+
         from .processing import _compute_expression_percentage
 
         return _compute_expression_percentage(self, name=name, genes=genes, slot=slot, genes_total=genes_total, slot_total=slot_total, float_to_percent=float_to_percent)
