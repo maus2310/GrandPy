@@ -2,6 +2,7 @@ import warnings
 from typing import Union, Callable
 
 import numpy as np
+
 from scipy.optimize import minimize, root_scalar
 from scipy.special import digamma, polygamma
 from scipy.stats import norm, beta

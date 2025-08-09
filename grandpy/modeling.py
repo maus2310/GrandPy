@@ -1,10 +1,10 @@
 import os
 import warnings
 from collections.abc import Sequence, Mapping
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from functools import cached_property
-from concurrent.futures import ProcessPoolExecutor
-from typing import Union, Literal, TYPE_CHECKING, Callable
+from typing import Union, Literal, Callable
 
 import numpy as np
 import pandas as pd
@@ -14,9 +14,6 @@ from tqdm import tqdm
 
 from .slot_tool import ModeSlot
 from .utils import _ensure_list, _get_kinetics_data
-
-if TYPE_CHECKING:
-    from .core_grandpy import GrandPy
 
 
 def _fit_kinetics(

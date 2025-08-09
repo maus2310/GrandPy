@@ -337,7 +337,6 @@ class GrandPy:
         """
         return self.with_replaced_parameters()
 
-
     def write_h5ad(self, path: Union[PathLike[str], str], compression: Literal["gzip", "lzf"] = None) -> None:
         """
         Save the instance as a h5ad file.

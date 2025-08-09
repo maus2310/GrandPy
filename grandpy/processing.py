@@ -6,7 +6,7 @@ import pandas as pd
 
 if TYPE_CHECKING:
     from .core_grandpy import GrandPy
-    from .slot_tool import ModeSlot
+
 
 def _comp_hl(p, time=1):
     """Computes half-life from NTR-value p and time t"""

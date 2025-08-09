@@ -15,7 +15,6 @@ import matplotlib.colors as matplot_colors
 from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.colors import Normalize
 from matplotlib import cm
-from pydeseq2.dds import DeseqDataSet
 from scipy.stats import gaussian_kde, pearsonr, spearmanr, kendalltau
 from scipy.spatial.distance import pdist
 from scipy.cluster.hierarchy import linkage, leaves_list
@@ -382,6 +381,11 @@ def _transform_vst(data: GrandPy, selected_columns: list, mode_slot: str | list[
     Returns:
         pd.DataFrame: VST-transformed data frame (samples x genes).
     """
+    try:
+        from pydeseq2.ds import DeseqDataSet
+    except ImportError:
+        raise ImportError("pydeseq2 is required for VST but not installed!")
+
     mat = data.get_table(mode_slot=mode_slot, columns=selected_columns, genes=genes, ntr_nan=False)
     mat = mat.loc[:, mat.notna().any(axis=0)]
 
@@ -1430,6 +1434,11 @@ def plot_pca(
     slotmat = mat.T.round().astype(int)
 
     if do_vst:
+        try:
+            from pydeseq2.ds import DeseqDataSet
+        except ImportError:
+            raise ImportError("pydeseq2 is required for VST but not installed!")
+
         dds = DeseqDataSet(counts=slotmat, metadata=coldata, design_factors="Condition", low_memory=True, quiet=not show_progress)
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             dds.deseq2()

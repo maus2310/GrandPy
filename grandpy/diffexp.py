@@ -1,24 +1,16 @@
+import contextlib
+import io
 from itertools import combinations
-from typing import Union, TYPE_CHECKING, Callable, Sequence
+from typing import Union, Callable, Sequence
 
 import numpy as np
 import pandas as pd
-import contextlib
-import io
-
-from pydeseq2.preprocessing import deseq2_norm
 
 from .lfc import psi_lfc, center_median
 from .slot_tool import ModeSlot, _parse_as_mode_slot
 from .utils import _ensure_list
 
-try:
-    from pydeseq2.ds import DeseqDataSet, DeseqStats
-except ImportError:
-    DeseqDataSet = DeseqStats = None
 
-if TYPE_CHECKING:
-    from .core_grandpy import GrandPy
 
 def _get_summarize_matrix(
         data: "GrandPy",
@@ -173,8 +165,10 @@ def _pairwise_deseq2(
     """
     try:
         import pydeseq2
+        from pydeseq2.preprocessing import deseq2_norm
+        from pydeseq2.ds import DeseqDataSet, DeseqStats
     except ImportError:
-        raise ImportError("pydeseq2 is required but not installed!")
+        raise ImportError("pydeseq2 is required for pairwise_deseq2 but not installed!")
 
     mode_slot = _parse_as_mode_slot(mode_slot)
 
