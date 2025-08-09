@@ -25,9 +25,6 @@ from .slot_tool import ModeSlot, _parse_as_mode_slot
 from .utils import _ensure_list
 
 
-#TODO restliche plots fehlt noch matplot_ax parameter :)
-
-
 # ----- Private helper functions -----
 def _parse_time_to_float(t: str)-> float:
     """
@@ -224,7 +221,6 @@ def _density2d(x: np.ndarray, y: np.ndarray, n: int = 100, margin: str ='n')-> n
     """
     x = np.asarray(x)
     y = np.asarray(y)
-    xy = np.vstack([x, y])
 
     mask = np.isfinite(x + y)
     if not np.any(mask):
@@ -522,7 +518,7 @@ def format_correlation(method: str = "pearson", n_format: str | None = None,
         Format string for the PCA-based slope between x and y (not from linear regression). If None, omit this.
 
     rmsd_format : str or None, optional
-        Format string for the root mean square deviation (RMSD). If None, omit this.
+        Format string for the root-mean-square deviation (RMSD). If None, omit this.
 
     min_obs : int, default 5
         Minimum number of valid observations required to compute and return results.
@@ -939,30 +935,72 @@ def plot_scatter(
             x_lower, x_upper = np.nanmin(x_vals_trans), np.nanmax(x_vals_trans)
             y_lower, y_upper = np.nanmin(y_vals_trans), np.nanmax(y_vals_trans)
 
-    # Build mask for data within the selected limits
-    mask_keep = (
-            (x_vals_trans >= x_lower) & (x_vals_trans <= x_upper) &
-            (y_vals_trans >= y_lower) & (y_vals_trans <= y_upper)
+    total_genes = len(data.genes)
+    # Map each entry of x_vals_all/y_vals_all to its original gene-index in 0...total_genes-1
+    if analysis or (x in df.columns):
+        try:
+            df_index_vals = df.index.to_numpy()
+        except Exception:
+            df_index_vals = np.arange(len(x_vals_all))
+        if np.issubdtype(df_index_vals.dtype, np.integer) and (np.nanmax(df_index_vals) < total_genes):
+            orig_idx_all = df_index_vals.astype(int)
+        else:
+            orig_idx_all = np.array(data.get_index(list(df.index), regex=False), dtype=int)
+    else:
+        orig_idx_all = np.arange(total_genes, dtype=int)
+
+    # Full-length transformed arrays (one slot per gene); fill with NaN
+    x_trans_full = np.full(total_genes, np.nan, dtype=float)
+    y_trans_full = np.full(total_genes, np.nan, dtype=float)
+
+    # Place transformed values into the full arrays at the original gene positions (only where mask True)
+    orig_positions = orig_idx_all[mask]
+    x_trans_full[orig_positions] = x_vals_trans
+    y_trans_full[orig_positions] = y_vals_trans
+
+    # Compute which genes survive the plotting limits (use full-space mask)
+    mask_keep_full = (
+            (x_trans_full >= x_lower) & (x_trans_full <= x_upper) &
+            (y_trans_full >= y_lower) & (y_trans_full <= y_upper)
     )
 
-    auto_x_lim = (x_lower, x_upper)
-    auto_y_lim = (y_lower, y_upper)
+    # survivors are gene indices in the original full-space
+    survivors = np.where(mask_keep_full)[0]
+    # Build plotted arrays (ordered by survivors)
+    x_vals = x_trans_full[survivors]
+    y_vals = y_trans_full[survivors]
 
-    x_vals = x_vals_trans[mask_keep]
-    y_vals = y_vals_trans[mask_keep]
+    # Outliers: genes that had numeric transformed values but were excluded by limits
+    outlier_orig = np.where((~mask_keep_full) & (~np.isnan(x_trans_full)))[0]
+    outlier_x = x_trans_full[outlier_orig]
+    outlier_y = y_trans_full[outlier_orig]
 
-    outlier_x = x_vals_trans[~mask_keep]
-    outlier_y = y_vals_trans[~mask_keep]
+    # Helper to map user-supplied gene names/indices -> positions in plotted arrays + gene names
+    def _map_genes_to_positions(items):
+        if not items:
+            return np.array([], dtype=int), []
+        idxs = np.array(data.get_index(items, regex=False), dtype=int)
+        mapped = pos_map[idxs]  # -1 for missing genes (not in plot)
+        valid = mapped != -1
+        if not np.any(valid):
+            return np.array([], dtype=int), []
+        positions = mapped[valid]
+        names = [data.genes[i] for i in idxs[valid]]
+        return positions, names
 
-    x_limit = x_limit or auto_x_lim
-    y_limit = y_limit or auto_y_lim
+    x_limit = x_limit or (x_lower, x_upper)
+    y_limit = y_limit or (y_lower, y_upper)
 
     if not color:
         color = _density2d(x_vals, y_vals, n=density_n, margin=density_margin)
         idx = color.argsort()
         x_vals, y_vals, color = x_vals[idx], y_vals[idx], color[idx]
+        survivors = survivors[idx]
     else:
         color = color
+
+    pos_map = -np.ones(total_genes, dtype=int)
+    pos_map[survivors] = np.arange(len(survivors), dtype=int)
 
     if matplot_ax is None:
         fig, ax = plt.subplots(figsize=figsize)
@@ -970,12 +1008,35 @@ def plot_scatter(
         ax = matplot_ax
         fig = ax.figure
 
-    # Plot outliers
+    # Plot outliers (clipped to axis limits)
     if remove_outlier and show_outlier:
-        margin = 0.0001
+        margin = 1e-4
         clipped_x = np.clip(outlier_x, x_limit[0] + margin, x_limit[1] - margin)
         clipped_y = np.clip(outlier_y, y_limit[0] + margin, y_limit[1] - margin)
         ax.scatter(clipped_x, clipped_y, color="grey", s=size + 10, alpha=1, label="Outliers")
+
+        if highlight:
+            if isinstance(highlight, dict):
+                for color_name, genes_list in highlight.items():
+                    idxs = np.array(data.get_index(genes_list, regex=False), dtype=int)
+                    is_out = np.isin(idxs, outlier_orig)
+                    if np.any(is_out):
+                        out_idxs = idxs[is_out]
+                        coords_x = x_trans_full[out_idxs]
+                        coords_y = y_trans_full[out_idxs]
+                        c_x = np.clip(coords_x, x_limit[0] + margin, x_limit[1] - margin)
+                        c_y = np.clip(coords_y, y_limit[0] + margin, y_limit[1] - margin)
+                        ax.scatter(c_x, c_y, color=color_name, s=size * 3)
+            else:
+                idxs = np.array(data.get_index(highlight, regex=False), dtype=int)
+                is_out = np.isin(idxs, outlier_orig)
+                if np.any(is_out):
+                    out_idxs = idxs[is_out]
+                    coords_x = x_trans_full[out_idxs]
+                    coords_y = y_trans_full[out_idxs]
+                    c_x = np.clip(coords_x, x_limit[0] + margin, x_limit[1] - margin)
+                    c_y = np.clip(coords_y, y_limit[0] + margin, y_limit[1] - margin)
+                    ax.scatter(c_x, c_y, color="red", s=size * highlight_size)
 
     # Main scatter
     scatter = ax.scatter(x_vals, y_vals, c=color, s=size, cmap=color_palette, alpha=1, rasterized=rasterized, antialiased=True)
@@ -1000,6 +1061,15 @@ def plot_scatter(
     if y_limit:
         ax.set_ylim(y_limit)
 
+    if log or log_x:
+        ax.set_xlabel(f"{x} (log10)")
+    if log or log_y:
+        ax.set_ylabel(f"{y} (log10)")
+    if neg_log_x:
+        ax.set_xlabel(f"-log10({x})")
+    if neg_log_y:
+        ax.set_ylabel(f"-log10({y})")
+
     # Diagonal
     if diagonal:
         _plot_diagonal(ax, diagonal, np.linspace(*ax.get_xlim(), 100))
@@ -1018,17 +1088,37 @@ def plot_scatter(
 
     # Highlight
     if highlight:
-        if log:
-            _highlight_points(ax, data, x_vals, y_vals, highlight, size, highlight_size)
+        if isinstance(highlight, dict):
+            for color_name, genes_list in highlight.items():
+                idxs = np.array(data.get_index(genes_list, regex=False), dtype=int)
+                positions = pos_map[idxs]
+                good = positions != -1
+                if np.any(good):
+                    ax.scatter(x_vals[positions[good]], y_vals[positions[good]], color=color_name, s=size * 3)
         else:
-            _highlight_points(ax, data, x_vals_all, y_vals_all, highlight, size, highlight_size)
+            idxs = np.array(data.get_index(highlight, regex=False), dtype=int)
+            positions = pos_map[idxs]
+            good = positions != -1
+            if np.any(good):
+                ax.scatter(x_vals[positions[good]], y_vals[positions[good]], color="red", s=size * highlight_size)
 
+    # Labels
     if label:
-        if log:
-            _label_points(ax, data, x_vals, y_vals, label, size, highlight_size, y_label_offset)
-        else:
-            _label_points(ax, data, x_vals_all, y_vals_all, label, size, highlight_size, y_label_offset)
-
+        positions, names = _map_genes_to_positions(label)
+        if len(positions) > 0:
+            if np.ptp(y_vals) == 0:
+                y_offset = y_label_offset
+            else:
+                y_offset = (np.max(y_vals) - np.min(y_vals)) * y_label_offset
+            for pos, name in zip(positions, names):
+                x_ = x_vals[pos]
+                y_ = y_vals[pos]
+                ax.text(
+                    x_, y_ + y_offset, name,
+                    fontsize=size * highlight_size / 1.8,
+                    ha='center', va='bottom',
+                    bbox=dict(boxstyle="round,pad=0.3", edgecolor='black', facecolor='white', linewidth=0.5)
+                )
     ax.grid(False)
     if axis:
         ax.set_axis_off()
@@ -2032,7 +2122,7 @@ def plot_gene_old_vs_new(
 
     show_ci : bool, default False
         If True, adds error bars for credible intervals.
-        Requires pre-computed 'lower' and 'upper' slots (e.g., via GrandPy.compute_ntr_ci()).
+        Requires to be pre-computed 'lower' and 'upper' slots (e.g., via GrandPy.compute_ntr_ci()).
 
     aest : Mapping, optional
         Aesthetic mapping for color and style. Keys are "color" and "shape" corresponding to coldata columns. (e.g. {"color": "duration.4sU", "shape": "Condition"})
@@ -2236,7 +2326,7 @@ def plot_gene_total_vs_ntr(
 
     show_ci : bool, default False
         If True, adds error bars using the credible interval slots.
-        Requires pre-computed 'lower' and 'upper' slots (e.g., via GrandPy.compute_ntr_ci()).
+        Requires to be pre-computed 'lower' and 'upper' slots (e.g., via GrandPy.compute_ntr_ci()).
 
     aest : dict, optional
         Aesthetic mapping for color and style. Keys are "color" and "shape" corresponding to coldata columns. (e.g. {"color": "duration.4sU", "shape": "Condition"})
@@ -2440,7 +2530,7 @@ def plot_gene_groups_points(
         
     show_ci : bool, default False
         If True, displays error bars using the credible interval slots.
-        Requires pre-computed 'lower' and 'upper' slots (e.g., via GrandPy.compute_ntr_ci()).
+        Requires to be pre-computed 'lower' and 'upper' slots (e.g., via GrandPy.compute_ntr_ci()).
         
     aest : Mapping, optional
         Aesthetic mapping for color and style. Keys are "color" and "shape" corresponding to coldata columns. (e.g. {"color": "duration.4sU", "shape": "Condition"})
@@ -2702,7 +2792,7 @@ def plot_gene_groups_bars(
         or None to use all samples.
     
     show_ci : bool, default False
-        If True, shows confidence intervals. Requires pre-computed 'lower' and 'upper' slots (e.g., via GrandPy.compute_ntr_ci()).
+        If True, shows confidence intervals. Requires to be pre-computed 'lower' and 'upper' slots (e.g., via GrandPy.compute_ntr_ci()).
    
     x_labels : str or Sequence[str], optional
         Custom x-axis labels. If a string, it will be evaluated as a Python expression
@@ -2889,7 +2979,7 @@ def plot_gene_snapshot_timecourse(
         Whether to apply log-scale to y-axis (disabled if slot is "ntr").
         
     show_ci : bool, default False
-        Whether to plot confidence intervals. Requires pre-computed 'lower' and 'upper' slots (e.g., via GrandPy.compute_ntr_ci()).
+        Whether to plot confidence intervals. Requires to be pre-computed 'lower' and 'upper' slots (e.g., via GrandPy.compute_ntr_ci()).
         
     aest : Mapping, optional
         Aesthetic mapping for color and style. Keys are "color" and "shape"
@@ -3197,7 +3287,7 @@ def plot_gene_progressive_timecourse(
 
     show_ci : bool, default False
         Whether to include confidence intervals in the plot.
-        Requires pre-computed 'lower' and 'upper' slots (e.g., via GrandPy.compute_ntr_ci()).
+        Requires to be pre-computed 'lower' and 'upper' slots (e.g., via GrandPy.compute_ntr_ci()).
 
     rescale : bool, default True
         Whether to rescale expression values based on the kinetic fit.
