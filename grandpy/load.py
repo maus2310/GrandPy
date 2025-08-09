@@ -1105,23 +1105,23 @@ def _read(file_path, sparse, default_slot, design,
 
         slots = _pad_slots(slots, sparse=True, coldata=coldata, slot_sample_names=slot_sample_names)
 
-        version = 3
-        runtime_path = base / "runtime"
-        if runtime_path.exists():
-            try:
-                with open(runtime_path) as f:
-                    for line in f:
-                        if line.lower().startswith("version"):
-                            version = int(line.strip().split()[-1])
-                            break
-            except Exception:
-                pass
+        # version = 3
+        # runtime_path = base / "runtime"
+        # if runtime_path.exists():
+        #     try:
+        #         with open(runtime_path) as f:
+        #             for line in f:
+        #                 if line.lower().startswith("version"):
+        #                     version = int(line.strip().split()[-1])
+        #                     break
+        #     except Exception:
+        #         pass
 
         metadata = {
             "Description": "Loaded via read_grand() (Matrix Market)",
             "default_slot": default_slot,
             "Output": "sparse",
-            "Version": version,
+            # "Version": version,
             "pseudobulk": pseudobulk,
             "targets": targets,
             "prefix": str(Path(file_path).resolve()).replace("\\", "/")
@@ -1185,17 +1185,17 @@ def _read(file_path, sparse, default_slot, design,
         coldata = build_coldata(sample_names, design, semantics=semantics)
         slots = _pad_slots(slots, sparse, coldata, slot_sample_names)
 
-        version = 2
-        dense_indicators = ("umi", "cell", "replicate")
-        columns_lower = [c.lower() for c in df.columns]
-        if any(col.startswith(dense_indicators) for col in columns_lower):
-            version = 3
+        # version = 2
+        # dense_indicators = ("umi", "cell", "replicate")
+        # columns_lower = [c.lower() for c in df.columns]
+        # if any(col.startswith(dense_indicators) for col in columns_lower):
+        #     version = 3
 
         metadata = {
             "Description": "Loaded via read_grand() (TSV)",
             "default_slot": default_slot,
             "Output": "sparse" if sparse else "dense",
-            "Version": version,
+            # "Version": version,
             "pseudobulk": pseudobulk,
             "targets": targets,
             "prefix": str(Path(file_path).resolve()).replace("\\", "/")
