@@ -2788,17 +2788,36 @@ class GrandPy:
         return _normalize_baseline(self, baseline=baseline, name=name, slot=slot, set_to_default=set_to_default, lfc_fun=lfc_fun,**kwargs)
 
     # TODO: DOC STRINGS für diese 5 methoden
-    def compute_ntr_ci(self, ci_size: float = 0.95, name_lower: str = "lower", name_upper: str = "upper")-> "GrandPy":
+    def compute_ntr_ci(
+            self,
+            ci_size: float = 0.95,
+            name_lower: str = "lower",
+            name_upper: str = "upper"
+    )-> "GrandPy":
         from .processing import _compute_ntr_ci
 
         return _compute_ntr_ci(self, ci_size, name_lower, name_upper)
 
-    def compute_steady_state_half_lives(self, time=None, name="HL", columns=None, max_hl=48.0, ci_size=0.95, compute_ci=False, as_analysis=False) -> "GrandPy":
+    def compute_steady_state_half_lives(
+            self,
+            time=None,
+            name="HL",
+            columns=None,
+            max_hl=48.0,
+            ci_size=0.95,
+            compute_ci=False,
+            as_analysis=False
+    ) -> "GrandPy":
         from .processing import _compute_steady_state_half_lives
 
         return _compute_steady_state_half_lives(self, time, name=name ,columns=columns, max_hl=max_hl, ci_size=ci_size, compute_ci=compute_ci, as_analysis=as_analysis)
 
-    def compute_total_expression(self, name: str = "total_expression", genes: Union[str, Sequence[str]] = None, mode_slot: str = None) -> "GrandPy":
+    def compute_total_expression(
+            self,
+            name: str = "total_expression",
+            genes: Union[str, Sequence[str]] = None,
+            mode_slot: str = None
+    ) -> "GrandPy":
         """
         Computes the total expression of a given GrandPy-object.
 
@@ -2836,7 +2855,15 @@ class GrandPy:
 
         return _compute_total_expression(self, name=name, genes=genes, mode_slot=mode_slot)
 
-    def compute_expression_percentage(self,name: str = "percentage", genes: Union[str, Sequence[str]] = None, slot: str = None, genes_total: Union[str, Sequence[str]] = None, slot_total: str = None, float_to_percent: bool = True):
+    def compute_expression_percentage(
+            self,
+            name: str = "percentage",
+            genes: Union[str, Sequence[str]] = None,
+            slot: str = None,
+            genes_total: Union[str, Sequence[str]] = None,
+            slot_total: str = None,
+            percent_to_float: bool = True
+    )-> "GrandPy":
 
         """
         Compute the percentage of expression for a set of genes per column and
@@ -2844,19 +2871,16 @@ class GrandPy:
 
         Parameters
         ----------
-        data : GrandPy
-            The GrandPy object containing the expression data.
-
         name : str, default: "percentage"
             Name of the new column in coldata where the percentage will be stored.
 
-        genes Union[Sequence[str], str], optional
-            List of genes for which to compute expression fraction, defaults to all genes.
+        genes str or int or Sequence[str or int or bool]
+            The genes to be retrieved. Either by gene symbols, names (Ensembl IDs), indices, or a boolean mask
 
         slot : str, optional, default: default_slot
             Data slot to use for numerator values.
 
-        genes_total : Union[Sequence[str], str], optional
+        genes_total : str or int or Sequence[str or int or bool]
             List of genes to use for total expression, defaults to all genes.
 
         slot_total : str, optional
@@ -2873,7 +2897,7 @@ class GrandPy:
 
         from .processing import _compute_expression_percentage
 
-        return _compute_expression_percentage(self, name=name, genes=genes, slot=slot, genes_total=genes_total, slot_total=slot_total, float_to_percent=float_to_percent)
+        return _compute_expression_percentage(self, name=name, genes=genes, slot=slot, genes_total=genes_total, slot_total=slot_total, percent_to_float=percent_to_float)
 
 
     def filter_genes(

@@ -483,13 +483,15 @@ def _compute_total_expression(data: "GrandPy", name: str = "total_expression", g
 def _compute_expression_percentage(
     data: "GrandPy",
     name: str,
-    genes: Union[str, Sequence[str]] = None,
+    genes: Union[str, int, Sequence[Union[str, int, bool]]] = None,
     slot: str = None,
     genes_total: Union[str, Sequence[str]] = None,
     slot_total: str = None,
     float_to_percent: bool = True,
 ) -> "GrandPy":
-
+    """
+    For a detailed description see GrandPy.compute_expression_percentage.
+    """
     numerator = data.get_matrix(mode_slot=slot, genes=genes).sum(axis=0)
     denominator = data.get_matrix(mode_slot=slot_total, genes=genes_total).sum(axis=0)
 
