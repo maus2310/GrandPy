@@ -182,9 +182,6 @@ def _pairwise_deseq2(
         print(f"Running pairwise_DESeq2 with '{mode_slot}', normalization='{normalization_slot}'")
         print("Available slots:", list(data.slots))
 
-    def format_column_names(base: str, columns):
-        return [f"{base}_{col}" for col in columns]
-
     if separate:
 
         for contrast_name in contrasts.columns:
