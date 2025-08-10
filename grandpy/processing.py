@@ -3,17 +3,21 @@ from typing import TYPE_CHECKING, Union, Optional, Callable
 
 import numpy as np
 import pandas as pd
-from pandas.errors import ValueLabelTypeMismatch
 
-from .lfc import psi_lfc, center_median, norm_lfc
+from .lfc import psi_lfc
 
 if TYPE_CHECKING:
     from .core_grandpy import GrandPy
 
 
 
-def _comp_hl(p, time=1):
-    """Computes half-life from NTR-value p and time t"""
+def _comp_hl(
+    p,
+    time : int = 1
+):
+    """
+    Computes half-life from NTR-value p and time t
+    """
     with np.errstate(divide='ignore', invalid='ignore'):
         hl = np.log(2) / (-1.0 / time * np.log(1 - p))
         hl = np.where(np.isfinite(hl), hl, np.nan)
@@ -30,13 +34,13 @@ def _comp_tpm(
     Parameters
     ----------
     count_matrix : np.ndarray
-        Count matrix
+        the count-matrix.
 
     lengths : np.ndarray
-        Lengths of the genes
+        Lengths of the genes.
 
     subset : int, list[int], np.ndarray, optional
-        Optionaler Index oder Liste von Indizes von Genen zur Berechnung der Skalenfaktoren
+        index or indices of genes to subset.
 
     Returns
     -------
@@ -84,7 +88,7 @@ def _comp_fpkm(
     Returns
     -------
     np.ndarray
-        FPKM matrix (Genes × Samples)
+        FPKM matrix
     """
     if subset is not None:
         subset = np.atleast_1d(subset)
@@ -110,6 +114,7 @@ def _comp_rpm(
     subset: Union[Sequence[int], np.ndarray, None] = None,
     factor: float = 1e6
 ) -> np.ndarray:
+
     """
     Computes the RPM (Reads per Million) from a count-matrix.
 
@@ -122,13 +127,14 @@ def _comp_rpm(
         Only the given genes are used for the computation.
 
     factor : float, default 1e6
-        scaling factor
+        scaling factor.
 
     Returns
     -------
     np.ndarray
-        RPM-normalised matrix
+        RPM-normalized matrix
     """
+
     count_matrix = np.asarray(count_matrix)
 
     if subset is not None:
@@ -143,15 +149,23 @@ def _comp_rpm(
 
     return rpm
 
-def compute_ntr_posterior_quantile(data: "GrandPy", quantile: float, name: str) -> "GrandPy":
+def compute_ntr_posterior_quantile(
+    data: "GrandPy",
+    quantile: float,
+    name: str
+) -> "GrandPy":
+
     """
     Compute a posterior quantile of the NTR beta distribution and store as a new slot.
 
     Parameters:
-    - data: GrandPy object
-    - quantile: float in [0,1], quantile to compute
-    - name: str, name of the new slot
+
+    quantile: float in [0,1]
+        quantile to compute
+    name: str
+        name of the new slot
     """
+
     from scipy.stats import beta
 
     alpha = data.get_matrix(mode_slot="alpha")
@@ -160,21 +174,37 @@ def compute_ntr_posterior_quantile(data: "GrandPy", quantile: float, name: str) 
     q = beta.ppf(quantile, alpha, beta_)
     return data.with_slot(name, q)
 
-def compute_ntr_posterior_lower(data: "GrandPy", ci_size: float = 0.95, name: str = "lower") -> "GrandPy":
+def compute_ntr_posterior_lower(
+    data: "GrandPy",
+    ci_size: float = 0.95,
+    name: str = "lower"
+) -> "GrandPy":
+
     """
     Compute lower bound of the NTR credible interval.
     """
     quantile = (1 - ci_size) / 2
     return compute_ntr_posterior_quantile(data, quantile, name)
 
-def compute_ntr_posterior_upper(data: "GrandPy", ci_size: float = 0.95, name: str = "upper") -> "GrandPy":
+def compute_ntr_posterior_upper(
+    data: "GrandPy",
+    ci_size: float = 0.95,
+    name: str = "upper"
+) -> "GrandPy":
+
     """
     Compute upper bound of the NTR credible interval.
     """
     quantile = 1 - (1 - ci_size) / 2
     return compute_ntr_posterior_quantile(data, quantile, name)
 
-def _compute_ntr_ci(data: "GrandPy", ci_size: float = 0.95, name_lower: str = "lower", name_upper: str = "upper") -> "GrandPy":
+def _compute_ntr_ci(
+    data: "GrandPy",
+    ci_size: float = 0.95,
+    name_lower: str = "lower",
+    name_upper: str = "upper"
+) -> "GrandPy":
+
     """
     Compute both lower and upper bounds of the credible interval.
     """
@@ -185,14 +215,17 @@ def _compute_ntr_ci(data: "GrandPy", ci_size: float = 0.95, name_lower: str = "l
 
 def _compute_steady_state_half_lives(
     data: "GrandPy",
-    time = None,
-    name="HL",
-    columns=None,
-    max_hl=48.0,
-    ci_size=0.95,
-    compute_ci=False,
-    as_analysis=False
+    time : str = None,
+    name : str = "hl",
+    columns : list[str] = None,
+    max_hl: float = 48.0,
+    ci_size : float = 0.95,
+    compute_ci : bool = False,
+    as_analysis : bool = False
 ) -> "GrandPy":
+    """
+    For a detailed documentation see GrandPy.compute_steady_state_half_lives.
+    """
     if time is None:
         time = data.coldata["duration.4sU"]
 
@@ -208,16 +241,11 @@ def _compute_steady_state_half_lives(
 
     if columns is None:
         selected_columns = list(ntrs.columns)
-    elif isinstance(columns, str):
-        selected_columns = list(data.coldata.query(columns).index)
-    elif isinstance(columns, list):
-        selected_columns = columns
     else:
-        raise ValueError("Unsupported column specification for `columns`.")
+        selected_columns = data.get_columns(columns)
+        as_analysis = True
 
     time = time[selected_columns]
-    if len(selected_columns) != ntrs.shape[1]:
-        as_analysis = True
 
     if compute_ci:
         as_analysis = True
@@ -472,8 +500,15 @@ def _normalize_baseline(
     # add result as a new slot to the GrandPy-object
     return data.with_slot(name, baseline_result, set_to_default=set_to_default)
 
-def _compute_total_expression(data: "GrandPy", name: str = "total_expression", genes: Union[Sequence[str], str] = None, mode_slot: str = None) -> "GrandPy":
-
+def _compute_total_expression(
+    data: "GrandPy",
+    name: str = "total_expression",
+    genes: Union[Sequence[str], str] = None,
+    mode_slot: str = None
+) -> "GrandPy":
+    """
+    For a detailed documentation see GrandPy.compute_steady_state_half_lives.
+    """
     matrix = data.get_matrix(mode_slot=mode_slot, genes=genes)
     total_expression = matrix.sum(axis=0)
 

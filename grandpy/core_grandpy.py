@@ -2742,7 +2742,7 @@ class GrandPy:
             **kwargs
     ) -> "GrandPy":
         """
-         Normalize data in a GrandPy object to a baseline, which computes the log2 fold change
+         Normalize data in a GrandPy object to a baseline, which computes the log2 fold change.
 
         See Also
         ----------
@@ -2782,6 +2782,11 @@ class GrandPy:
 
         kwargs**
             additional parameters to pass to the `lfc_fun`.
+
+        Returns
+        -------
+        GrandPy
+            A GrandPy object with the "baseline" data slot.
         """
         from .processing import _normalize_baseline
 
@@ -2794,23 +2799,74 @@ class GrandPy:
             name_lower: str = "lower",
             name_upper: str = "upper"
     )-> "GrandPy":
+        """
+        Computes the ntr confidence intervals and adds them as slots 'upper' and 'lower'.
+
+        Parameters
+        ----------
+        ci_size : float, default 0.95
+            The size of the confidence interval.
+
+        name_lower : str, default "lower"
+            Name to be given to the lower bound ci slot
+
+        name_upper : str, default "upper"
+            Name to be given to the upper bound ci slot.
+
+        Returns
+        -------
+            A GrandPy object with the added 'upper' and 'lower' slot.
+
+        """
         from .processing import _compute_ntr_ci
 
         return _compute_ntr_ci(self, ci_size, name_lower, name_upper)
 
     def compute_steady_state_half_lives(
             self,
-            time=None,
-            name="HL",
-            columns=None,
-            max_hl=48.0,
-            ci_size=0.95,
-            compute_ci=False,
-            as_analysis=False
+            time : Union[str, np.ndarray, pd.Series, Sequence[int]] = None,
+            name: str = "hl",
+            columns : list[str] = None,
+            max_hl : float = 48.0,
+            ci_size : float = 0.95,
+            compute_ci : bool = False,
+            as_analysis : bool = False
     ) -> "GrandPy":
+
+        """
+        Computes the steady state half lives of gense per
+
+        Parameters
+        ----------
+        time : str or np.ndarray or pd.Series or Sequence, default "duration.4sU"
+            Either a column name in `coldata` or something array-like containing timepoints.
+
+        name : str, default "hl"
+            The name for the slot or analysis to be added to the GranPy object.
+
+        columns : list[str]
+            If (a) certain column(s) is given, the function returns a GrandPy object with the specified column(s) added to the analysis table.
+
+        max_hl : float, default 48.0
+            Upper bound for the hl computation.
+
+        ci_size : float, default 0.95
+            Change the ci size.
+
+        compute_ci : bool, default False
+            Whether to compute the ci or not.
+
+        as_analysis : bool, default False
+            Whether to safe the computed half lives as a data slot (default) or an analysis.
+
+        Returns
+        -------
+            A GrandPy with added slot or analysis depending on as_analysis.
+
+        """
         from .processing import _compute_steady_state_half_lives
 
-        return _compute_steady_state_half_lives(self, time, name=name ,columns=columns, max_hl=max_hl, ci_size=ci_size, compute_ci=compute_ci, as_analysis=as_analysis)
+        return _compute_steady_state_half_lives(self, time=time, name=name ,columns=columns, max_hl=max_hl, ci_size=ci_size, compute_ci=compute_ci, as_analysis=as_analysis)
 
     def compute_total_expression(
             self,
@@ -2823,9 +2879,6 @@ class GrandPy:
 
         Parameters
         ----------
-        data : GrandPy
-            The GrandPy object containing the expression data.
-
         name : str, default: "total_expression"
             Name of the new column in coldata where the total_expression will be stored.
 
