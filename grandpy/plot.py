@@ -759,8 +759,8 @@ def plot_scatter(
     y_label_offset : float, default 0.001
         Vertical offset to apply when rendering gene labels.
 
-    analysis : str, optional
-        Analysis name to use when extracting data from analysis tables.
+    analysis : str | bool, optional
+        Either the name of the analysis to use, or True if you want to plot analyses.
 
     rasterized : bool, default False
         Whether to rasterize scatter plot (useful for large plots with many points).
