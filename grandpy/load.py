@@ -870,6 +870,17 @@ def read_grand(prefix, pseudobulk=None, targets=None, **kwargs) -> GrandPy:
     This function locates and reads either a TSV-based (dense) or Matrix-Market–
     based (sparse) GRAND-SLAM result set, then returns a GrandPy object.
 
+    Example
+    -------
+    This example renames "0.5h" -> "0_5h"
+    gp = read_grand("https://zenodo.org/record/7612564/files/chase_notrescued.tsv.gz?download=1",
+                    design=("Condition", "Time", "Replicate"),
+                    rename_sample=lambda v: re.sub(r"\\.chase", "",
+                    re.sub(r"0\\.5h", "0_5h",
+                    re.sub(r"\\.nos4U", ".no4sU", v))))
+
+    print(gp.coldata)
+
     Parameters
     ----------
     prefix : str
@@ -884,39 +895,37 @@ def read_grand(prefix, pseudobulk=None, targets=None, **kwargs) -> GrandPy:
     **kwargs :
         Passed through to _read(), read_dense() or read_sparse()
         Supported keys include:
-        - default_slot : str
-            Slot to set as default (e.g. "count").
-        - design : tuple[str] | DataFrame | callable
+
+        * design : Sequence[str] | DataFrame | callable
             Design-Variables or DataFrame for sample metadata.
-        - semantics : dict[str, Callable], optional
+
+        * default_slot : str
+            Slot to set as default (e.g. "count").
+
+        * semantics : Mapping[str, Callable], optional
             Map of column -> function for derived metadata (e.g. time).
             See notebook 03 for an example.
-        - classification_genes : list[str], optional
+
+        * classification_genes : Sequence[str], optional
             List of gene symbols to assign the special label.
-        - classification_genes_label : str
-            Tag for classification_genes-function (default "Unknown").
-        - classify_genes_func : callable, optional
-            Function for gene type classification.
-        - estimator : str
+
+        * classification_genes_label : str, optional
+            Tag assigned to `classification_genes` (default "Unknown").
+
+        * classify_genes_func : callable, optional
+            Function for gene type classification. Usually classify_genes().
+
+        * estimator : str, optional
             Keyword for slot-suffixes (default "Binom").
-        - rename_sample : Callable[[str], str], optional
+
+        * rename_sample : Callable[[str], str], optional
             Function that converts all sample names before building coldata
             + (e.g. regex or string replacements).
 
     Returns
     -------
     GrandPy
-        A GrandPy object populated with expression slots, gene_info and coldata.
-
-    Example
-    -------
-    This example renames "0.5h" -> "0_5h"
-    gp = read_grand("https://zenodo.org/record/7612564/files/chase_notrescued.tsv.gz?download=1",
-                    design=("Condition", "Time", "Replicate"), rename_sample=lambda v: re.sub(r"\\.chase", "",
-                    re.sub(r"0\\.5h", "0_5h",
-                    re.sub(r"\\.nos4U", ".no4sU", v))))
-
-    print(gp.coldata)
+        A GrandPy object populated with expression slots, gene_info, and coldata.
     """
 
     try:

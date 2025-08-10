@@ -280,16 +280,16 @@ def fit_kinetics_chase(
     new_expression = correct_new(data.get_matrix(mode_slot="ntr", genes=genes_to_fit), time=time)
 
     # --- chase-specific preprocessing ---
-    no4sU_mask = data.coldata["no4sU"].values
-    new_expression = new_expression[:, ~no4sU_mask]
+    no4su_mask = data.coldata["no4sU"].values
+    new_expression = new_expression[:, ~no4su_mask]
 
-    condition_vector = condition_vector[~no4sU_mask]
-    time = time[~no4sU_mask]
+    condition_vector = condition_vector[~no4su_mask]
+    time = time[~no4su_mask]
 
-    sample_names = sample_names[~no4sU_mask]
+    sample_names = sample_names[~no4su_mask]
 
     slot_matrix = data.get_matrix(slot, genes=genes_to_fit)
-    slot_matrix = slot_matrix[:, ~no4sU_mask]
+    slot_matrix = slot_matrix[:, ~no4su_mask]
 
     slot_values_per_gene = {
         gene: np.median(slot_matrix[i, :])
@@ -520,7 +520,7 @@ class FitResult:
     def inv_deg(self) -> float:
         return 1.0 / self.degradation if self.degradation > 0 else np.nan
 
-    # --- Cached exponentials ---
+    # --- Cached exponential ---
     @cached_property
     def exp_old(self) -> np.ndarray:
         return np.exp(-self.degradation * self.time)
@@ -596,10 +596,10 @@ class FitResult:
     @property
     def log_likelihood(self) -> float:
         if self.chase:
-            N = self.residuals_raw.size/2
+            n = self.residuals_raw.size/2
         else:
-            N = self.residuals_raw.size
-        return -N * (np.log(2 * np.pi) + 1 - np.log(N) + np.log(sum(self.residuals_raw ** 2)))/2
+            n = self.residuals_raw.size
+        return -n * (np.log(2 * np.pi) + 1 - np.log(n) + np.log(sum(self.residuals_raw ** 2)))/2
 
     @property
     def total_expr(self) -> float:
@@ -623,10 +623,10 @@ class FitResult:
             return (np.full_like(self.opt_result.x, np.nan),) * 2
 
         try:
-            J = self.opt_result.jac
+            j = self.opt_result.jac
             x = self.opt_result.x
 
-            if J.ndim != 2 or J.shape[1] != x.size:
+            if j.ndim != 2 or j.shape[1] != x.size:
                 return (np.full_like(x, np.nan),) * 2
 
             dof = len(self.residuals_raw) - x.size
@@ -635,11 +635,11 @@ class FitResult:
 
             sigma2 = np.sum(self.residuals_raw ** 2) / dof
 
-            JTJ = J.T @ J
-            if np.linalg.cond(JTJ) > 1e12:
+            jtj = j.T @ j
+            if np.linalg.cond(jtj) > 1e12:
                 return (np.full_like(x, np.nan),) * 2
 
-            cov = sigma2 * np.linalg.inv(JTJ)
+            cov = sigma2 * np.linalg.inv(jtj)
             se = np.sqrt(np.diag(cov))
             tval = t.ppf(1 - (1 - self.ci_size) / 2, df=dof)
 
@@ -836,12 +836,12 @@ def get_residuals_and_jacobian_nonequi(time: np.ndarray, v_old: np.ndarray, v_ne
         j_new_d = s / d ** 2 * (1 - exp) - s / d * time * exp
         j_new_f0 = np.zeros_like(time)
 
-        J = np.vstack([
+        j = np.vstack([
             np.concatenate([j_old_s, j_new_s]),
             np.concatenate([j_old_d, j_new_d]),
             np.concatenate([j_old_f0, j_new_f0])
         ]).T
-        return J
+        return j
 
     return residual_function, jacobian_function
 
@@ -926,7 +926,7 @@ def fit_kinetics_ntr(
     """
     For detailed documentation, see grandpy.GrandPy.fit_kinetics.
     """
-    # Paralellisation proved superfluous, as even for large datasets (>20000 genes) it showed no improvements in runtime over serialisation.
+    # Parallelization proved superfluous, as even for large datasets (>20000 genes) it showed no improvements in runtime over serialisation.
 
     if not ("alpha" in data.slots and "beta" in data.slots):
         raise ValueError("NTR-basierte Anpassung erfordert alpha-, beta-Slots.")
@@ -1278,15 +1278,15 @@ def uniroot_safe(fun, lower, upper):
 # ----- time calibration -----
 def compute_use_mask(half_life, totals, time, n_top_genes):
     bin_edges = np.concatenate([np.linspace(0, 2 * np.max(time), num=5), [np.inf]])
-    HL_cat = np.digitize(half_life, bin_edges, right=False)
+    hl_cat = np.digitize(half_life, bin_edges, right=False)
 
     use_mask = np.zeros_like(totals, dtype=bool)
-    unique_cats = np.unique(HL_cat)
+    unique_cats = np.unique(hl_cat)
     n_groups = len(unique_cats)
     group_threshold = int(np.ceil(n_top_genes / n_groups))
 
     for cat in unique_cats:
-        group_idx = np.where(HL_cat == cat)[0]
+        group_idx = np.where(hl_cat == cat)[0]
         group_totals = totals[group_idx]
 
         if len(group_totals) == 0:

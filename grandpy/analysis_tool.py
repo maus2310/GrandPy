@@ -60,10 +60,10 @@ class AnalysisTool:
                     mask[pattern] = True
                     return mask.tolist()
 
-                elif(all(isinstance(pat, str) for pat in pattern)):
+                elif all(isinstance(pat, str) for pat in pattern):
                     return [analysis in pattern for analysis in available_analyses]
 
-                elif(all(isinstance(pat, (bool, np.bool)) for pat in pattern)):
+                elif all(isinstance(pat, (bool, np.bool)) for pat in pattern):
                     return pattern
 
                 else:

@@ -610,7 +610,7 @@ def plot_scatter(
     y_axis_label: str = None,
     label: Union[Sequence[int], Sequence[str]] = None,
     y_label_offset: float = 0.001,
-    analysis: str = None,
+    analysis: str | bool = None,
     rasterized: bool = False,
     density_margin: str = "n",
     density_n: int = 100,
@@ -759,8 +759,8 @@ def plot_scatter(
     y_label_offset : float, default 0.001
         Vertical offset to apply when rendering gene labels.
 
-    analysis : str, optional
-        Analysis name to use when extracting data from analysis tables.
+    analysis : str | bool, optional
+        Either the name of the analysis to use, or True if you want to plot analyses.
 
     rasterized : bool, default False
         Whether to rasterize scatter plot (useful for large plots with many points).
@@ -1061,14 +1061,21 @@ def plot_scatter(
     if y_limit:
         ax.set_ylim(y_limit)
 
-    if log or log_x:
-        ax.set_xlabel(f"{x} (log10)")
-    if log or log_y:
-        ax.set_ylabel(f"{y} (log10)")
-    if neg_log_x:
-        ax.set_xlabel(f"-log10({x})")
-    if neg_log_y:
-        ax.set_ylabel(f"-log10({y})")
+    if x_axis_label:
+        ax.set_xlabel(x_axis_label)
+    else:
+        if log or log_x:
+            ax.set_xlabel(f"{x} (log10)")
+        if neg_log_x:
+            ax.set_xlabel(f"-log10({x})")
+
+    if y_axis_label:
+        ax.set_ylabel(y_axis_label)
+    else:
+        if log or log_y:
+            ax.set_ylabel(f"{y} (log10)")
+        if neg_log_y:
+            ax.set_ylabel(f"-log10({y})")
 
     # Diagonal
     if diagonal:

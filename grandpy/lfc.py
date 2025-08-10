@@ -85,7 +85,7 @@ def center_median(l: np.ndarray) -> np.ndarray:
     -------
     np.ndarray
         Normalized vector of the same shape as the input, where each element is shifted
-        by substracting the median of l.
+        by subtracting the median of l.
     """
 
     return l - np.nanmedian(l)
