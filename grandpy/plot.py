@@ -1061,14 +1061,21 @@ def plot_scatter(
     if y_limit:
         ax.set_ylim(y_limit)
 
-    if log or log_x:
-        ax.set_xlabel(f"{x} (log10)")
-    if log or log_y:
-        ax.set_ylabel(f"{y} (log10)")
-    if neg_log_x:
-        ax.set_xlabel(f"-log10({x})")
-    if neg_log_y:
-        ax.set_ylabel(f"-log10({y})")
+    if x_axis_label:
+        ax.set_xlabel(x_axis_label)
+    else:
+        if log or log_x:
+            ax.set_xlabel(f"{x} (log10)")
+        if neg_log_x:
+            ax.set_xlabel(f"-log10({x})")
+
+    if y_axis_label:
+        ax.set_ylabel(y_axis_label)
+    else:
+        if log or log_y:
+            ax.set_ylabel(f"{y} (log10)")
+        if neg_log_y:
+            ax.set_ylabel(f"-log10({y})")
 
     # Diagonal
     if diagonal:
