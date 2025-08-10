@@ -49,7 +49,7 @@ def concat(
     analysis_prefixes: Sequence[str], optional
         The prefixes added to the analyses of each instance.
         The list has to have the same length as the number of objects.
-        By default 'dataset<n>', where n is the index of the object in `objects`.
+        By default, 'dataset<n>', where n is the index of the object in `objects`.
 
         To disable this behavior, set to [""] * len(objects).
         Then analyses of the object coming first will be kept in case of a name collision.

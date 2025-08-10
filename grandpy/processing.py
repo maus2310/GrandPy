@@ -487,7 +487,7 @@ def _compute_expression_percentage(
     slot: str = None,
     genes_total: Union[str, Sequence[str]] = None,
     slot_total: str = None,
-    float_to_percent: bool = True,
+    percent_to_float: bool = True,
 ) -> "GrandPy":
     """
     For a detailed description see GrandPy.compute_expression_percentage.
@@ -496,7 +496,7 @@ def _compute_expression_percentage(
     denominator = data.get_matrix(mode_slot=slot_total, genes=genes_total).sum(axis=0)
 
     percentage = numerator / denominator
-    if float_to_percent:
+    if percent_to_float:
         percentage *= 100
 
     data = data.with_coldata(name=name, value=percentage)

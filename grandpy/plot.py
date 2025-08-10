@@ -610,7 +610,7 @@ def plot_scatter(
     y_axis_label: str = None,
     label: Union[Sequence[int], Sequence[str]] = None,
     y_label_offset: float = 0.001,
-    analysis: str = None,
+    analysis: str | bool = None,
     rasterized: bool = False,
     density_margin: str = "n",
     density_n: int = 100,
