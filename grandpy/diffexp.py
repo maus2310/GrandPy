@@ -1,7 +1,7 @@
 import contextlib
 import io
 from itertools import combinations
-from typing import Union, Callable, Sequence
+from typing import Union, Callable, Sequence, Literal
 
 import numpy as np
 import pandas as pd
@@ -18,7 +18,7 @@ def _get_summarize_matrix(
         columns: Union[None, str, list[str]] = None,
         average: bool = True) -> pd.DataFrame:
     """
-    For detailed documention see GrandPy.get_summarize_matrix.
+    For detailed documentation see GrandPy.get_summarize_matrix.
     """
     coldata = data.coldata
     sample_names = coldata.index.tolist()
@@ -36,7 +36,7 @@ def _get_summarize_matrix(
         no4su_samples = coldata.index[coldata["no4sU"]]
         columns = [col for col in columns if col not in no4su_samples]
 
-    # Mapping: sample_name → condition
+    # Mapping: sample_name -> condition
     condition_series = coldata.loc[columns, "Condition"]
 
     # Create indicator matrix
@@ -75,7 +75,7 @@ def _compute_lfc(
     verbose: bool = False,
     **kwargs) -> "GrandPy":
     """
-    For a detailed documention, see GrandPy.compute_lfc.
+    For a detailed documentation, see GrandPy.compute_lfc.
     """
     mode_slot_obj = _parse_as_mode_slot(mode_slot)
 
@@ -105,24 +105,24 @@ def _compute_lfc(
         if verbose:
             print(f"Computing LFC and M for contrast '{contrast}'...")
         c = contrasts[contrast]
-        A = np.where(c == 1)[0]
-        B = np.where(c == -1)[0]
+        a = np.where(c == 1)[0]
+        b = np.where(c == -1)[0]
 
         # sum counts per group
         mat = raw_mat
-        A_counts = np.sum(mat[:, A], axis=1)
-        B_counts = np.sum(mat[:, B], axis=1)
+        a_counts = np.sum(mat[:, a], axis=1)
+        b_counts = np.sum(mat[:, b], axis=1)
 
         # define normalization shift
         if isinstance(normalization, (list, np.ndarray, pd.Series)):
             sf = np.asarray(normalization)
-            shift = np.log2(sf[A].sum() / sf[B].sum())
+            shift = np.log2(sf[a].sum() / sf[b].sum())
             normalize_fun = lambda x: x - shift
         elif isinstance(normalization, str):
             norm_mat = data.get_matrix(mode_slot=f"{normalization}_{mode_slot_obj.slot}")
-            A_norm = np.sum(norm_mat[:, A], axis=1)
-            B_norm = np.sum(norm_mat[:, B], axis=1)
-            res = lfc_function(A_norm, B_norm, normalize_fun=lambda i: i, **kwargs)
+            a_norm = np.sum(norm_mat[:, a], axis=1)
+            b_norm = np.sum(norm_mat[:, b], axis=1)
+            res = lfc_function(a_norm, b_norm, normalize_fun=lambda i: i, **kwargs)
             raw_norm = res[0] if isinstance(res, tuple) else res
             med = np.median(raw_norm)
             normalize_fun = lambda x: x - med
@@ -130,19 +130,19 @@ def _compute_lfc(
             normalize_fun = center_median
 
         # compute LFC (and optional M)
-        result = lfc_function(A_counts, B_counts, normalize_fun=normalize_fun, **kwargs)
+        result = lfc_function(a_counts, b_counts, normalize_fun=normalize_fun, **kwargs)
         lfc_vals = result[0] if isinstance(result, tuple) else result
 
         # create named columns
         lfc_col = "LFC"
         table = pd.DataFrame({lfc_col: lfc_vals}, index=pd.Index(gene_list, name="Symbol"))
         if compute_m:
-            M_vals = 10 ** (0.5 * (np.log10(A_counts + 0.5) + np.log10(B_counts + 0.5)))
+            m_vals = 10 ** (0.5 * (np.log10(a_counts + 0.5) + np.log10(b_counts + 0.5)))
             m_col = "M"
-            table[m_col] = M_vals
+            table[m_col] = m_vals
 
             if verbose:
-                print(f"M-value for '{contrast}': {M_vals.mean():.2f}")
+                print(f"M-value for '{contrast}': {m_vals.mean():.2f}")
 
         # append analysis to object
         name = f"{prefix}_{contrast}"
@@ -157,7 +157,7 @@ def _pairwise_deseq2(
     prefix: str = None,
     separate: bool = False,
     mode_slot: Union[str, ModeSlot] = "count",
-    normalization: Union[str, Sequence[float]] = None,
+    normalization: Literal["new", "n", "old", "o", "total", "t"] = None,
     genes: Union[str, int, Sequence[Union[str, int, bool]]] = None,
     verbose: bool = False) -> "GrandPy":
     """
@@ -172,7 +172,7 @@ def _pairwise_deseq2(
 
     mode_slot = _parse_as_mode_slot(mode_slot)
 
-    if not np.all(contrasts.apply(lambda v: set([-1, 1]).issubset(set(v)), axis=0)):
+    if not np.all(contrasts.apply(lambda v: {-1, 1}.issubset(set(v)), axis=0)):
         raise ValueError("Contrasts do not define any comparison!")
 
     normalization_slot = mode_slot.slot if normalization is None else (
@@ -182,37 +182,36 @@ def _pairwise_deseq2(
         print(f"Running pairwise_DESeq2 with '{mode_slot}', normalization='{normalization_slot}'")
         print("Available slots:", list(data.slots))
 
-    def format_column_names(base: str, columns):
-        return [f"{base}_{col}" for col in columns]
+    # def format_column_names(base: str, columns):
+    #     return [f"{base}_{col}" for col in columns]
 
     if separate:
-
         for contrast_name in contrasts.columns:
             if verbose:
                 print(f"Running DESeq2 for contrast '{contrast_name}' (separate=True).")
 
-            A_mask = contrasts[contrast_name] == 1
-            B_mask = contrasts[contrast_name] == -1
+            a_mask = contrasts[contrast_name] == 1
+            b_mask = contrasts[contrast_name] == -1
 
-            counts_A = np.round(data.get_matrix(mode_slot, genes=genes)[:, A_mask].astype(int))
-            counts_B = np.round(data.get_matrix(mode_slot, genes=genes)[:, B_mask].astype(int))
-            counts = np.hstack((counts_A, counts_B))
+            counts_a = np.round(data.get_matrix(mode_slot, genes=genes)[:, a_mask].astype(int))
+            counts_b = np.round(data.get_matrix(mode_slot, genes=genes)[:, b_mask].astype(int))
+            counts = np.hstack((counts_a, counts_b))
 
             if isinstance(normalization_slot, str):
-                norm_counts = data.get_matrix(normalization_slot, genes=genes)[:, np.logical_or(A_mask, B_mask)]
+                norm_counts = data.get_matrix(normalization_slot, genes=genes)[:, np.logical_or(a_mask, b_mask)]
                 _, size_factors = deseq2_norm(pd.DataFrame(norm_counts))
                 size_factors = size_factors.squeeze()
             elif normalization is None:
-                norm_counts = data.get_matrix(mode_slot.slot, genes=genes)[:, np.logical_or(A_mask, B_mask)]
+                norm_counts = data.get_matrix(mode_slot.slot, genes=genes)[:, np.logical_or(a_mask, b_mask)]
                 _, size_factors = deseq2_norm(pd.DataFrame(norm_counts))
                 size_factors = size_factors.squeeze()
             else:
                 normalization_array = np.asarray(normalization_slot)
                 if normalization_array.ndim == 0:
                     raise ValueError("Normalization array is 0-dimensional.")
-                size_factors = normalization_array[np.logical_or(A_mask, B_mask)]
+                size_factors = normalization_array[np.logical_or(a_mask, b_mask)]
 
-            cond_labels = np.array(["A"] * counts_A.shape[1] + ["B"] * counts_B.shape[1])
+            cond_labels = np.array(["A"] * counts_a.shape[1] + ["B"] * counts_b.shape[1])
             coldata = pd.DataFrame({"comparison": cond_labels})
             counts_df = pd.DataFrame(counts).T
 
@@ -263,11 +262,11 @@ def _pairwise_deseq2(
 
     dds_contrasts = []
     for contrast_name in contrasts.columns:
-        A_group = find_or_add_group(contrasts[contrast_name] == 1)
-        B_group = find_or_add_group(contrasts[contrast_name] == -1)
-        dds_contrasts.append((contrast_name, A_group, B_group))
-        condition_vector[contrasts[contrast_name] == 1] = A_group
-        condition_vector[contrasts[contrast_name] == -1] = B_group
+        a_group = find_or_add_group(contrasts[contrast_name] == 1)
+        b_group = find_or_add_group(contrasts[contrast_name] == -1)
+        dds_contrasts.append((contrast_name, a_group, b_group))
+        condition_vector[contrasts[contrast_name] == 1] = a_group
+        condition_vector[contrasts[contrast_name] == -1] = b_group
 
     valid_samples = ~pd.isna(condition_vector)
     counts = np.round(data.get_matrix(mode_slot, genes=genes)[:, valid_samples].astype(int))
@@ -294,7 +293,7 @@ def _pairwise_deseq2(
     dds.deseq2(fit_type="parametric")
 
     for contrast_name, A_group, B_group in dds_contrasts:
-        stats = DeseqStats(dds, contrast=("comparison", A_group, B_group))
+        stats = DeseqStats(dds, contrast=["comparison", A_group, B_group])
         with contextlib.redirect_stdout(io.StringIO()):
             stats.summary()
 
@@ -337,7 +336,7 @@ def _pairwise(
     """
     mode_slot = _parse_as_mode_slot(mode_slot)
 
-    valid_contrasts = contrasts.loc[:, contrasts.apply(lambda v: set([-1, 1]).issubset(set(v)), axis=0)]
+    valid_contrasts = contrasts.loc[:, contrasts.apply(lambda v: {-1, 1}.issubset(set(v)), axis=0)]
     if valid_contrasts.shape[1] == 0:
         raise ValueError("Contrasts do not define any comparison!")
 
@@ -388,7 +387,7 @@ def _get_contrasts(
     col = contrast[0]
 
     columns = data.get_columns(columns)
-    use_mask = [elem in columns for elem in data.columns]
+    use_mask = pd.Series(pd.Index(data.columns).isin(columns), index=data.columns)
 
     if name_format is None:
         name_format = "$A vs $B" if group is None else "$A vs $B.$GRP"
