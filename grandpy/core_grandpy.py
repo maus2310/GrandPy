@@ -84,7 +84,7 @@ class GrandPy:
             analyses: dict[str, pd.DataFrame] = None,
             plots: dict[str, dict[str, Plot]] = None
     ):
-        # Enforce that necessary things exist
+        # Enforce that the necessary things exist
         if gene_info is None:
             raise ValueError("GrandPy object must have gene_info.")
         if coldata is None:
@@ -3051,7 +3051,7 @@ class GrandPy:
             fit_type: Literal["nlls", "ntr", "chase"] = "nlls",
             *,
             slot: str = None,
-            time: Union[str, np.ndarray, pd.Series, Sequence] = "duration.4sU",
+            time: Union[str, np.ndarray, pd.Series, Sequence[int]] = "duration.4sU",
             prefix: Union[str, None] = "kinetics",
             return_fields: Union[str, Sequence[str]] = None,
             ci_size: float = 0.95,
@@ -3102,7 +3102,7 @@ class GrandPy:
         slot: str, optional
             Name of the data slot used to extract old/new RNA expression. Defaults to the default slot.
 
-        time: str or np.ndarray or pd.Series or Sequence, default "duration.4sU"
+        time: str or np.ndarray or pd.Series or Sequence[int], default "duration.4sU"
             Either a column name in `coldata` or something array-like containing timepoints.
 
         prefix: str, default "kinetics"
