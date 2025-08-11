@@ -830,7 +830,7 @@ def _read_sparse(folder_path,
 
     if callable(design):
         design_arg = design
-    if isinstance(design, pd.DataFrame):
+    elif isinstance(design, pd.DataFrame):
         design_arg = design
     elif design is not None:
         design_arg = tuple(DESIGN_KEYS.get(d, d) for d in design)
