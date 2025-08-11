@@ -46,3 +46,10 @@ There are also additional notebooks:
 - [Working with data matrices and analysis results](./notebooks/notebook_04_working_with_data_matrices_and_analysis_results.ipynb): Learn more about how to retrieve data from GrandPy objects
 - [Plotting](./notebooks/notebook_05_plotting.ipynb): Learn how to create and store plots with GrandPy
 - [Pulse-chase](./notebooks/notebook_06_fitting_pulse-chase_data.ipynb): Learn how to fit pulse-chase data with GrandPy
+
+
+## Acknowledgements
+GrandPy is heavily inspired by the [grandR](https://grandr.erhard-lab.de/) R package
+by Prof. Dr. Florian Erhard, and we gratefully acknowledge his work
+as well as the team behind it, especially Julian-Andres Selke and Rahaf Issa,
+whose contributions made `GrandPy` possible.
