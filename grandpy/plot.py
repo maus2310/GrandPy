@@ -1344,20 +1344,29 @@ def plot_heatmap(
 
     coldata = data.coldata
 
-    if is_analysis is not None:
+    if not is_analysis:
+        try:
+            coldata_for_sel = coldata.loc[selected_columns]
+        except Exception:
+            coldata_for_sel = coldata
+
         if isinstance(x_labels, list):
             x_labels = x_labels
         elif isinstance(x_labels, str):
-            local_vars = {col.replace(".", "_"): coldata[col].astype(str) for col in coldata.columns}
+            local_vars = {col.replace(".", "_"): coldata_for_sel[col].astype(str) for col in coldata_for_sel.columns}
             safe_expr = x_labels
-            for col in coldata.columns:
+            for col in coldata_for_sel.columns:
                 safe_expr = safe_expr.replace(col, col.replace(".", "_"))
             try:
-                x_labels = eval(safe_expr, {}, local_vars).tolist()
+                evaluated = eval(safe_expr, {}, local_vars)
+                x_labels = list(evaluated)
             except Exception as e:
-                raise ValueError(f"xlab expression could not be evaluated: {e}\n" + """Replace "." with "_" and try again.""")
+                raise ValueError(f"xlab expression could not be evaluated: {e}\nReplace '.' with '_' and try again.")
         else:
-            x_labels = coldata["Name"].tolist()
+            if "Name" in coldata_for_sel.columns:
+                x_labels = coldata_for_sel["Name"].astype(str).tolist()
+            else:
+                x_labels = None
     else:
         x_labels = None
 
@@ -1376,8 +1385,13 @@ def plot_heatmap(
 
     cmap = LinearSegmentedColormap.from_list("custom", color_list)
     norm = Normalize(vmin=min_break, vmax=max_break)
-    if not is_analysis:
-        df.columns = x_labels
+
+    if x_labels is not None and (summarize is None or (hasattr(summarize, "empty") and summarize.empty)):
+        if len(x_labels) == df.shape[1]:
+            df.columns = x_labels
+        else:
+            warnings.warn(
+                f"x_labels length ({len(x_labels)}) != number of columns ({df.shape[1]}). Keeping original column names.")
 
     clustering_distance = clustering_distance
     clustering_method = clustering_method
