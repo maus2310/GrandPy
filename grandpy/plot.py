@@ -1595,9 +1595,9 @@ def plot_vulcano(
     p_cutoff: float = 0.05,
     lfc_cutoff: float = 1,
     annotate_numbers: bool = True,
-    x_lim: tuple[float, float] = None,
-    y_lim: tuple[float, float] = None,
-    remove_outliers: float = 0.0,
+    x_limit: tuple[float, float] = None,
+    y_limit: tuple[float, float] = None,
+    remove_outliers: float = 1.5,
     color_palette: str = "viridis",
     size: int = 10,
     figsize: tuple[float, float] = (10, 6),
@@ -1644,10 +1644,10 @@ def plot_vulcano(
         If True, calculate and draw six labels “n=…” on the plot, one for each region:
         (left/middle/right) × (above/below) the p_cutoff line.
 
-    x_lim : tuple[float, float], optional
+    x_limit : tuple[float, float], optional
         Tuple of (xmin, xmax) to set x‑axis limits.
 
-    y_lim : tuple[float, float], optional
+    y_limit : tuple[float, float], optional
         Tuple of (ymin, ymax) to set y‑axis limits.
 
     color_palette : str, default "viridis"
@@ -1718,8 +1718,8 @@ def plot_vulcano(
     ax.set_ylabel(r'$-\log_{10}$ FDR (Q)')
     ax.set_title(analyses)
 
-    if x_lim is not None: ax.set_xlim(x_lim)
-    if y_lim is not None: ax.set_ylim(y_lim)
+    if x_limit is not None: ax.set_xlim(x_limit)
+    if y_limit is not None: ax.set_ylim(y_limit)
 
     if annotate_numbers:
         bins = [-np.inf, -lfc_cutoff, lfc_cutoff, np.inf]
