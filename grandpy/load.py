@@ -564,7 +564,7 @@ def classify_genes(gene_info: pd.DataFrame,
         matches = func(gene_info)
         gene_type[matches] = name
 
-    return gene_type.astype("category")
+    return gene_type
 
 
 def _resolve_prefix_path(prefix: str | Path,

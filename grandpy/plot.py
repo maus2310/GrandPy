@@ -1676,8 +1676,6 @@ def plot_vulcano(
     if analyses is None:
         analyses = data.analyses[0]
 
-    print(analyses)
-
     df = data.get_analysis_table(
         analyses=analyses,
         regex=r'_LFC|_Q',
