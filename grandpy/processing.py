@@ -154,18 +154,24 @@ def compute_ntr_posterior_quantile(
     quantile: float,
     name: str
 ) -> "GrandPy":
-
     """
     Compute a posterior quantile of the NTR beta distribution and store as a new slot.
 
-    Parameters:
+    Parameters
+    ----------
+    data: GrandPy
+        A GrandPy object.
 
     quantile: float in [0,1]
-        quantile to compute
-    name: str
-        name of the new slot
-    """
+        Quantile to compute.
 
+    name: str
+        Name of the new slot.
+
+    Returns
+    -------
+        A GrandPy object with a new slot added.
+    """
     from scipy.stats import beta
 
     alpha = data.get_matrix(mode_slot="alpha")
@@ -179,7 +185,6 @@ def compute_ntr_posterior_lower(
     ci_size: float = 0.95,
     name: str = "lower"
 ) -> "GrandPy":
-
     """
     Compute lower bound of the NTR credible interval.
     """
@@ -191,7 +196,6 @@ def compute_ntr_posterior_upper(
     ci_size: float = 0.95,
     name: str = "upper"
 ) -> "GrandPy":
-
     """
     Compute upper bound of the NTR credible interval.
     """
@@ -204,7 +208,6 @@ def _compute_ntr_ci(
     name_lower: str = "lower",
     name_upper: str = "upper"
 ) -> "GrandPy":
-
     """
     Compute both lower and upper bounds of the credible interval.
     """
@@ -224,7 +227,7 @@ def _compute_steady_state_half_lives(
     as_analysis : bool = False
 ) -> "GrandPy":
     """
-    For a detailed documentation see GrandPy.compute_steady_state_half_lives.
+    For detailed documentation see GrandPy.compute_steady_state_half_lives.
     """
     if time is None:
         time = data.coldata["duration.4sU"]
@@ -507,7 +510,7 @@ def _compute_total_expression(
     mode_slot: str = None
 ) -> "GrandPy":
     """
-    For a detailed documentation see GrandPy.compute_steady_state_half_lives.
+    For a detailed documentation see GrandPy.compute_total_expression.
     """
     matrix = data.get_matrix(mode_slot=mode_slot, genes=genes)
     total_expression = matrix.sum(axis=0)

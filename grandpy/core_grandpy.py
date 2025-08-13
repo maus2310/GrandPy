@@ -2832,9 +2832,8 @@ class GrandPy:
             compute_ci : bool = False,
             as_analysis : bool = False
     ) -> "GrandPy":
-
         """
-        Computes the steady state half lives of gense per
+        Computes the steady state half-lives of gense per
 
         Parameters
         ----------
@@ -2883,7 +2882,7 @@ class GrandPy:
             Name of the new column in coldata where the total_expression will be stored.
 
         genes Union[Sequence[str], str], optional
-            List of genes for which to compute expression fraction.
+            List of genes for which to compute an expression fraction.
 
         slot : str, optional, default: default_slot
             Data slot to use for numerator values.
@@ -2902,8 +2901,6 @@ class GrandPy:
         GrandPy
             The modified GrandPy object with a new column in coldata.
         """
-
-
         from .processing import _compute_total_expression
 
         return _compute_total_expression(self, name=name, genes=genes, mode_slot=mode_slot)
@@ -2917,7 +2914,6 @@ class GrandPy:
             slot_total: str = None,
             percent_to_float: bool = True
     )-> "GrandPy":
-
         """
         Compute the percentage of expression for a set of genes per column and
         store it in the coldata (sample metadata).
@@ -2947,7 +2943,6 @@ class GrandPy:
         GrandPy
             The modified GrandPy object with a new column in coldata.
         """
-
         from .processing import _compute_expression_percentage
 
         return _compute_expression_percentage(self, name=name, genes=genes, slot=slot, genes_total=genes_total, slot_total=slot_total, percent_to_float=percent_to_float)
@@ -3303,11 +3298,9 @@ class GrandPy:
 
         Parameters
         ----------
-        self : pd.DataFrame
-            DataFrame containing sample metadata (e.g., conditions, groups).
-
         contrast : str or Sequence[str]
             Defines the contrast logic:
+
             - [condition_column] → all pairwise contrasts
             - [condition_column, reference_level] → all vs. reference
             - [condition_column, level_A, level_B] → specific comparison A vs B
@@ -3565,8 +3558,6 @@ class GrandPy:
                            verbose=verbose, **kwargs)
 
         return new_gp
-
-
 
 
 
