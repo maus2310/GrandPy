@@ -9,12 +9,12 @@ visualization of such data. It mimics the core functionality of the original [gr
 package, by which it is inspired.
 
 ## Installation
-GrandPy is <span style="color:red">available</span> from [[PyPi]](...).
-Install `GrandPy` using the following commands on the Python console:
+GrandPy will be available from [[PyPi]](...).
+Once released, you will be able to install `GrandPy` using the following command in your Python console:
 
 <pre> pip install grandpy</pre>
 
-You can also install the development version from GitLab:
+In the meantime, you can install the development version directly from GitLab:
 
 <pre> pip install git+https://git.uni-regensburg.de/se24/g03/grandpy.git </pre>
 
@@ -50,7 +50,7 @@ There are also additional notebooks:
 - [Pulse-chase](./docs/notebooks/notebook_06_fitting_pulse-chase_data.ipynb): Learn how to fit pulse-chase data with GrandPy
 
 ## Acknowledgements
-GrandPy is heavily inspired by the [grandR](https://grandr.erhard-lab.de/) R package
-by Prof. Dr. Florian Erhard, and we gratefully acknowledge his work
-as well as the team behind it, especially Julian-Andreas Selke and Rahaf Issa,
-whose contributions made `GrandPy` possible.
+GrandPy is heavily inspired by the [grandR](https://grandr.erhard-lab.de/) R package by Prof. Dr. Florian Erhard,
+Teresa Rummel, Lygeri Sakellaridi and Kevin Berg. We gratefully acknowledge their work,
+as well as the efforts of the team behind it, especially Julian-Andreas
+Selke and Rahaf Issa, whose contributions made `GrandPy` possible.
