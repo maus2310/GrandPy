@@ -8,7 +8,7 @@ from grandpy import read_grand, ModeSlot
 from grandpy.utils import _make_unique
 
 
-# TODO: Funktions not yet tested: get_significant_genes(), (get_references())
+# TD: Functions not tested yet: get_significant_genes(), (get_references())
 
 
 @pytest.fixture(scope="module")

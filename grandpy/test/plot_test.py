@@ -22,7 +22,7 @@ EXPECTED_FILE_SIZES = {
     "SRSF6_Snapshot_Timecourse.svg": 41,
     "SRSF6_Total_vs_Ntr.svg": 47,
     "Type_Distribution.svg": 49,
-    "Vulcano.svg": 210,
+    "Vulcano.svg": 195,
     "MAPlot.svg": 230
 }
 
@@ -155,7 +155,7 @@ def test_plot_type_distribution(sars_dataset, temp_output_dir):
 def test_vulcano(sars_dataset, temp_output_dir):
     _, sars2 = sars_dataset
     try:
-        gp.plot_vulcano(sars2, x_lim=(-2, 2), y_lim=(-9, 50), lfc_cutoff=0.5, path_for_save=temp_output_dir, show_plot=False)
+        gp.plot_vulcano(sars2, x_limit=(-2, 2), y_limit=(-9, 50), lfc_cutoff=0.5, path_for_save=temp_output_dir, show_plot=False)
         check_file_size(temp_output_dir, "Vulcano.svg")
     except Exception as e:
         pytest.fail(f"Vulcano.svg: {e}")

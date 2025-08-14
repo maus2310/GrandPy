@@ -326,36 +326,37 @@ def test_make_unique_adds_suffix():
 # --- Loading the data ---
 
 if __name__ == "__main__":
-    grand_obj = read_grand("https://zenodo.org/record/5834034/files/sars.tsv.gz", design=("Condition", "Time", "Replicate"))
+    import grandpy as gp
+    grand_obj = gp.read_grand("https://zenodo.org/record/5834034/files/sars.tsv.gz", design=("Condition", "Time", "Replicate"))
     print(grand_obj)
 
-    sars = read_grand("../data/sars_R.tsv", design=("Condition", "Time", "Replicate"))
+    sars = gp.read_grand("../data/sars_R.tsv", design=("Condition", "Time", "Replicate"))
     print(sars) # funktioniert
 
-    sparse_data = read_grand("../test-datasets/test_sparse.targets", design=("Time", "Replicate"))
+    sparse_data = gp.read_grand("../test-datasets/test_sparse.targets", design=("Time", "Replicate"))
     print(sparse_data) # funktioniert
 
-    grand_sparse = read_grand("../test-datasets/test_sc_sparse.targets", design=("Condition", "Time", "Replicate"))
+    grand_sparse = gp.read_grand("../test-datasets/test_sc_sparse.targets", design=("Condition", "Time", "Replicate"))
     print(grand_sparse)
 
-    sc_dense = read_grand("../test-datasets/test_sc_dense.targets", design=("Time", "Replicate"))
+    sc_dense = gp.read_grand("../test-datasets/test_sc_dense.targets", design=("Time", "Replicate"))
     print(sc_dense)
 
-    banp = read_grand("https://zenodo.org/record/6976391/files/BANP.tsv.gz", design=("Cell", "Experimental.time", "Genotype", "dur.4sU", "has4.U", "Replicate"))
+    banp = gp.read_grand("https://zenodo.org/record/6976391/files/BANP.tsv.gz", design=("Cell", "Experimental.time", "Genotype", "dur.4sU", "has4.U", "Replicate"))
     print(banp)
 
     qc = get_table_qc(grand_obj, slot="count")
     print(qc.head())
 
     url = "https://zenodo.org/record/7612564/files/chase_notrescued.tsv.gz?download=1"
-    gp_url = read_grand(url, design=("Condition", "dur.4sU", "Replicate"))
+    gp_url = gp.read_grand(url, design=("Condition", "dur.4sU", "Replicate"))
     print(gp_url)
 
-    grand = read_grand("../test-datasets/test_sparse.targets", design=("Time", "Replicate"))
+    grand = gp.read_grand("../test-datasets/test_sparse.targets", design=("Time", "Replicate"))
     qc = get_table_qc(grand)
     print(qc.head())
 
-    gp = read_grand("test-datasets/test_dense.targets", design=("Condition", "Time", "Replicate"))
+    gp = gp.read_grand("../test-datasets/test_dense.targets", design=("Condition", "Time", "Replicate"))
     print("Title:", gp.title)
     print("Prefix:", gp.metadata["prefix"])
 
@@ -375,7 +376,7 @@ def is_result_ds(p: Path) -> bool:
 
     if p.is_file() and ".targets" in name and name.endswith((".tsv", ".tsv.gz")):
         return True
-    #
+
     # if p.is_file() and p.name.endswith((".tsv", ".tsv.gz")):
     #     if "conversion" in p.name and "targets" in p.name:
     #         return True
@@ -404,7 +405,6 @@ PARAMS = [
 
 @pytest.mark.parametrize("dataset_path, estimator", PARAMS)
 def test_read_dataset_with_estimator(dataset_path: Path, estimator):
-    # - load test should test valid targets and pseudobulks as well
     name = dataset_path.name.lower()
     kwargs = dict(design=("Condition", "Time"), estimator=estimator)
 
