@@ -93,13 +93,18 @@ class AnalysisTool:
 
         new_analyses = {} if new_analyses == {} else new_analyses
 
-        if new_analyses.get(name, None) is not None:
-            warnings.warn(f"An analysis named {name} already exists! It will be overwritten.")
-
         table.index = _make_unique(pd.Series(table.index), warn=False)
-        table = _reindex_by_index_name(table, by=self._adata.obs)
 
-        new_analyses[name] = table
+        if new_analyses.get(name, None) is not None:
+            warnings.warn(f"An analysis named {name} already exists! The following columns will be added/updated: {table.columns}")
+            new_analyses[name].update(table)
+
+            new_columns = table.columns.difference(new_analyses[name].columns)
+            new_analyses[name] = new_analyses[name].join(table[new_columns], how='left')
+
+        else:
+            table = _reindex_by_index_name(table, by=self._adata.obs)
+            new_analyses[name] = table
 
         return new_analyses
 

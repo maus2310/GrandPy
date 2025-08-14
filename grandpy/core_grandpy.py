@@ -667,6 +667,7 @@ class GrandPy:
     def with_analysis(self, name: str, table: pd.DataFrame) -> "GrandPy":
         """
         Returns a GrandPy instance with added analyses.
+        If an analysis named `name` already exists, it will be updated.
 
         Not to be used directly in most cases, instead it is called by analysis methods.
 
@@ -694,11 +695,12 @@ class GrandPy:
             The name of the analysis.
 
         table: pd.DataFrame
-            A DataFrame containing the analysis data. Has to contain gene names or symbols.
+            A DataFrame containing the analysis data. Has to contain gene symbols in the index.
 
         Returns
         -------
-        A GrandPy instance with added analyses.
+        GrandPy
+            A GrandPy instance with added analyses.
         """
         new_analyses = self.__analysis_tool.with_analysis(name, table)
 
@@ -729,6 +731,7 @@ class GrandPy:
 
         Returns
         -------
+        GrandPy
             A GrandPy instance with removed analyses.
         """
         new_analyses = self.__analysis_tool.drop_analyses(pattern)
@@ -1252,7 +1255,7 @@ class GrandPy:
     def get_significant_genes(
             self,
             analysis = None,
-            criteria: str = None,
+            criteria: str = "Q < 0.05 & abs(LFC) >= 1",
             *,
             regex=True,
             use_symbols: bool = True,
@@ -1270,19 +1273,19 @@ class GrandPy:
         >>> sars.get_analyses(description=True)
         {'total_Mock vs SARS': ['M', 'S', 'P', 'Q', 'LFC']}
 
-        Get the genes with Q < 0.05 and an LFC >= 1.
+        Get the genes with Q < 0.05 and an absolute LFC >= 1.
 
-        >>> sig_genes = sars.get_significant_genes(criteria="Q < 0.05 & LFC >= 1")
+        >>> sig_genes = sars.get_significant_genes(analysis="total_Mock vs SARS", criteria="Q < 0.05 & abs(LFC) >= 1")
         >>> print(len(sig_genes))
-        45
+        180
 
         Parameters
         ----------
         analysis : str or list[str], optional
             Names of the analysis results to evaluate.
 
-        criteria : str, optional
-            String expression evaluated against `analysis`. By default, 'Q<0.05 & abs(LFC)>=1'.
+        criteria : str, default 'Q < 0.05 & abs(LFC) >= 1'
+            String expression evaluated against the `analysis` data.
 
         regex : bool, default True
             If True, `analysis` is evaluated as a regular expression.
@@ -1301,7 +1304,7 @@ class GrandPy:
         Union[list[str], pd.DataFrame]
             A list of significant gene symbols or a DataFrame containing the respective significance values.
         """
-        analyses = self.get_analyses(analysis, regex=regex)
+        analyses = self.get_analyses(pattern=analysis, regex=regex)
         result = self.gene_info
 
         if analysis not in analyses:
@@ -1315,13 +1318,10 @@ class GrandPy:
                 prefix_by_analyses=False
             )
 
-            if criteria is None:
-                use = (tab["Q"] < 0.05) & (tab["LFC"].abs() >= 1)
-            else:
-                try:
-                    use = tab.eval(criteria)
-                except Exception as e:
-                    raise ValueError(f"Could not evaluate criteria '{criteria}': {e}")
+            try:
+                use = tab.eval(criteria)
+            except Exception as e:
+                raise ValueError(f"Could not evaluate criteria '{criteria}': {e}")
 
             use = use.fillna(False)
             result[name] = use

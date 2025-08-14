@@ -63,6 +63,8 @@ def _fit_kinetics(
     return kinetics
 
 
+
+# ----- nlls and chase kinetic modeling -----
 def get_dynamic_process_count(data_size: int, max_processes: int = None, exact_processes: bool = False) -> int:
     """
     Dynamically determine the number of processes based on data size and available CPUs.
@@ -96,7 +98,6 @@ def get_dynamic_process_count(data_size: int, max_processes: int = None, exact_p
     return max(num_processes, 1)
 
 
-
 def correct_new(new_expressions: np.ndarray, time: np.ndarray) -> np.ndarray:
     """
     Applies a correction to every row of `all_expressions`, where time = 1.
@@ -122,8 +123,6 @@ def correct_old(old_expressions: np.ndarray) -> np.ndarray:
     return old_expressions
 
 
-
-# ----- nlls and chase kinetic modeling -----
 def fit_kinetics_nlls(
     data: "GrandPy",
     slot: str,
@@ -140,7 +139,7 @@ def fit_kinetics_nlls(
     **kwargs
 ) -> dict[str, pd.DataFrame]:
     """
-    For detailed documentation, see GrandPy.fit_kinetics.
+    This helper function is necessary for effective parallelisation, as the data has to be subset first.
     """
     genes_to_fit = data.get_genes(genes)
 
@@ -255,7 +254,7 @@ def fit_kinetics_chase(
     **kwargs
 ) -> dict[str, pd.DataFrame]:
     """
-    For detailed documentation, see GrandPy.fit_kinetics.
+    This helper function is necessary for effective parallelisation, as the data has to be subset first.
     """
     genes_to_fit = data.get_genes(genes)
 
@@ -924,7 +923,7 @@ def fit_kinetics_ntr(
         show_progress: bool = True
 ) -> dict[str, pd.DataFrame]:
     """
-    For detailed documentation, see grandpy.GrandPy.fit_kinetics.
+    This helper function is necessary for effective parallelisation, as the data has to be subset first.
     """
     # Parallelization proved superfluous, as even for large datasets (>20000 genes) it showed no improvements in runtime over serialisation.
 
