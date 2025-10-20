@@ -38,7 +38,7 @@ Additional packages are optional and important for particular functions:
 First, have a look at the [getting started](./docs/notebooks/notebook_00_getting_started.ipynb)
 notebook.
 
-Next, explore [differential expression]((./docs/notebooks/notebook_01_differential_expression.ipynb)) or
+Next, explore [differential expression](./docs/notebooks/notebook_01_differential_expression.ipynb) or
 [kinetic modeling](./docs/notebooks/notebook_02_kinetic_modeling.ipynb), which provide an overview
 of the two primary settings for nucleotide conversion experiments.
 
