@@ -5,7 +5,7 @@ repo_name: GitLab
 
 theme:
   name: null
-  custom_dir: 'mkdocs_docskimmer'
+  custom_dir: 'docs/mkdocs_docskimmer'
   include_search_page: true
   search_index_only: false
   static_templates:
