@@ -3050,7 +3050,7 @@ class GrandPy:
             prefix: Union[str, None] = "kinetics",
             return_fields: Union[str, Sequence[str]] = None,
             ci_size: float = 0.95,
-            genes: Union[str, Sequence[str]] = None,
+            genes: Union[str, int, Sequence[Union[str, int, bool]]] = None,
             show_progress: bool = True,
             **kwargs
     ) -> "GrandPy":

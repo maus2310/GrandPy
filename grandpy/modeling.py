@@ -23,9 +23,9 @@ def _fit_kinetics(
     slot: str = None,
     prefix: Union[str, None] = "kinetics",
     return_fields: Union[str, Sequence[str]] = None,
-    time: Union[str, np.ndarray, pd.Series, list] = "Time",
+    time: Union[str, np.ndarray, pd.Series, Sequence[int]] = "duration.4sU",
     ci_size: float = 0.95,
-    genes: Union[str, Sequence[str]] = None,
+    genes: Union[str, int, Sequence[Union[str, int, bool]]] = None,
     show_progress: bool = True,
     **kwargs
 ) -> dict[str, pd.DataFrame]:
@@ -48,6 +48,7 @@ def _fit_kinetics(
 
     time = np.array(time).squeeze()
 
+    # Select the desired fitting function
     fit_function = {
         "nlls": fit_kinetics_nlls,
         "ntr": fit_kinetics_ntr,
@@ -76,6 +77,9 @@ def get_dynamic_process_count(data_size: int, max_processes: int = None, exact_p
 
     max_processes: int, optional
         Maximum limit for amount of processes.
+
+    exact_processes: bool, default False
+        Whether to use exactly `max_processes` processes.`
 
     Returns
     -------
@@ -127,11 +131,11 @@ def fit_kinetics_nlls(
     data: "GrandPy",
     slot: str,
     *,
-    genes: Union[str, int, Sequence[Union[str, int, bool]]] = None,
-    prefix: Union[str, None] = "kinetics",
-    time: Union[np.ndarray, pd.Series, list] = None,
-    ci_size: float = 0.95,
-    return_fields: Sequence[str] = None,
+    genes: Union[str, int, Sequence[Union[str, int, bool]]],
+    prefix: str,
+    time: np.ndarray,
+    ci_size: float,
+    return_fields: Sequence[str],
     steady_state: Union[bool, Mapping[str, bool]] = True,
     max_processes: int = None,
     exact_processes: bool = False,
@@ -243,11 +247,11 @@ def fit_kinetics_chase(
     data: "GrandPy",
     slot: str,
     *,
-    genes: Union[str, int, Sequence[Union[str, int, bool]]] = None,
-    prefix: Union[str, None] = "kinetics",
-    time: Union[np.ndarray, pd.Series, list] = None,
-    ci_size: float = 0.95,
-    return_fields: Sequence[str] = None,
+    genes: Union[str, int, Sequence[Union[str, int, bool]]],
+    prefix: str,
+    time: np.ndarray,
+    ci_size: float,
+    return_fields: Sequence[str],
     max_processes: int = None,
     exact_processes: bool = False,
     show_progress: bool = True,
@@ -675,7 +679,7 @@ class FitResult:
         return result
 
 
-    def to_dict(self, fields: list[str]) -> dict[str, object]:
+    def to_dict(self, fields: Sequence[str]) -> dict[str, object]:
         field_funcs = {
             "Synthesis": lambda: self.return_synthesis,
             "Degradation": lambda: self.degradation,
@@ -695,7 +699,7 @@ class FitResult:
             for f in fields
         }
 
-    def to_series(self, fields: list[str] = None, sample_names: list[str] = None, condition: str = None) -> pd.Series:
+    def to_series(self, fields: Sequence[str] = None, sample_names: Sequence[str] = None, condition: str = None) -> pd.Series:
         data = self.to_dict(fields)
 
         flat = {}
@@ -817,7 +821,7 @@ def get_residuals_and_jacobian_nonequi(time: np.ndarray, v_old: np.ndarray, v_ne
     """
     def residual_function(par):
         s, d, f0 = par
-        ro = v_old - f_old_nonequi(time, f0, s, d)
+        ro = v_old - f_old_nonequi(time, f0, d)
         rn = v_new - f_new(time, s, d)
         return np.concatenate([ro, rn])
 
@@ -854,11 +858,11 @@ def guess_chase_start(values_new: np.ndarray, time: np.ndarray):
         return 1.0, 0.5
 
     y = np.log(np.maximum(values_new[mask], 1e-3))
-    t = time[mask]
+    time = time[mask]
 
     try:
         from numpy.polynomial import Polynomial
-        p = Polynomial.fit(t, y, deg=1)
+        p = Polynomial.fit(time, y, deg=1)
         slope = p.convert().coef[1]
         d0 = -slope
     except Exception:
@@ -879,32 +883,32 @@ def guess_d0_from_old(values_old: np.ndarray, time: np.ndarray):
     if np.count_nonzero(mask) < 2:
         return 0.1
     y = np.log(np.maximum(values_old[mask], 1e-3))
-    t = time[mask]
-    p = Polynomial.fit(t, y, deg=1)
+    time = time[mask]
+    p = Polynomial.fit(time, y, deg=1)
     slope = p.convert().coef[1]
     return np.clip(-slope, 1e-3, 2.0)
 
 
 @np.vectorize
-def f_old_equi(t: float, s: float, d: float) -> float:
+def f_old_equi(time: float, s: float, d: float) -> float:
     """
     Computes the expected amount of old RNA under steady-state assumptions.
     """
-    return s / d * np.exp(-t * d)
+    return s / d * np.exp(-time * d)
 
 @np.vectorize
-def f_old_nonequi(t: float, f0: float, s: float, d: float):
+def f_old_nonequi(time: float, f0: float, d: float):
     """
     Computes the expected amount of old RNA under non-steady-state.
     """
-    return f0 * np.exp(-t * d)
+    return f0 * np.exp(-time * d)
 
 @np.vectorize
-def f_new(t: float, s: float, d: float) -> float:
+def f_new(time: float, s: float, d: float) -> float:
     """
     Computes the expected amount of newly synthesized RNA at a given time.
     """
-    return s / d * (1 - np.exp(-t * d))
+    return s / d * (1 - np.exp(-time * d))
 
 
 
@@ -913,11 +917,11 @@ def fit_kinetics_ntr(
         data: "GrandPy",
         slot: str,
         *,
-        genes: Union[str, int, Sequence[Union[str, int, bool]]] = None,
-        prefix: Union[str, None] = "kinetics",
-        time: Union[np.ndarray, pd.Series, list] = None,
-        ci_size: float = 0.95,
-        return_fields: Sequence[str] = None,
+        genes: Union[str, int, Sequence[Union[str, int, bool]]],
+        prefix: str,
+        time: np.ndarray,
+        ci_size: float,
+        return_fields: Sequence[str],
         exact_ci: bool = False,
         transformed_ntr_map: bool = True,
         show_progress: bool = True
@@ -925,7 +929,7 @@ def fit_kinetics_ntr(
     """
     This helper function is necessary for effective parallelisation, as the data has to be subset first.
     """
-    # Parallelization proved superfluous, as even for large datasets (>20000 genes) it showed no improvements in runtime over serialisation.
+    # Parallelization proved superfluous, as even for large datasets (>20000 genes) it showed no improvements in runtime over serialization.
 
     if not ("alpha" in data.slots and "beta" in data.slots):
         raise ValueError("NTR-basierte Anpassung erfordert alpha-, beta-Slots.")
@@ -1226,7 +1230,7 @@ class NTRFitResult:
         span = self.degradation * 3
         return max(1e-6, self.degradation - span), self.degradation + span
 
-    def to_dict(self, fields: list[str]) -> dict[str, object]:
+    def to_dict(self, fields: Sequence[str]) -> dict[str, object]:
         field_funcs = {
             "Synthesis": lambda: self.synthesis,
             "Degradation": lambda: self.degradation,
@@ -1243,7 +1247,7 @@ class NTRFitResult:
             for f in fields
         }
 
-    def to_series(self, fields: list[str] = None) -> pd.Series:
+    def to_series(self, fields: Sequence[str] = None) -> pd.Series:
         data = self.to_dict(fields)
 
         flat = {}
@@ -1371,8 +1375,8 @@ def _calibrate_effective_labeling_time_kinetic_fit(
             eval_bar.update(1)
             return -loglik_sum
 
-        def opt_fun_scalar(mini):
-            shifted = init_array[use_mask_columns] - mini
+        def opt_fun_scalar(x):
+            shifted = init_array[use_mask_columns] - x
             return opt_fun(shifted)
 
         res_scalar = minimize_scalar(
