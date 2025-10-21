@@ -5,10 +5,9 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "grandpy"
 version = "0.1.0"
-description = "Modul for kinetic RNA-seq analysis, inspired by grandR."
+description = "Modul for kinetic RNA-seq analysis."
 readme = "README.md"
-#TODO licence
-#license = { file = "LICENSE.md" }
+license = { file = "LICENSE.md" }
 authors = [
   {name = "Marius Preidel"},
   {name = "Katharina Steinkirchner"},
