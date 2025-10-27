@@ -52,5 +52,5 @@ There are also additional notebooks:
 ## Acknowledgements
 GrandPy is heavily inspired by the [grandR](https://grandr.erhard-lab.de/) R package by Prof. Dr. Florian Erhard,
 Teresa Rummel, Lygeri Sakellaridi and Kevin Berg. We gratefully acknowledge their work,
-as well as the efforts of the team behind it, especially Julian-Andreas
+as well as the efforts of the team behind it, especially Julian
 Selke and Rahaf Issa, whose contributions made `GrandPy` possible.
