@@ -9,10 +9,10 @@ description = "Modul for kinetic RNA-seq analysis."
 readme = "README.md"
 license = { file = "LICENSE.md" }
 authors = [
-  {name = "Marius Preidel"},
-  {name = "Katharina Steinkirchner"},
-  {name = "Andreas Weiß"},
   {name = "Finn Möller"},
+  {name = "Katharina Steinkirchner"},
+  {name = "Marius Preidel"},
+  {name = "Andreas Weiß"},
 ]
 maintainers = [
   {name = "Florian Erhard"}
@@ -29,7 +29,7 @@ dependencies = [
     "pydeseq2"
 ]
 
-requires-python = ">= 3.12.0"
+requires-python = ">= 3.12.0" # TODO noch version hinzufügen
 keywords = ["grandpy", "Grandpy", "GrandPy", "GrandPy", "RNA", "grandR"]
 
 #TODO Insert right URLs
