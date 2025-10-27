@@ -3042,7 +3042,7 @@ def plot_gene_snapshot_timecourse(
     if time not in plot_df.columns:
         raise ValueError(f"Column '{time}' not found in coldata!")
 
-    if isinstance(plot_df[time][0], np.float64):
+    if isinstance(plot_df[time].iloc[0], np.float64):
         x_vals_numeric = plot_df[time]
     else:
         x_vals_numeric = plot_df[time].apply(_parse_time_to_float)

@@ -9,7 +9,8 @@ from typing import Union, Literal, Callable
 import numpy as np
 import pandas as pd
 from scipy.optimize import minimize, minimize_scalar, least_squares, OptimizeResult, brentq
-from scipy.stats import norm, t
+from scipy.stats import norm, t, chi2
+from scipy.interpolate import interp1d
 from tqdm import tqdm
 
 from .slot_tool import ModeSlot
@@ -111,7 +112,7 @@ def correct_new(new_expressions: np.ndarray, time: np.ndarray) -> np.ndarray:
     time_1 = time == 1
 
     if np.any(zero_rows) and np.any(time_1):
-        new_expressions[zero_rows, time_1] = 0.01
+        new_expressions[np.ix_(zero_rows, time_1)] = 0.01
 
     return new_expressions
 
@@ -861,11 +862,14 @@ def guess_chase_start(values_new: np.ndarray, time: np.ndarray):
     time = time[mask]
 
     try:
-        from numpy.polynomial import Polynomial
-        p = Polynomial.fit(time, y, deg=1)
-        slope = p.convert().coef[1]
-        d0 = -slope
-    except Exception:
+        from numpy.polynomial.polyutils import RankWarning
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RankWarning)
+            p = np.polynomial.Polynomial.fit(time, y, deg=1)
+            slope = p.convert().coef[1]
+            d0 = -slope
+    except IndexError:
         d0 = 0.1
 
     d0 = np.clip(d0, 1e-3, 2.0)
@@ -877,16 +881,25 @@ def guess_d0_from_old(values_old: np.ndarray, time: np.ndarray):
     """
     Approximates the degradation(d0) for least_squares in a non steady state using linear regression.
     """
-    from numpy.polynomial import Polynomial
-
     mask = (values_old > 0) & (time > 0)
     if np.count_nonzero(mask) < 2:
         return 0.1
+
     y = np.log(np.maximum(values_old[mask], 1e-3))
     time = time[mask]
-    p = Polynomial.fit(time, y, deg=1)
-    slope = p.convert().coef[1]
-    return np.clip(-slope, 1e-3, 2.0)
+
+    try:
+        from numpy.polynomial.polyutils import RankWarning
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RankWarning)
+            p = np.polynomial.Polynomial.fit(time, y, deg=1)
+            slope = p.convert().coef[1]
+            d0 = -slope
+    except IndexError:
+        d0 = 0.1
+
+    return np.clip(d0, 1e-3, 2.0)
 
 
 @np.vectorize
@@ -1037,14 +1050,7 @@ def fit_kinetics_gene_ntr(
     NTRFitResult
         Fitted model containing degradation/synthesis/half-life/etc.
     """
-    from scipy.optimize import minimize_scalar
-
     def loglik(d):
-        # time_mask = time > 0
-        # alpha = alpha[time_mask]
-        # beta = beta[time_mask]
-        # time = time[time_mask]
-
         exp = np.exp(-time * d)
         safe_exp = np.clip(exp, 1e-10, 1 - 1e-10)
         log_term = np.log1p(-safe_exp)
@@ -1186,8 +1192,6 @@ class NTRFitResult:
         Approximate confidence interval for degradation using fast posterior CDF approximation.
         """
         if not self.exact_ci:
-            from scipy.stats import chi2
-
             crit = chi2.ppf(self.ci_size, df=2) / 2
             cutoff = self.log_likelihood - crit
 
@@ -1204,8 +1208,6 @@ class NTRFitResult:
             )
 
             return lower, upper
-
-        from scipy.interpolate import interp1d
 
         # --- FAST posterior CDF via precomputed grid ---
         n_grid = 150
@@ -1387,7 +1389,7 @@ def _calibrate_effective_labeling_time_kinetic_fit(
         mini = res_scalar.x
         init_array[use_mask_columns] -= mini
 
-        # This would be much faster, but CIs are overestimated by this approximation.
+        # This would be much faster, but CIs seem to be overestimated by this approximation.
         # if compute_confidence:
         #     res = minimize(
         #         opt_fun,
@@ -1431,7 +1433,7 @@ def _calibrate_effective_labeling_time_kinetic_fit(
 
         if compute_confidence:
             try:
-                import numdifftools as nd
+                import numdifftools as ndt
 
                 bar = tqdm(desc=f"Computing confidence {cond}", unit=" Evaluations", dynamic_ncols=True, disable=not show_progress)
 
@@ -1440,7 +1442,7 @@ def _calibrate_effective_labeling_time_kinetic_fit(
                     bar.update(1)
                     return opt_fun(x)
 
-                hess = nd.Hessian(wrapped_fun)(res.x)
+                hess = ndt.Hessian(wrapped_fun)(res.x)
                 bar.close()
 
                 cov = np.linalg.inv(hess)

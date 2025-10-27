@@ -768,12 +768,13 @@ class GrandPy:
     def with_plot(self, name: str, function: Union[Plot, Callable]) -> "GrandPy":
         """
         Returns a GrandPy instance with a plot added. Either a global or gene plot.
-        Global plots only take a GrandPy object. Gene plots additionally require a gene.
+        Global plots only take a GrandPy object as input. Gene plots additionally require a gene.
 
         Examples
         --------
         Store a global plot function in the object:
 
+        >>> from grandpy import plot_scatter
         >>> sars = sars.with_plot(
         ...     "scatter",
         ...     lambda data: plot_scatter(data, x = "Mock.1h.A", y = "SARS.1h.A", mode_slot = "new_count")
@@ -783,7 +784,7 @@ class GrandPy:
 
         Alternative version for adding plots using a Plot object:
 
-        >>> sars = sars = sars.with_plot(
+        >>> sars = sars.with_plot(
             ...     "scatter",
             ...     Plot(
             ...         function = plot_scatter,
@@ -796,6 +797,7 @@ class GrandPy:
 
         Storing a gene plot function in the object:
 
+        >>> from grandpy import plot_gene_old_vs_new
         >>> sars = sars.with_plot("old_vs_new", lambda data, gene: plot_gene_old_vs_new(data, gene, slot = "count"))
         >>> print(sars.plots)
         {'gene': ['old_vs_new']}
@@ -807,7 +809,7 @@ class GrandPy:
 
         See Also
         --------
-        Plot
+        GrandPy.Plot
             A class used to store a plot function.
 
         GrandPy.plots
@@ -2566,7 +2568,7 @@ class GrandPy:
     def normalize_fpkm(
             self,
             genes: Union[str, int, Sequence[Union[str, int, bool]]] = None,
-            name: str = "norm",
+            name: str = "fpkm",
             slot: str = "count",
             *,
             set_to_default: bool = True,
@@ -3046,7 +3048,7 @@ class GrandPy:
             fit_type: Literal["nlls", "ntr", "chase"] = "nlls",
             *,
             slot: str = None,
-            time: Union[str, np.ndarray, pd.Series, Sequence[int]] = "duration.4sU",
+            time: Union[str, np.ndarray[int], pd.Series, Sequence[int]] = "duration.4sU",
             prefix: Union[str, None] = "kinetics",
             return_fields: Union[str, Sequence[str]] = None,
             ci_size: float = 0.95,
@@ -3097,7 +3099,7 @@ class GrandPy:
         slot: str, optional
             Name of the data slot used to extract old/new RNA expression. Defaults to the default slot.
 
-        time: str or np.ndarray or pd.Series or Sequence[int], default "duration.4sU"
+        time: str or np.ndarray[int] or pd.Series or Sequence[int], default "duration.4sU"
             Either a column name in `coldata` or something array-like containing timepoints.
 
         prefix: str, default "kinetics"
@@ -3181,7 +3183,7 @@ class GrandPy:
             **kwargs
     ) -> "GrandPy":
         """
-        Uses the non linear least squares kinetic model to calibrate the effective labeling time.
+        Uses the non-linear least squares kinetic model to calibrate the effective labeling time.
 
         The NTRs of each sample might be systematically too small or large. This function identifies such systematic
         deviations and computes labeling durations without systematic deviations.
@@ -3425,7 +3427,7 @@ class GrandPy:
         Notes
         -----
         Uses fit_type="mean" for compatibility with pydeseq2.
-        pydeseq2 does not currently support fit_type="local".
+        pydeseq2 does not currently support fit_type="local". (Unlike Deseq2 in R)
 
         If the following Error is raised, try setting `seperate` to True.
         `"ValueError: Illegal intersection of contrasts for joint estimation of variance!"`

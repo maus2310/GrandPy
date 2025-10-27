@@ -468,7 +468,7 @@ def _normalize_baseline(
     """
 
     # get unique conditions
-    unique_conditions = pd.unique(data.condition)
+    unique_conditions = pd.unique(pd.Series(data.condition))
 
     # no reference given: use first condition as reference
     if baseline is None:
