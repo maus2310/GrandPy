@@ -9,7 +9,7 @@ from collections.abc import Sequence, Mapping
 import numpy as np
 import pandas as pd
 import seaborn as sns
-import matplotlib.ticker
+import matplotlib.ticker as ticker
 import matplotlib.pyplot as plt
 import matplotlib.colors as matplot_colors
 from matplotlib.colors import LinearSegmentedColormap
@@ -608,7 +608,10 @@ def plot_scatter(
     title: str = None,
     x_axis_label: str = None,
     y_axis_label: str = None,
+    suppress_log_x_label: bool = False,
+    suppress_log_y_label: bool = False,
     label: Union[Sequence[int], Sequence[str]] = None,
+    log_labels: bool = False,
     y_label_offset: float = 0.001,
     analysis: str | bool = None,
     rasterized: bool = False,
@@ -753,8 +756,17 @@ def plot_scatter(
     y_axis_label : str, optional
         Label on the y-axis.
 
+    suppress_log_x_label: bool, default False
+        If True, prevents the automatic addition of '(log10)' to the x-axis label when log or log_x is True.
+
+    suppress_log_y_label: bool, default False
+        If True, prevents the automatic addition of '(log10)' to the y-axis label when log or log_y is True.
+
     label : list[int] | list[str], optional
         Genes to label in the plot (by name or index).
+
+    log_labels : bool, optional
+        Changes log axis ticks back to the original instead of log_10.
 
     y_label_offset : float, default 0.001
         Vertical offset to apply when rendering gene labels.
@@ -1008,6 +1020,12 @@ def plot_scatter(
         ax = matplot_ax
         fig = ax.figure
 
+    if (log or log_x) and log_labels:
+        ax.xaxis.set_major_formatter(ticker.FuncFormatter(lambda y, pos: f'{10 ** y:.0f}'))
+
+    if (log or log_y) and log_labels:
+        ax.yaxis.set_major_formatter(ticker.FuncFormatter(lambda y, pos: f'{10 ** y:.0f}'))
+
     # Plot outliers (clipped to axis limits)
     if remove_outlier and show_outlier:
         margin = 1e-4
@@ -1064,18 +1082,23 @@ def plot_scatter(
     if x_axis_label:
         ax.set_xlabel(x_axis_label)
     else:
-        if log or log_x:
+        if (log or log_x) and not suppress_log_x_label:
             ax.set_xlabel(f"{x} (log10)")
-        if neg_log_x:
+        elif neg_log_x and not suppress_log_x_label:
             ax.set_xlabel(f"-log10({x})")
+        else:
+            ax.set_xlabel(x)
 
     if y_axis_label:
         ax.set_ylabel(y_axis_label)
     else:
-        if log or log_y:
+        if (log or log_y) and not suppress_log_y_label:
             ax.set_ylabel(f"{y} (log10)")
-        if neg_log_y:
+        elif neg_log_y and not suppress_log_y_label:
             ax.set_ylabel(f"-log10({y})")
+        else:
+            # Wenn keine Log-Transformation oder Log-Beschriftung unterdrückt, verwenden Sie nur den Variablennamen
+            ax.set_ylabel(y)
 
     # Diagonal
     if diagonal:
@@ -2197,8 +2220,8 @@ def plot_gene_old_vs_new(
     if log:
         ax.set_xscale("log")
         ax.set_yscale("log")
-        ax.xaxis.set_major_formatter(matplotlib.ticker.ScalarFormatter())
-        ax.yaxis.set_major_formatter(matplotlib.ticker.ScalarFormatter())
+        ax.xaxis.set_major_formatter(ticker.ScalarFormatter())
+        ax.yaxis.set_major_formatter(ticker.ScalarFormatter())
 
     ax.set_xlabel(f"Old RNA ({slot})")
     ax.set_ylabel(f"New RNA ({slot})")
@@ -2402,7 +2425,7 @@ def plot_gene_total_vs_ntr(
 
     if log:
         ax.set_xscale("log")
-        ax.xaxis.set_major_formatter(matplotlib.ticker.ScalarFormatter())
+        ax.xaxis.set_major_formatter(ticker.ScalarFormatter())
 
 
     ax.set_xlabel(f"Total RNA ({slot})")
@@ -2681,7 +2704,7 @@ def plot_gene_groups_points(
 
     if log:
         ax.set_yscale("log")
-        ax.yaxis.set_major_formatter(matplotlib.ticker.ScalarFormatter())
+        ax.yaxis.set_major_formatter(ticker.ScalarFormatter())
 
     ylabel = "NTR" if slot == "ntr" else f"{mode.capitalize()} RNA ({slot})"
     ax.set_ylabel(ylabel)
@@ -3181,7 +3204,7 @@ def plot_gene_snapshot_timecourse(
 
     if log:
         ax.set_yscale("log")
-        ax.yaxis.set_major_formatter(matplotlib.ticker.ScalarFormatter())
+        ax.yaxis.set_major_formatter(ticker.ScalarFormatter())
 
     ax.set_xticks(x_breaks if not exact_tics else x_breaks_numeric)
     ax.set_xticklabels(x_breaks)
