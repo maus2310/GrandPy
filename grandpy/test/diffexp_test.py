@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+from scipy.special import polygamma
 from mpmath import polygamma
 
 import grandpy as gp
