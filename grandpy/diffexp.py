@@ -343,7 +343,16 @@ def _pairwise(
     if prefix is None:
         prefix = mode_slot.mode
 
-    new_gp = _compute_lfc(data,
+    new_gp = _pairwise_deseq2(data,
+                              contrasts=valid_contrasts,
+                              prefix=prefix,
+                              mode_slot=mode_slot,
+                              normalization=normalization,
+                              separate=separate,
+                              genes=genes,
+                              verbose=verbose)
+
+    new_gp = _compute_lfc(new_gp,
                           contrasts=valid_contrasts,
                           prefix=prefix,
                           lfc_function=lfc_function,
@@ -353,15 +362,6 @@ def _pairwise(
                           genes=genes,
                           verbose=verbose,
                           **kwargs)
-
-    new_gp = _pairwise_deseq2(new_gp,
-                              contrasts=valid_contrasts,
-                              prefix=prefix,
-                              mode_slot=mode_slot,
-                              normalization=normalization,
-                              separate=separate,
-                              genes=genes,
-                              verbose=verbose)
 
     return new_gp
 
