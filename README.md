@@ -16,12 +16,14 @@ Once released, you will be able to install `GrandPy` using the following command
 
 In the meantime, you can install the development version directly from GitLab:
 
-<pre> pip install git+https://git.uni-regensburg.de/se24/g03/grandpy.git </pre>
+<pre> pip install git+https://github.com/maus2310/GrandPy </pre>
 
 ## System Requirements
 GrandPy has mostly been tested on Windows but should also run on Linux and macOS.
 The package runs on standard laptops (multicore CPUs are recommended; memory requirements
 depend on the size of your datasets).
+
+<pre>Requires python 3.12.0</pre>
 
 Installing it via `pip` will make sure that the following (standard) packages are available:
 
