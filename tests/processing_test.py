@@ -1,9 +1,14 @@
 import pytest
+from pathlib import Path
 
 import grandpy as gp
 
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+DATA_DIR = PROJECT_ROOT / "tests" / "data"
+
 def test_filter_genes():
-    sars = gp.read_grand("../data/sars.tsv", design=("Condition", "dur.4sU", "Replicate"))
+    sars = gp.read_grand(DATA_DIR / "sars.tsv", design=("Condition", "dur.4sU", "Replicate"))
 
     # --- Default behaviour ---
     filtered_default = sars.filter_genes()

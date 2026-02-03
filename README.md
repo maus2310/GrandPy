@@ -14,7 +14,7 @@ Once released, you will be able to install `GrandPy` using the following command
 
 <pre> pip install grandpy</pre>
 
-In the meantime, you can install the development version directly from GitLab:
+You can also install the development version directly from GitHub:
 
 <pre> pip install git+https://github.com/maus2310/GrandPy </pre>
 

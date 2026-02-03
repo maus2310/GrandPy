@@ -1,11 +1,14 @@
 import contextlib
 import io
 import tempfile
+import pytest
 from pathlib import Path
 
-import pytest
-
 import grandpy as gp
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+DATA_DIR = PROJECT_ROOT / "tests" / "data"
 
 TOLERANCE_KB = 5
 OUT_OF_RANGE = []
@@ -29,7 +32,7 @@ EXPECTED_FILE_SIZES = {
 @pytest.fixture(scope="module")
 def sars_dataset():
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-        sars = gp.read_grand("../data/sars_R.tsv",
+        sars = gp.read_grand(DATA_DIR / "sars_R.tsv",
                           design=("Condition", "duration.4sU", "Replicate"),
                           classification_genes=['UHMK1', 'ATF3', 'PABPC4', 'ROR1', 'ZC3H11A', 'ZBED6', 'PRDX6', 'PRRC2C'],
                           classification_genes_label="Viral")

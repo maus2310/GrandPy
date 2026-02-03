@@ -863,7 +863,7 @@ def _read_sparse(folder_path,
                  rename_sample=rename_sample)
 
 
-def read_grand(prefix, pseudobulk=None, targets=None, **kwargs) -> GrandPy:
+def read_grand(prefix: str | Path, pseudobulk=None, targets=None, **kwargs) -> GrandPy:
     r"""
     Automatically detects dense vs. sparse GRAND-SLAM output and loads into GrandPy.
 
@@ -880,7 +880,7 @@ def read_grand(prefix, pseudobulk=None, targets=None, **kwargs) -> GrandPy:
     -------
     Basic example for reading data from a file (bulk experiment).
 
-    >>> sars = read_grand("./data/sars.tsv", design=("Condition", "duration.4sU", "Replicate"))
+    >>> sars = read_grand("../tests/data/sars.tsv", design=("Condition", "duration.4sU", "Replicate"))
 
     For single cell experiments a directory is specified instead.
 
@@ -911,7 +911,7 @@ def read_grand(prefix, pseudobulk=None, targets=None, **kwargs) -> GrandPy:
 
     Parameters
     ----------
-    prefix : str
+    prefix : str or Path
         Base path or file prefix for GRAND-SLAM outputs (no extension).
 
     pseudobulk : str, optional

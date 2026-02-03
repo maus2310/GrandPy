@@ -1,15 +1,18 @@
 import re
-
 import numpy as np
 import pytest
+from pathlib import Path
 
 from grandpy import read_grand
 
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+DATA_DIR = PROJECT_ROOT / "tests" / "data"
+
 # Reading in the test data
 @pytest.fixture(scope="module")
 def nlls_ntr_dataset():
-    sars = read_grand("../data/sars_R.tsv", design=("Condition", "dur.4sU", "Replicate"))
+    sars = read_grand(DATA_DIR / "sars_R.tsv", design=("Condition", "dur.4sU", "Replicate"))
     return sars.normalize()
 
 @pytest.fixture(scope="module")

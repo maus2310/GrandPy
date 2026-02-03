@@ -48,7 +48,7 @@ class GrandPy:
     See Also
     --------
     read_grand
-        Create a GrandPy instance from a file.
+        Create a GrandPy instance from a file or URL.
 
     Parameters
     ----------
@@ -61,28 +61,27 @@ class GrandPy:
     coldata: pd.DataFrame, optional
         Samples or cells and their metadata.
 
-    slots: dict[str, Union[np.ndarray, sp.csr_matrix]]], optional
+    slots: Mapping[str, Union[np.ndarray, sp.csr_matrix]]], optional
         Name and the corresponding data matrix.
 
-    metadata: dict[str, Any], optional
+    metadata: Mapping[str, Any], optional
         Metadata about the data and file.
 
-    analyses: dict[str, pd.DataFrame], optional
+    analyses: Mapping[str, pd.DataFrame], optional
         Results from analyzing functions.
 
-    plots: dict[str, dict[str, Plot]], optional
+    plots: Mapping[str, Mapping[str, Plot]], optional
         Plot functions.
     """
-
     def __init__(
             self,
             prefix: str = None,
             gene_info: pd.DataFrame = None,
             coldata: pd.DataFrame = None,
-            slots: dict[str, Union[np.ndarray, sp.csr_matrix]] = None,
-            metadata: dict[str, Any] = None,
-            analyses: dict[str, pd.DataFrame] = None,
-            plots: dict[str, dict[str, Plot]] = None
+            slots: Mapping[str, Union[np.ndarray, sp.csr_matrix]] = None,
+            metadata: Mapping[str, Any] = None,
+            analyses: Mapping[str, pd.DataFrame] = None,
+            plots: Mapping[str, Mapping[str, Plot]] = None
     ):
         # Enforce that the necessary things exist
         if gene_info is None:
@@ -111,7 +110,7 @@ class GrandPy:
         for key, matrix in slots.items():
             self._anndata.layers[key] = matrix
 
-    def __initialize_uns_data(self, prefix: str, metadata: dict[str, Any], analyses: dict[str, pd.DataFrame], plots: dict[str, dict[str, Plot]]):
+    def __initialize_uns_data(self, prefix: str, metadata: Mapping[str, Any], analyses: Mapping[str, pd.DataFrame], plots: Mapping[str, Mapping[str, Plot]]):
         if metadata.get('default_slot') is None:
                 metadata["default_slot"] = "count"
 
@@ -191,17 +190,21 @@ class GrandPy:
 
         Notes
         -----
-        When trying to replace a slot (`slots` or `kwargs`), it has to be a numpy ndarray.
+        Slots can only be replaced using numpy ndarrays or scipy sparse matrices.
 
         Examples
         --------
         Replace the coldata of the GrandPy instance 'sars'.
 
-        >>> sars = sars.with_replaced_parameters(coldata=new_coldata_dataframe)
+        >>> new_coldata = sars.coldata.copy()
+        >>> new_coldata["Replicate"] = "A"
+        >>> sars = sars.with_replaced_parameters(coldata=new_coldata)
 
         Replace the slot 'count'.
 
-        >>> sars = sars.with_replaced_parameters(count=new_count_ndarray)
+        >>> import numpy as np
+        >>> new_count = np.random.rand(len(sars.gene_info), len(sars.coldata))
+        >>> sars = sars.with_replaced_parameters(count=new_count)
 
         See Also
         --------
@@ -216,16 +219,16 @@ class GrandPy:
         coldata: pd.DataFrame, optional
             A new coldata DataFrame.
 
-        slots: dict[str, Union[np.ndarray, sp.csr_matrix]], optional
-            A new dictionary of slots.
+        slots: Mapping[str, Union[np.ndarray, sp.csr_matrix]], optional
+            A new mapping of slots.
 
-        metadata: dict[str, any], optional
+        metadata: Mapping[str, any], optional
             Replaces all metadata. If no `default_slot` is specified, the default slot will be set to 'count'.
 
-        analyses: dict[str, Any], optional
+        analyses: Mapping[str, Any], optional
             Replaces all analyses.
 
-        plots: dict[str, any], optional
+        plots: Mapping[str, any], optional
             Replaces all plots, gene and global.
 
         anndata: AnnData, optional
@@ -236,7 +239,7 @@ class GrandPy:
             followed by the rest, now in the new instance.
 
         **kwargs: np.ndarray or sp.csr_matrix
-            Replaces a specific slot.
+            Used to replace a specific slot.
 
         Returns
         -------
@@ -293,16 +296,16 @@ class GrandPy:
         coldata: pd.DataFrame, optional
             A new coldata DataFrame.
 
-        slots: dict[str, Union[np.ndarray, sp.csr_matrix]], optional
+        slots: Mapping[str, Union[np.ndarray, sp.csr_matrix]], optional
             A new dictionary of slots.
 
-        metadata: dict[str, any], optional
+        metadata: Mapping[str, any], optional
             Replaces all metadata.
 
-        analyses: dict[str, Any], optional
+        analyses: Mapping[str, Any], optional
             Replaces all analyses.
 
-        plots: dict[str, any], optional
+        plots: Mapping[str, any], optional
             Replaces all plots, gene and global.
 
         anndata: AnnData, optional
@@ -347,7 +350,8 @@ class GrandPy:
 
         See Also
         --------
-        read_h5ad: Load a GrandPy instance from a h5ad file.
+        read_h5ad
+            Load a GrandPy instance from a h5ad file.
 
         Parameters
         ----------
@@ -418,7 +422,7 @@ class GrandPy:
 
         Returns
         -------
-        "GrandPy"
+        GrandPy
             Returns a GrandPy instance having the new default slot.
         """
         if name not in self.slots:
@@ -525,8 +529,6 @@ class GrandPy:
 
         Notes
         -----
-        Recommended: use this function with DataFrames for security.
-
         It can only check the order of genes and samples/cells if the given matrix is a pandas DataFrame.
         Otherwise, the given matrix is expected to have rows and columns in the same order as existing slots.
 
@@ -708,7 +710,7 @@ class GrandPy:
 
     def with_dropped_analyses(self, pattern: Union[str, Sequence[str]] = None) -> "GrandPy":
         """
-        Returns a GrandPy instance with analyses matching the pattern removed.
+        Returns a GrandPy instance with analyses matching the regex 'pattern' removed.
 
         See Also
         --------
@@ -902,7 +904,7 @@ class GrandPy:
 
     def with_dropped_plots(self, pattern: str = None) -> "GrandPy":
         """
-        Returns a GrandPy instance with plot names matching the regex pattern removed.
+        Returns a GrandPy instance with plot names matching the regex 'pattern' removed.
 
         See Also
         --------
@@ -1081,7 +1083,7 @@ class GrandPy:
 
     def get_index(self, genes: Union[str, int, Sequence[Union[str, int, bool]]] = None, *, regex: bool = False) -> list[int]:
         """
-        Get the index of symbols or ensemble IDs, chosen by higher number of matches.
+        Get the index of symbols or ensemble IDs, chosen by a higher number of matches.
 
         Either by gene name, symbol, index, or a boolean mask.
 

@@ -1,4 +1,5 @@
 from io import StringIO
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -8,12 +9,14 @@ from grandpy import read_grand, ModeSlot
 from grandpy.utils import _make_unique
 
 
-# TD: Functions not tested yet: get_significant_genes(), (get_references())
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+DATA_DIR = PROJECT_ROOT / "tests" / "data"
 
+# TD: Functions not tested yet: get_significant_genes(), (get_references())
 
 @pytest.fixture(scope="module")
 def sars():
-    return read_grand("../data/sars_R.tsv", design=("Condition", "dur.4sU", "Replicate"))
+    return read_grand(DATA_DIR / "sars_R.tsv", design=("Condition", "dur.4sU", "Replicate"))
 
 
 def test_with_default_slot(sars):

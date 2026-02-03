@@ -14,10 +14,9 @@ from grandpy.load import (
     _read_dense,
     _read_sparse,)
 
-CURRENT_FILE = Path(__file__).resolve()
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DATA_DIR = PROJECT_ROOT / "GrandPy" / "data"
-TEST_DATASETS_DIR = PROJECT_ROOT / "test-datasets"
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+DATA_DIR = PROJECT_ROOT / "tests" / "data"
+TEST_DATASETS_DIR = PROJECT_ROOT / "tests" / "test-datasets"
 
 @pytest.fixture
 def mock_df():
@@ -197,14 +196,14 @@ def test_read_dense_real():
 
 
 def test_sparse_loader_example():
-    obj = read_grand("../test-datasets/test_sparse.targets", design=("Time", "Replicate"))
+    obj = read_grand(TEST_DATASETS_DIR / "test_sparse.targets", design=("Time", "Replicate"))
     count = obj._anndata.X
     assert count.shape[0] > 0
 
 
 def test_read_dense_and_sparse_load():
-    dense = read_grand("../data/sars_R.tsv", design=("Condition", "Time", "Replicate"))
-    sparse_test = read_grand("../test-datasets/test_sparse.targets", design=("Time", "Replicate"))
+    dense = read_grand(DATA_DIR / "sars_R.tsv", design=("Condition", "Time", "Replicate"))
+    sparse_test = read_grand(TEST_DATASETS_DIR / "test_sparse.targets", design=("Time", "Replicate"))
 
     assert isinstance(dense.coldata, pd.DataFrame)
     assert isinstance(sparse_test.coldata, pd.DataFrame)
@@ -227,7 +226,7 @@ def test_read_sparse_rejects_invalid_prefix_combination():
     Tests that read_sparse raises an error when the provided folder path
     does not match the targets and pseudobulk values.
     """
-    invalid_path = "../test-datasets/test_sparse.targets"  # names consists 'targets'
+    invalid_path = "test-datasets/test_sparse.targets"  # names consists 'targets'
     with pytest.raises(ValueError, match="does not contain expected identifiers"):
         _read_sparse(invalid_path, pseudobulk="WRONG", targets="SOMETHING")
 
@@ -236,7 +235,7 @@ def test_read_sparse_rejects_swapped_targets_pseudobulk():
     """
     Tests that read_sparse detects and rejects a path with swapped pseudobulk and targets.
     """
-    swapped_path = "../test-datasets/test_sc.pseudobulk.convoluted.merged"
+    swapped_path = "test-datasets/test_sc.pseudobulk.convoluted.merged"
     with pytest.raises(ValueError, match=r"Incompatible pseudobulk/targets combination"):
         _read_sparse(swapped_path, pseudobulk="convoluted", targets="merged")
 
@@ -330,16 +329,16 @@ if __name__ == "__main__":
     grand_obj = gp.read_grand("https://zenodo.org/record/5834034/files/sars.tsv.gz", design=("Condition", "Time", "Replicate"))
     print(grand_obj)
 
-    sars = gp.read_grand("../data/sars_R.tsv", design=("Condition", "Time", "Replicate"))
+    sars = gp.read_grand("data/sars_R.tsv", design=("Condition", "Time", "Replicate"))
     print(sars) # funktioniert
 
-    sparse_data = gp.read_grand("../test-datasets/test_sparse.targets", design=("Time", "Replicate"))
+    sparse_data = gp.read_grand("test-datasets/test_sparse.targets", design=("Time", "Replicate"))
     print(sparse_data) # funktioniert
 
-    grand_sparse = gp.read_grand("../test-datasets/test_sc_sparse.targets", design=("Condition", "Time", "Replicate"))
+    grand_sparse = gp.read_grand("test-datasets/test_sc_sparse.targets", design=("Condition", "Time", "Replicate"))
     print(grand_sparse)
 
-    sc_dense = gp.read_grand("../test-datasets/test_sc_dense.targets", design=("Time", "Replicate"))
+    sc_dense = gp.read_grand("test-datasets/test_sc_dense.targets", design=("Time", "Replicate"))
     print(sc_dense)
 
     banp = gp.read_grand("https://zenodo.org/record/6976391/files/BANP.tsv.gz", design=("Cell", "Experimental.time", "Genotype", "dur.4sU", "has4.U", "Replicate"))
@@ -352,17 +351,16 @@ if __name__ == "__main__":
     gp_url = gp.read_grand(url, design=("Condition", "dur.4sU", "Replicate"))
     print(gp_url)
 
-    grand = gp.read_grand("../test-datasets/test_sparse.targets", design=("Time", "Replicate"))
+    grand = gp.read_grand("test-datasets/test_sparse.targets", design=("Time", "Replicate"))
     qc = get_table_qc(grand)
     print(qc.head())
 
-    gp = gp.read_grand("../test-datasets/test_dense.targets", design=("Condition", "Time", "Replicate"))
+    gp = gp.read_grand("test-datasets/test_dense.targets", design=("Condition", "Time", "Replicate"))
     print("Title:", gp.title)
     print("Prefix:", gp.metadata["prefix"])
 
 # ------------------------------------------------------------------------------
 
-DATASETS_ROOT = Path(__file__).resolve().parents[1] / "test-datasets"
 ESTIMATORS     = [None, "MAP", "Binom", "TbBinom", "TbBinomShape"]
 SKIP_FRAGMENTS = {
     "reads.lengths.tsv", "reads.subreads.tsv", "model.parameters.tsv",
@@ -399,7 +397,7 @@ def is_result_ds(p: Path) -> bool:
 
 PARAMS = [
     pytest.param(path, est, id=f"{path.name}[{est or 'default'}]")
-    for path in sorted(DATASETS_ROOT.iterdir()) if is_result_ds(path)
+    for path in sorted(TEST_DATASETS_DIR.iterdir()) if is_result_ds(path)
     for est in ESTIMATORS
 ]
 

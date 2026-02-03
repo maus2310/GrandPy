@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "grandpy"
 version = "0.1.0"
-description = "Modul for kinetic RNA-seq analysis."
+description = "Module for kinetic RNA-seq analysis."
 readme = "README.md"
 license = { file = "LICENSE.md" }
 authors = [
@@ -40,4 +40,4 @@ Repository = "https://github.com/maus2310/GrandPy"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["grandpy*"]
-exclude = ["test*", "data*", "test-datasets*"]
+exclude = ["tests*", "data*", "test-datasets*"]

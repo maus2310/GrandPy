@@ -2,9 +2,14 @@ import numpy as np
 import pandas as pd
 from scipy.special import polygamma
 from mpmath import polygamma
+from pathlib import Path
 
 import grandpy as gp
 from grandpy.lfc import psi_lfc, norm_lfc, empirical_bayes_prior, center_median
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+DATA_DIR = PROJECT_ROOT / "tests" / "data"
 
 np.random.seed(123)
 A = np.random.normal(loc=200, scale=1, size=1000)
@@ -148,7 +153,7 @@ if __name__ == "__main__":
     pd.set_option('display.max_columns', None)
     pd.set_option('display.width', 0)
 
-    sars = gp.read_grand("data/sars_R.tsv", design=("Condition", "dur.4sU", "Replicate"))
+    sars = gp.read_grand(DATA_DIR / "sars_R.tsv", design=("Condition", "dur.4sU", "Replicate"))
 
     # subset:
     mask = sars.coldata["duration.4sU"] == 2
@@ -170,7 +175,7 @@ if __name__ == "__main__":
     # sars<-PairwiseDESeq2(sars,mode="new",normalization="total", contrasts=GetContrasts(sars,contrast=c("Condition","Mock")))
     # head(GetAnalysisTable(sars,column="Q"))
 
-    sars = gp.read_grand("data/sars_R.tsv", design=("Condition", "dur.4sU", "Replicate"))
+    sars = gp.read_grand(DATA_DIR / "sars_R.tsv", design=("Condition", "dur.4sU", "Replicate"))
 
     mask = sars.coldata["duration.4sU"] == 2
     sars = sars[:, mask]
