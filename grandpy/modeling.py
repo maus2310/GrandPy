@@ -1,7 +1,7 @@
 import os
 import warnings
 from collections.abc import Sequence, Mapping
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from dataclasses import dataclass
 from functools import cached_property
 from typing import Union, Literal, Callable
@@ -16,6 +16,8 @@ from tqdm import tqdm
 from .slot_tool import ModeSlot
 from .utils import _ensure_list, _get_kinetics_data
 
+
+# Some of the optimizations made in this file are probably unnecessary by now, as parallelisation using ProcessPoolExecutor was cut. (for which it was initially optimised)
 
 def _fit_kinetics(
     data: "GrandPy",
@@ -67,43 +69,43 @@ def _fit_kinetics(
 
 
 # ----- nlls and chase kinetic modeling -----
-def get_dynamic_process_count(data_size: int, max_processes: int = None, exact_processes: bool = False) -> int:
-    """
-    Dynamically determine the number of processes based on data size and available CPUs.
 
-    Parameters
-    ----------
-    data_size: int
-        Size of the data.
+# def _get_dynamic_process_count(data_size: int, max_processes: int = None, exact_processes: bool = False) -> int:
+#     """
+#     Dynamically determine the number of processes based on data size and available CPUs.
+#
+#     Parameters
+#     ----------
+#     data_size: int
+#         Size of the data.
+#
+#     max_processes: int, optional
+#         Maximum limit for amount of processes.
+#
+#     exact_processes: bool, default False
+#         Whether to use exactly `max_processes` processes.`
+#
+#     Returns
+#     -------
+#     int
+#         Recommended number of processes
+#     """
+#     if exact_processes:
+#         if max_processes is None:
+#             max_processes = 1
+#         return max(max_processes, 1)
+#
+#     available_cores = max(os.cpu_count(), 1)
+#
+#     if max_processes is None:
+#         max_processes = available_cores
+#
+#     # Arbitrary threshold for the number of processes, approximated by testing. (Probably different for other systems)
+#     num_processes = min(max_processes, data_size // 1200)
+#
+#     return max(num_processes, 1)
 
-    max_processes: int, optional
-        Maximum limit for amount of processes.
-
-    exact_processes: bool, default False
-        Whether to use exactly `max_processes` processes.`
-
-    Returns
-    -------
-    int
-        Recommended number of processes
-    """
-    if exact_processes:
-        if max_processes is None:
-            max_processes = 1
-        return max(max_processes, 1)
-
-    available_cores = max(os.cpu_count(), 1)
-
-    if max_processes is None:
-        max_processes = available_cores
-
-    # Arbitrary threshold for amount of processes approximated by testing. (Probably different for other systems)
-    num_processes = min(max_processes, data_size // 1200)
-
-    return max(num_processes, 1)
-
-
-def correct_new(new_expressions: np.ndarray, time: np.ndarray) -> np.ndarray:
+def _correct_new(new_expressions: np.ndarray, time: np.ndarray) -> np.ndarray:
     """
     Applies a correction to every row of `all_expressions`, where time = 1.
     """
@@ -116,7 +118,7 @@ def correct_new(new_expressions: np.ndarray, time: np.ndarray) -> np.ndarray:
 
     return new_expressions
 
-def correct_old(old_expressions: np.ndarray) -> np.ndarray:
+def _correct_old(old_expressions: np.ndarray) -> np.ndarray:
     """
     Applies a correction to every row of `all_expressions`.
     """
@@ -138,8 +140,8 @@ def fit_kinetics_nlls(
     ci_size: float,
     return_fields: Sequence[str],
     steady_state: Union[bool, Mapping[str, bool]] = True,
-    max_processes: int = None,
-    exact_processes: bool = False,
+    # max_processes: int = None,
+    # exact_processes: bool = False,
     show_progress: bool = True,
     **kwargs
 ) -> dict[str, pd.DataFrame]:
@@ -156,22 +158,22 @@ def fit_kinetics_nlls(
     sample_names = data.coldata["Name"].values
 
     # --- Decide on parallelisation ---
-    datasize = len(genes_to_fit)
+    # datasize = len(genes_to_fit)
 
-    num_workers = get_dynamic_process_count(datasize, max_processes, exact_processes)
+    # num_workers = _get_dynamic_process_count(datasize, max_processes, exact_processes)
 
-    if num_workers == 1:
-        parallel = False
-    else:
-        parallel = True
+    # if num_workers == 1:
+    #     parallel = False
+    # else:
+    #     parallel = True
 
     # --- Map steady_state to each condition ---
     if isinstance(steady_state, bool):
         steady_state = {cond: steady_state for cond in unique_conditions}
 
     # --- Retrieve expression matrices ---
-    new_expression = correct_new(data.get_matrix(mode_slot=ModeSlot("new", slot), genes=genes_to_fit), time=time)
-    old_expression = correct_old(data.get_matrix(mode_slot=ModeSlot("old", slot), genes=genes_to_fit))
+    new_expression = _correct_new(data.get_matrix(mode_slot=ModeSlot("new", slot), genes=genes_to_fit), time=time)
+    old_expression = _correct_old(data.get_matrix(mode_slot=ModeSlot("old", slot), genes=genes_to_fit))
 
     result = {}
 
@@ -184,59 +186,59 @@ def fit_kinetics_nlls(
         sample_names_cond = sample_names[idx]
         condition_steady_state = steady_state[condition]
 
-        if parallel:
-            jobs = []
-            with ProcessPoolExecutor(max_workers=num_workers) as executor:
-                for gene_index, gene in enumerate(genes_to_fit):
-                    new_values = new_cond[gene_index, :]
-                    old_values = old_cond[gene_index, :]
+        # if parallel:
+        #         jobs = []
+        #         with ProcessPoolExecutor(max_workers=num_workers) as executor:
+        #             for gene_index, gene in enumerate(genes_to_fit):
+        #                 new_values = new_cond[gene_index, :]
+        #                 old_values = old_cond[gene_index, :]
+        #
+        #                 job = executor.submit(
+        #                     fit_kinetics_gene_least_squares,
+        #                     new_values=new_values,
+        #                     old_values=old_values,
+        #                     time=time_cond,
+        #                     ci_size=ci_size,
+        #                     chase=False,
+        #                     total_value=None,
+        #                     steady_state=condition_steady_state,
+        #                     **kwargs
+        #                 )
+        #                 jobs.append((gene, job))
+        #
+        #             rows = []
+        #             symbols = []
+        #
+        #             for gene, future in tqdm(jobs, desc=f"Fitting {condition}", total=len(jobs), disable=not show_progress):
+        #                 res = future.result()
+        #                 series = res.to_series(fields=return_fields, sample_names=sample_names_cond, condition=condition)
+        #                 rows.append(series.values)
+        #                 symbols.append(gene)
+        #
+        # else:
+        rows = []
+        symbols = []
 
-                    job = executor.submit(
-                        fit_kinetics_gene_least_squares,
-                        new_values=new_values,
-                        old_values=old_values,
-                        time=time_cond,
-                        ci_size=ci_size,
-                        chase=False,
-                        total_value=None,
-                        steady_state=condition_steady_state,
-                        **kwargs
-                    )
-                    jobs.append((gene, job))
+        gene_index_iterator = enumerate(genes_to_fit)
+        gene_index_iterator = tqdm(gene_index_iterator, total=len(genes_to_fit), desc=f"Fitting {condition}", disable=not show_progress)
 
-                rows = []
-                symbols = []
+        for gene_index, gene in gene_index_iterator:
+            new_values = new_cond[gene_index, :]
+            old_values = old_cond[gene_index, :]
 
-                for gene, future in tqdm(jobs, desc=f"Fitting {condition}", total=len(jobs), disable=not show_progress):
-                    res = future.result()
-                    series = res.to_series(fields=return_fields, sample_names=sample_names_cond, condition=condition)
-                    rows.append(series.values)
-                    symbols.append(gene)
-
-        else:
-            rows = []
-            symbols = []
-
-            gene_index_iterator = enumerate(genes_to_fit)
-            gene_index_iterator = tqdm(gene_index_iterator, total=len(genes_to_fit), desc=f"Fitting {condition}", disable=not show_progress)
-
-            for gene_index, gene in gene_index_iterator:
-                new_values = new_cond[gene_index, :]
-                old_values = old_cond[gene_index, :]
-
-                res = fit_kinetics_gene_least_squares(
-                    new_values=new_values,
-                    old_values=old_values,
-                    time=time_cond,
-                    ci_size=ci_size,
-                    chase=False,
-                    total_value=None,
-                    steady_state=condition_steady_state,
-                    **kwargs
-                )
-                series = res.to_series(condition=condition, sample_names=sample_names_cond,fields=return_fields)
-                rows.append(series.values)
-                symbols.append(gene)
+            res = fit_kinetics_gene_least_squares(
+                new_values=new_values,
+                old_values=old_values,
+                time=time_cond,
+                ci_size=ci_size,
+                chase=False,
+                total_value=None,
+                steady_state=condition_steady_state,
+                **kwargs
+            )
+            series = res.to_series(condition=condition, sample_names=sample_names_cond,fields=return_fields)
+            rows.append(series.values)
+            symbols.append(gene)
 
         df = pd.DataFrame(np.vstack(rows), index=symbols, columns=series.index)
         df.index.name = "Symbol"
@@ -253,8 +255,8 @@ def fit_kinetics_chase(
     time: np.ndarray,
     ci_size: float,
     return_fields: Sequence[str],
-    max_processes: int = None,
-    exact_processes: bool = False,
+    # max_processes: int = None,
+    # exact_processes: bool = False,
     show_progress: bool = True,
     **kwargs
 ) -> dict[str, pd.DataFrame]:
@@ -271,17 +273,17 @@ def fit_kinetics_chase(
     sample_names = data.coldata["Name"].values
 
     # --- Decide on parallelisation ---
-    datasize = len(genes_to_fit)
+    # datasize = len(genes_to_fit)
 
-    num_workers = get_dynamic_process_count(datasize, max_processes, exact_processes)
+    # num_workers = _get_dynamic_process_count(datasize, max_processes, exact_processes)
 
-    if num_workers == 1:
-        parallel = False
-    else:
-        parallel = True
+    # if num_workers == 1:
+    #     parallel = False
+    # else:
+    #     parallel = True
 
     # --- Retrieve expression matrix ---
-    new_expression = correct_new(data.get_matrix(mode_slot="ntr", genes=genes_to_fit), time=time)
+    new_expression = _correct_new(data.get_matrix(mode_slot="ntr", genes=genes_to_fit), time=time)
 
     # --- chase-specific preprocessing ---
     no4su_mask = data.coldata["no4sU"].values
@@ -309,58 +311,58 @@ def fit_kinetics_chase(
         new_cond = new_expression[:, idx]
         sample_names_cond = sample_names[idx]
 
-        if parallel:
-            jobs = []
-            with ProcessPoolExecutor(max_workers=num_workers) as executor:
-                for gene_index, gene in enumerate(genes_to_fit):
-                    new_values = new_cond[gene_index, :]
-                    total_value = slot_values_per_gene.get(gene, None)
+        # if parallel:
+        #     jobs = []
+        #     with ProcessPoolExecutor(max_workers=num_workers) as executor:
+        #         for gene_index, gene in enumerate(genes_to_fit):
+        #             new_values = new_cond[gene_index, :]
+        #             total_value = slot_values_per_gene.get(gene, None)
+        #
+        #             job = executor.submit(
+        #                 fit_kinetics_gene_least_squares,
+        #                 new_values=new_values,
+        #                 old_values=np.zeros_like(new_values),
+        #                 time=time_cond,
+        #                 ci_size=ci_size,
+        #                 chase=True,
+        #                 total_value=total_value,
+        #                 steady_state=True,
+        #                 **kwargs
+        #             )
+        #             jobs.append((gene, job))
+        #
+        #         rows = []
+        #         symbols = []
+        #
+        #         for gene, future in tqdm(jobs, desc=f"Fitting {condition}", total=len(jobs), disable= not show_progress):
+        #             res = future.result()
+        #             series = res.to_series(fields=return_fields, sample_names=sample_names_cond, condition=condition)
+        #             rows.append(series.values)
+        #             symbols.append(gene)
+        #
+        # else:
+        rows = []
+        symbols = []
 
-                    job = executor.submit(
-                        fit_kinetics_gene_least_squares,
-                        new_values=new_values,
-                        old_values=np.zeros_like(new_values),
-                        time=time_cond,
-                        ci_size=ci_size,
-                        chase=True,
-                        total_value=total_value,
-                        steady_state=True,
-                        **kwargs
-                    )
-                    jobs.append((gene, job))
+        gene_index_iterator = enumerate(genes_to_fit)
+        gene_index_iterator = tqdm(gene_index_iterator, total=len(genes_to_fit),desc=f"Fitting {condition}", disable=not show_progress)
 
-                rows = []
-                symbols = []
+        for gene_index, gene in gene_index_iterator:
+            new_values = new_cond[gene_index, :]
 
-                for gene, future in tqdm(jobs, desc=f"Fitting {condition}", total=len(jobs), disable= not show_progress):
-                    res = future.result()
-                    series = res.to_series(fields=return_fields, sample_names=sample_names_cond, condition=condition)
-                    rows.append(series.values)
-                    symbols.append(gene)
-
-        else:
-            rows = []
-            symbols = []
-
-            gene_index_iterator = enumerate(genes_to_fit)
-            gene_index_iterator = tqdm(gene_index_iterator, total=len(genes_to_fit),desc=f"Fitting {condition}", disable=not show_progress)
-
-            for gene_index, gene in gene_index_iterator:
-                new_values = new_cond[gene_index, :]
-
-                res = fit_kinetics_gene_least_squares(
-                    new_values=new_values,
-                    old_values=np.zeros_like(new_values),
-                    time=time_cond,
-                    ci_size=ci_size,
-                    chase=True,
-                    total_value=slot_values_per_gene.get(gene, None),
-                    steady_state=True,
-                    **kwargs
-                )
-                series = res.to_series(fields=return_fields, sample_names=sample_names_cond, condition=condition)
-                rows.append(series.values)
-                symbols.append(gene)
+            res = fit_kinetics_gene_least_squares(
+                new_values=new_values,
+                old_values=np.zeros_like(new_values),
+                time=time_cond,
+                ci_size=ci_size,
+                chase=True,
+                total_value=slot_values_per_gene.get(gene, None),
+                steady_state=True,
+                **kwargs
+            )
+            series = res.to_series(fields=return_fields, sample_names=sample_names_cond, condition=condition)
+            rows.append(series.values)
+            symbols.append(gene)
 
         df = pd.DataFrame(np.vstack(rows), index=symbols, columns=series.index)
         df.index.name = "Symbol"
@@ -422,18 +424,18 @@ def fit_kinetics_gene_least_squares(
 
     # --- Define residual and Jacobian functions ---
     if steady_state:
-        res_fun, jac = get_residuals_and_jacobian_equi(time, old_values, new_values, chase)
+        res_fun, jac = _get_residuals_and_jacobian_equi(time, old_values, new_values, chase)
         if chase:
-            x0 = guess_chase_start(new_values, time)
+            x0 = _guess_chase_start(new_values, time)
             bounds = ([1e-8, 1e-3], [np.inf, 2.0])
         else:
             x0 = [np.mean(old_values), 0.1]
             bounds = ([0, 1e-4], [np.inf, np.inf])
     else:
-        res_fun, jac = get_residuals_and_jacobian_nonequi(time, old_values, new_values)
+        res_fun, jac = _get_residuals_and_jacobian_nonequi(time, old_values, new_values)
 
         s0 = np.maximum(np.max(new_values[time > 0] / time[time > 0]), 1e-3)
-        d0 = guess_d0_from_old(old_values, time)
+        d0 = _guess_d0_from_old(old_values, time)
         f00 = np.mean(old_values[time == 0]) if np.any(time == 0) else np.mean(old_values)
 
         x0 = [s0, d0, f00]
@@ -742,7 +744,7 @@ class FitResult:
         return pd.Series(flat)
 
 
-def get_residuals_and_jacobian_equi(time: np.ndarray, v_old: np.ndarray, v_new: np.ndarray, chase: bool):
+def _get_residuals_and_jacobian_equi(time: np.ndarray, v_old: np.ndarray, v_new: np.ndarray, chase: bool):
     """
     Constructs residual and Jacobian functions assuming steady-state kinetics.
 
@@ -780,8 +782,8 @@ def get_residuals_and_jacobian_equi(time: np.ndarray, v_old: np.ndarray, v_new: 
     else:
         def residual_function(par):
             s, d = par
-            ro = v_old - f_old_equi(time, s, d)
-            rn = v_new - f_new(time, s, d)
+            ro = v_old - _f_old_equi(time, s, d)
+            rn = v_new - _f_new(time, s, d)
             return np.concatenate([ro, rn])
 
         def jacobian_function(par):
@@ -802,7 +804,7 @@ def get_residuals_and_jacobian_equi(time: np.ndarray, v_old: np.ndarray, v_new: 
 
     return residual_function, jacobian_function
 
-def get_residuals_and_jacobian_nonequi(time: np.ndarray, v_old: np.ndarray, v_new: np.ndarray):
+def _get_residuals_and_jacobian_nonequi(time: np.ndarray, v_old: np.ndarray, v_new: np.ndarray):
     """
     Constructs residual and Jacobian functions assuming non steady-state kinetics.
 
@@ -822,8 +824,8 @@ def get_residuals_and_jacobian_nonequi(time: np.ndarray, v_old: np.ndarray, v_ne
     """
     def residual_function(par):
         s, d, f0 = par
-        ro = v_old - f_old_nonequi(time, f0, d)
-        rn = v_new - f_new(time, s, d)
+        ro = v_old - _f_old_nonequi(time, f0, d)
+        rn = v_new - _f_new(time, s, d)
         return np.concatenate([ro, rn])
 
     def jacobian_function(par):
@@ -850,7 +852,7 @@ def get_residuals_and_jacobian_nonequi(time: np.ndarray, v_old: np.ndarray, v_ne
     return residual_function, jacobian_function
 
 
-def guess_chase_start(values_new: np.ndarray, time: np.ndarray):
+def _guess_chase_start(values_new: np.ndarray, time: np.ndarray):
     """
     Approximates the start values x0 for least_squares in a chase experiment using linear regression.
     """
@@ -862,10 +864,8 @@ def guess_chase_start(values_new: np.ndarray, time: np.ndarray):
     time = time[mask]
 
     try:
-        from numpy.polynomial.polyutils import RankWarning
-
         with warnings.catch_warnings():
-            warnings.simplefilter("ignore", RankWarning)
+            warnings.simplefilter("ignore", np.exceptions.RankWarning)
             p = np.polynomial.Polynomial.fit(time, y, deg=1)
             slope = p.convert().coef[1]
             d0 = -slope
@@ -877,7 +877,7 @@ def guess_chase_start(values_new: np.ndarray, time: np.ndarray):
 
     return s0, d0
 
-def guess_d0_from_old(values_old: np.ndarray, time: np.ndarray):
+def _guess_d0_from_old(values_old: np.ndarray, time: np.ndarray):
     """
     Approximates the degradation(d0) for least_squares in a non steady state using linear regression.
     """
@@ -889,10 +889,8 @@ def guess_d0_from_old(values_old: np.ndarray, time: np.ndarray):
     time = time[mask]
 
     try:
-        from numpy.polynomial.polyutils import RankWarning
-
         with warnings.catch_warnings():
-            warnings.simplefilter("ignore", RankWarning)
+            warnings.simplefilter("ignore", np.exceptions.RankWarning)
             p = np.polynomial.Polynomial.fit(time, y, deg=1)
             slope = p.convert().coef[1]
             d0 = -slope
@@ -903,21 +901,21 @@ def guess_d0_from_old(values_old: np.ndarray, time: np.ndarray):
 
 
 @np.vectorize
-def f_old_equi(time: float, s: float, d: float) -> float:
+def _f_old_equi(time: float, s: float, d: float) -> float:
     """
     Computes the expected amount of old RNA under steady-state assumptions.
     """
     return s / d * np.exp(-time * d)
 
 @np.vectorize
-def f_old_nonequi(time: float, f0: float, d: float):
+def _f_old_nonequi(time: float, f0: float, d: float):
     """
     Computes the expected amount of old RNA under non-steady-state.
     """
     return f0 * np.exp(-time * d)
 
 @np.vectorize
-def f_new(time: float, s: float, d: float) -> float:
+def _f_new(time: float, s: float, d: float) -> float:
     """
     Computes the expected amount of newly synthesized RNA at a given time.
     """
@@ -1195,13 +1193,13 @@ class NTRFitResult:
             crit = chi2.ppf(self.ci_size, df=2) / 2
             cutoff = self.log_likelihood - crit
 
-            lower = uniroot_safe(
+            lower = _uniroot_safe(
                 lambda d: self.loglik(d) - cutoff,
                 self._ci_bounds[0],
                 self.degradation
             )
 
-            upper = uniroot_safe(
+            upper = _uniroot_safe(
                 lambda d: self.loglik(d) - cutoff,
                 self.degradation,
                 self._ci_bounds[1]
@@ -1222,8 +1220,8 @@ class NTRFitResult:
         cdf_interp = interp1d(grid, cdf_vals, bounds_error=False, fill_value=(0.0, 1.0))
 
         # Find lower/upper bounds via interpolation
-        lower = uniroot_safe(lambda d: cdf_interp(d) - (1 - self.ci_size) / 2, *self._ci_bounds)
-        upper = uniroot_safe(lambda d: cdf_interp(d) - (1 + self.ci_size) / 2, *self._ci_bounds)
+        lower = _uniroot_safe(lambda d: cdf_interp(d) - (1 - self.ci_size) / 2, *self._ci_bounds)
+        upper = _uniroot_safe(lambda d: cdf_interp(d) - (1 + self.ci_size) / 2, *self._ci_bounds)
 
         return lower, upper
 
@@ -1269,7 +1267,7 @@ class NTRFitResult:
         return pd.Series(flat)
 
 
-def uniroot_safe(fun, lower, upper):
+def _uniroot_safe(fun, lower, upper):
     try:
         if fun(lower) * fun(upper) >= 0:
             return (lower + upper) / 2
@@ -1281,7 +1279,7 @@ def uniroot_safe(fun, lower, upper):
 
 
 # ----- time calibration -----
-def compute_use_mask(half_life, totals, time, n_top_genes):
+def _compute_use_mask(half_life, totals, time, n_top_genes):
     bin_edges = np.concatenate([np.linspace(0, 2 * np.max(time), num=5), [np.inf]])
     hl_cat = np.digitize(half_life, bin_edges, right=False)
 
@@ -1305,7 +1303,7 @@ def compute_use_mask(half_life, totals, time, n_top_genes):
 
     return use_mask
 
-def _calibrate_effective_labeling_time_kinetic_fit(
+def calibrate_effective_labeling_time_kinetic_fit(
     data,
     slot: str = None,
     time: str = "duration.4sU",
@@ -1348,7 +1346,7 @@ def _calibrate_effective_labeling_time_kinetic_fit(
 
         half_life = kinetics.values.squeeze()
 
-        use_mask_genes = compute_use_mask(half_life=half_life, totals=totals, time=data.coldata[time].values, n_top_genes=n_top_genes)
+        use_mask_genes = _compute_use_mask(half_life=half_life, totals=totals, time=data.coldata[time].values, n_top_genes=n_top_genes)
 
         subset_data = subset_data[use_mask_genes].with_dropped_analyses()
         init = subset_data.coldata[time]

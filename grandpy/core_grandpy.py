@@ -3067,11 +3067,6 @@ class GrandPy:
         The `"nlls"` and `"chase"` methods require normalized input.
         The `"ntr"` method is independent of normalization but assumes steady-state kinetics.
 
-        Notes
-        -----
-        This function decides dynamically how many processes to use for `nlls` and `chase`.
-        By default, up to the number of CPU cores. (see the `max_processes` and `exact_processes` parameters.)
-
         See Also
         --------
         GrandPy.get_analysis_table
@@ -3141,8 +3136,6 @@ class GrandPy:
             For `"nlls"`:
                 - max_iter: Maximum number of optimization iterations, by default 250.
                 - steady_state: Whether to use the steady-state model. It can be set for each condition individually by using a dict. By default, True
-                - max_processes: The maximum number of processes this function will use. If None or not provided, it can start as many as cores are available.
-                - exact_processes: If True, exactly `max_processes` will be used.
 
             For `"ntr"`:
                 - transformed_ntr_map: If True, use the transformed NTR MAP estimator instead of the MAP of the transformed posterior; by default, True.
@@ -3151,8 +3144,6 @@ class GrandPy:
 
             For `"chase"`:
                 - max_iter: Maximum number of optimization iterations, by default 250.
-                - max_processes: The maximum number of processes this function will use. If None or not provided, it can start as many as cores are available.
-                - exact_processes: If True, exactly `max_processes` will be used.
 
         Returns
         -------
@@ -3186,6 +3177,7 @@ class GrandPy:
     ) -> "GrandPy":
         """
         Uses the non-linear least squares kinetic model to calibrate the effective labeling time.
+        These times will be added to the coldata.
 
         The NTRs of each sample might be systematically too small or large. This function identifies such systematic
         deviations and computes labeling durations without systematic deviations.
@@ -3221,11 +3213,7 @@ class GrandPy:
             If True, the progress will be displayed as the number of iterations. (This doesn't necessarily match `max_iterations`)
 
         **kwargs : dict
-            Additional keyword arguments to pass to fit_kinetics.
-
-        Notes
-        -----
-        For large enough datasets, fit_kinetics will run in parallel. For control over this, see `kwargs` and GrandPy.fit_kinetics.
+            Additional arguments passed to fit_kinetics.
 
         See Also
         --------
@@ -3236,12 +3224,12 @@ class GrandPy:
         GrandPy
             A GrandPy instance containing the effective labeling time information in coldata.
         """
-        from .modeling import _calibrate_effective_labeling_time_kinetic_fit
+        from .modeling import calibrate_effective_labeling_time_kinetic_fit
 
-        new_columns = _calibrate_effective_labeling_time_kinetic_fit(data=self, time=time, name=name, slot=slot,
-                                                                     n_top_genes=n_top_genes, max_iterations=max_iterations,
-                                                                     compute_confidence=compute_confidence,
-                                                                     ci_size=ci_size, show_progress=show_progress, **kwargs)
+        new_columns = calibrate_effective_labeling_time_kinetic_fit(data=self, time=time, name=name, slot=slot,
+                                                                    n_top_genes=n_top_genes, max_iterations=max_iterations,
+                                                                    compute_confidence=compute_confidence,
+                                                                    ci_size=ci_size, show_progress=show_progress, **kwargs)
 
         return self.with_coldata(value = new_columns)
 
