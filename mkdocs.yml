@@ -1,7 +1,7 @@
 site_name: "GrandPy"
 site_author: "Andreas Weiß"
-repo_url: "https://git.uni-regensburg.de/se24/g03/grandpy"
-repo_name: GitLab
+repo_url: "https://github.com/maus2310/GrandPy"
+repo_name: GitHub
 
 theme:
   name: null
