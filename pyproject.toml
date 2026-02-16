@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "grandpy-lib"
-version = "0.1.0"
+version = "0.1.1"
 description = "Module for kinetic RNA-seq analysis."
 readme = "README.md"
 license = { file = "LICENSE.md" }
