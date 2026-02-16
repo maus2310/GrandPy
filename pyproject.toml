@@ -3,7 +3,7 @@ requires = ["setuptools >= 77.0.3"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "grandpy"
+name = "grandpy-lib"
 version = "0.1.0"
 description = "Module for kinetic RNA-seq analysis."
 readme = "README.md"

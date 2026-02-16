@@ -9,10 +9,9 @@ visualization of such data. It mimics the core functionality of the original [gr
 package, by which it is inspired.
 
 ## Installation
-GrandPy will be available from [[PyPi]](...).
-Once released, you will be able to install `GrandPy` using the following command in your Python console:
+GrandPy can be installed using the following command:
 
-<pre> pip install grandpy</pre>
+<pre> pip install grandpy-lib</pre>
 
 You can also install the development version directly from GitHub:
 
