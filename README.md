@@ -1,4 +1,5 @@
-<img src="docs/logo/grandPy_hex_logo.png" alt="grandPy logo" align="right" width="190"/>
+<img src="https://raw.githubusercontent.com/maus2310/GrandPy/main/docs/logo/grandPy_hex_logo.png" alt="grandPy logo" align="right" width="190"/>
+
 
 # GrandPy
 Nucleotide conversion sequencing experiments have been developed to add a temporal dimension to
@@ -33,22 +34,22 @@ Additional packages are optional and important for particular functions:
 <pre>scikit-learn, mygene, numdifftools</pre>
 
 ## Cheatsheet
-[<img src="docs/cheatsheet/cheatsheet_preview_Version_1.png" alt="grandPy Cheatsheet" width="600"/>](./docs/cheatsheet/grandPy_Cheat_Sheet_Version_1.pdf)
+[<img src="https://raw.githubusercontent.com/maus2310/GrandPy/main/docs/cheatsheet/cheatsheet_preview_Version_1.png" alt="grandPy Cheatsheet" width="600"/>](https://github.com/maus2310/GrandPy/blob/main/docs/cheatsheet/grandPy_Cheat_Sheet_Version_1.pdf)
 
 ## How to get started
-First, have a look at the [getting started](./docs/notebooks/notebook_00_getting_started.ipynb)
+First, have a look at the [getting started](https://github.com/maus2310/GrandPy/blob/main/docs/notebooks/notebook_00_getting_started.ipynb)
 notebook.
 
-Next, explore [differential expression](./docs/notebooks/notebook_01_differential_expression.ipynb) or
-[kinetic modeling](./docs/notebooks/notebook_02_kinetic_modeling.ipynb), which provide an overview
+Next, explore [differential expression](https://github.com/maus2310/GrandPy/blob/main/docs/notebooks/notebook_01_differential_expression.ipynb) or
+[kinetic modeling](https://github.com/maus2310/GrandPy/blob/main/docs/notebooks/notebook_02_kinetic_modeling.ipynb), which provide an overview
 of the two primary settings for nucleotide conversion experiments.
 
 There are also additional notebooks:
 
-- [Loading data and working with GrandPy objects](./docs/notebooks/notebook_03_loading_data_and_working_with_grandpy_objects.ipynb): Learn more about programming with GrandPy
-- [Working with data matrices and analysis results](./docs/notebooks/notebook_04_working_with_data_matrices_and_analysis_results.ipynb): Learn more about how to retrieve data from GrandPy objects
-- [Plotting](./docs/notebooks/notebook_05_plotting.ipynb): Learn how to create and store plots with GrandPy
-- [Pulse-chase](./docs/notebooks/notebook_06_fitting_pulse-chase_data.ipynb): Learn how to fit pulse-chase data with GrandPy
+- [Loading data and working with GrandPy objects](https://github.com/maus2310/GrandPy/blob/main/docs/notebooks/notebook_03_loading_data_and_working_with_grandpy_objects.ipynb): Learn more about programming with GrandPy
+- [Working with data matrices and analysis results](https://github.com/maus2310/GrandPy/blob/main/docs/notebooks/notebook_04_working_with_data_matrices_and_analysis_results.ipynb): Learn more about how to retrieve data from GrandPy objects
+- [Plotting](https://github.com/maus2310/GrandPy/blob/main/docs/notebooks/notebook_05_plotting.ipynb): Learn how to create and store plots with GrandPy
+- [Pulse-chase](https://github.com/maus2310/GrandPy/blob/main/docs/notebooks/notebook_06_fitting_pulse-chase_data.ipynb): Learn how to fit pulse-chase data with GrandPy
 
 ## Acknowledgements
 GrandPy is heavily inspired by the [grandR](https://grandr.erhard-lab.de/) R package by Prof. Dr. Florian Erhard,
